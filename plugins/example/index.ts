@@ -9,6 +9,7 @@ export const ExamplePlugin: Plugin = {
     {
       id: 'hello-world',
       name: 'Hello World',
+      description: '向世界问好',
       run: async (ctx) => {
         console.log('Hello from plugin!');
         await ctx.sleep(1);
