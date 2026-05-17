@@ -7,3 +7,8 @@ storage/templates/*
 storage/db/*
 .env
 *.tmp
+.claude/
+%LOCALAPPDATA%/
+*.db-shm
+*.db-wal
+release/

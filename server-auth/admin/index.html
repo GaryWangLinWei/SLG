@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SLG 授权管理系统</title>
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Login Screen -->
+    <div id="loginScreen" class="login-screen">
+      <div class="login-card">
+        <h1>SLG 授权管理系统</h1>
+        <div class="form-group">
+          <label for="adminKey">管理员密钥</label>
+          <input type="password" id="adminKey" placeholder="请输入管理员密钥">
+        </div>
+        <button id="loginBtn" class="btn btn-primary">登录</button>
+        <div id="loginError" class="error-message" style="display: none;"></div>
+      </div>
+    </div>
+
+    <!-- Admin Dashboard -->
+    <div id="dashboard" style="display: none;">
+      <header class="header">
+        <h1>SLG 授权管理系统</h1>
+        <button id="logoutBtn" class="btn btn-secondary">退出</button>
+      </header>
+
+      <!-- Stats -->
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="totalCodes">0</div>
+          <div class="stat-label">总激活码</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="unusedCodes">0</div>
+          <div class="stat-label">未使用</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="usedCodes">0</div>
+          <div class="stat-label">已激活</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="revokedCodes">0</div>
+          <div class="stat-label">已吊销</div>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div class="tabs">
+        <button class="tab-btn active" data-tab="codes">激活码管理</button>
+        <button class="tab-btn" data-tab="devices">设备列表</button>
+      </div>
+
+      <!-- Generate Codes -->
+      <div id="codesTab" class="tab-content active">
+        <div class="card">
+          <h2>生成激活码</h2>
+          <div class="form-row">
+            <div class="form-group">
+              <label>数量</label>
+              <input type="number" id="generateCount" value="1" min="1" max="1000">
+            </div>
+            <div class="form-group">
+              <label>有效期（天）</label>
+              <input type="number" id="generateDuration" value="30" min="1">
+            </div>
+            <div class="form-group" style="align-self: flex-end;">
+              <button id="generateBtn" class="btn btn-primary">生成</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>激活码列表</h2>
+          <div id="generatedCodes" class="generated-codes" style="display: none;">
+            <h3>新生成的激活码</h3>
+            <textarea id="newCodesText" readonly></textarea>
+            <button id="copyBtn" class="btn btn-secondary" style="margin-top: 10px;">复制全部</button>
+          </div>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>激活码</th>
+                  <th>有效期</th>
+                  <th>状态</th>
+                  <th>创建时间</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="codesTable">
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div id="devicesTab" class="tab-content" style="display: none;">
+        <div class="card">
+          <h2>已激活设备</h2>
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>设备指纹</th>
+                  <th>激活码</th>
+                  <th>绑定时间</th>
+                  <th>最后心跳</th>
+                  <th>过期时间</th>
+                </tr>
+              </thead>
+              <tbody id="devicesTable">
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="admin.js"></script>
+</body>
+</html>

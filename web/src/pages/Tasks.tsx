@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
 import { api, Task } from '../api/client';
+import { useAccount } from '../contexts/AccountContext';
 
 export function TasksPage() {
+  const { accounts } = useAccount();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [loading, setLoading] = useState(true);
@@ -9,12 +11,8 @@ export function TasksPage() {
   const loadTasks = async () => {
     try {
       const result = await api.tasks.list();
-      if (result.success) {
-        setTasks(result.tasks);
-      }
-    } catch (e) {
-      console.error('Failed to load tasks');
-    }
+      if (result.success) setTasks(result.tasks);
+    } catch { /* retry on next interval */ }
     setLoading(false);
   };
 
@@ -24,11 +22,17 @@ export function TasksPage() {
     return () => clearInterval(interval);
   }, []);
 
+  const getAccountName = (accountId: string) => {
+    const a = accounts.find(ac => ac.id === accountId);
+    return a ? a.name : accountId.slice(-8);
+  };
+
   const getStatusColor = (status: Task['status']) => {
     switch (status) {
       case 'completed': return 'bg-green-500';
       case 'running': return 'bg-blue-500 animate-pulse';
       case 'error': return 'bg-red-500';
+      case 'stopped': return 'bg-yellow-500';
       default: return 'bg-gray-500';
     }
   };
@@ -38,8 +42,16 @@ export function TasksPage() {
       case 'completed': return '已完成';
       case 'running': return '运行中';
       case 'error': return '错误';
+      case 'stopped': return '已停止';
       default: return '等待中';
     }
+  };
+
+  const handleStopTask = async (taskId: string) => {
+    try {
+      await api.tasks.stop(taskId);
+      loadTasks();
+    } catch { /* ignore */ }
   };
 
   if (loading) {
@@ -58,16 +70,16 @@ export function TasksPage() {
               <p className="text-gray-400">暂无任务</p>
             ) : (
               tasks.map(task => (
-                <div
-                  key={task.id}
-                  onClick={() => setSelectedTask(task)}
-                  className={`p-3 rounded cursor-pointer transition-colors ${selectedTask?.id === task.id ? 'bg-blue-900' : 'bg-gray-800 hover:bg-gray-700'}`}
-                >
+                <div key={task.id} onClick={() => setSelectedTask(task)}
+                  className={`p-3 rounded cursor-pointer transition-colors ${selectedTask?.id === task.id ? 'bg-blue-900' : 'bg-gray-800 hover:bg-gray-700'}`}>
                   <div className="flex items-center gap-2">
                     <span className={`w-2 h-2 rounded-full ${getStatusColor(task.status)}`}></span>
                     <span className="font-medium truncate">{task.actionId}</span>
                   </div>
-                  <p className="text-xs text-gray-400 mt-1">
+                  <p className="text-xs text-gray-500 mt-1">
+                    {getAccountName(task.accountId)}
+                  </p>
+                  <p className="text-xs text-gray-400">
                     {task.startTime ? new Date(task.startTime).toLocaleString('zh-CN') : '-'}
                   </p>
                 </div>
@@ -80,20 +92,35 @@ export function TasksPage() {
           {selectedTask ? (
             <div className="bg-gray-800 rounded-lg p-6">
               <div className="flex justify-between items-center mb-4">
-                <h2 className="text-xl font-bold">{selectedTask.actionId}</h2>
-                <span className={`px-3 py-1 rounded text-sm ${getStatusColor(selectedTask.status)}`}>
-                  {getStatusText(selectedTask.status)}
-                </span>
+                <div>
+                  <h2 className="text-xl font-bold">{selectedTask.actionId}</h2>
+                  <p className="text-sm text-gray-400 mt-1">
+                    账号: {getAccountName(selectedTask.accountId)}
+                    <span className="mx-2">|</span>
+                    插件: {selectedTask.pluginId}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <span className={`px-3 py-1 rounded text-sm ${getStatusColor(selectedTask.status)}`}>
+                    {getStatusText(selectedTask.status)}
+                  </span>
+                  {selectedTask.status === 'running' && (
+                    <button onClick={() => handleStopTask(selectedTask.id)}
+                      className="px-4 py-1 bg-red-600 hover:bg-red-700 rounded text-sm font-medium">
+                      停止任务
+                    </button>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
                 <div>
                   <p className="text-gray-400">任务ID</p>
-                  <p className="font-mono">{selectedTask.id}</p>
+                  <p className="font-mono text-xs">{selectedTask.id}</p>
                 </div>
                 <div>
-                  <p className="text-gray-400">插件</p>
-                  <p>{selectedTask.pluginId}</p>
+                  <p className="text-gray-400">账号ID</p>
+                  <p className="font-mono text-xs">{selectedTask.accountId}</p>
                 </div>
               </div>
 

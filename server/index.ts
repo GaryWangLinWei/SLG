@@ -4,6 +4,15 @@ import bodyParser from 'koa-bodyparser';
 import cors from '@koa/cors';
 import serve from 'koa-static';
 import { CONFIG } from './config';
+import deviceRouter from './routes/device';
+import pluginsRouter from './routes/plugins';
+import tasksRouter from './routes/tasks';
+import configRouter from './routes/config';
+import accountsRouter from './routes/accounts';
+import licenseRouter from './routes/license';
+import { licenseGuard } from './middleware/licenseGuard';
+import { migrateLegacyConfig } from './services/ConfigService';
+import { licenseService } from '../core/license';
 
 const app = new Koa();
 const router = new Router();
@@ -12,6 +21,9 @@ const router = new Router();
 app.use(cors({ origin: CONFIG.CORS_ORIGIN }));
 app.use(bodyParser());
 app.use(serve(CONFIG.STATIC_DIR));
+
+// License guard - protect all API routes except public ones
+app.use(licenseGuard);
 
 // Basic health check
 router.get('/api/health', async (ctx) => {
@@ -35,7 +47,17 @@ router.get('/api', async (ctx) => {
   };
 });
 
+app.use(licenseRouter.routes()).use(licenseRouter.allowedMethods());
+app.use(deviceRouter.routes()).use(deviceRouter.allowedMethods());
+app.use(pluginsRouter.routes()).use(pluginsRouter.allowedMethods());
+app.use(tasksRouter.routes()).use(tasksRouter.allowedMethods());
+app.use(configRouter.routes()).use(configRouter.allowedMethods());
+app.use(accountsRouter.routes()).use(accountsRouter.allowedMethods());
 app.use(router.routes()).use(router.allowedMethods());
+
+// 启动前迁移老配置 + 初始化许可证服务
+migrateLegacyConfig().catch(e => console.error('迁移失败:', e));
+licenseService.init().catch(e => console.error('许可证初始化失败:', e));
 
 app.listen(CONFIG.PORT, CONFIG.HOST, () => {
   console.log(`========================================`);

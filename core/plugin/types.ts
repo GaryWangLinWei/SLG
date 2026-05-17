@@ -2,7 +2,7 @@ export interface PluginAction {
   id: string;
   name: string;
   description: string;
-  run: (ctx: any) => Promise<void>;
+  run: (ctx: any, params?: any) => Promise<void>;
 }
 
 export interface PluginConfig {

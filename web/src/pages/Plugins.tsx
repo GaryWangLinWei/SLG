@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
 import { api, Plugin } from '../api/client';
 import { useNavigate } from 'react-router-dom';
+import { useAccount } from '../contexts/AccountContext';
 
 export function PluginsPage() {
+  const { currentAccountId } = useAccount();
   const [plugins, setPlugins] = useState<Plugin[]>([]);
   const [loading, setLoading] = useState(true);
   const [runningAction, setRunningAction] = useState<string | null>(null);
@@ -25,10 +27,11 @@ export function PluginsPage() {
   };
 
   const handleRunAction = async (pluginId: string, actionId: string) => {
+    if (!currentAccountId) return;
     const key = `${pluginId}-${actionId}`;
     setRunningAction(key);
     try {
-      const result = await api.tasks.create(pluginId, actionId);
+      const result = await api.tasks.create(currentAccountId, pluginId, actionId);
       if (result.success) {
         await api.tasks.run(result.task.id);
         navigate('/tasks');
@@ -41,6 +44,17 @@ export function PluginsPage() {
 
   if (loading) {
     return <div className="text-xl">加载中...</div>;
+  }
+
+  if (!currentAccountId) {
+    return (
+      <div className="text-center py-20 text-gray-400">
+        <p className="text-lg mb-4">请先选择或创建一个账号</p>
+        <a href="/accounts" className="px-6 py-3 bg-blue-600 rounded-lg hover:bg-blue-500 inline-block">
+          前往账号管理
+        </a>
+      </div>
+    );
   }
 
   return (

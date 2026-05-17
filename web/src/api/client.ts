@@ -1,4 +1,16 @@
-const API_BASE = '/api';
+const isElectron = typeof window !== 'undefined' && 'electronAPI' in window;
+const API_BASE = isElectron ? 'http://localhost:3000/api' : '/api';
+
+class ApiError extends Error {
+  status: number;
+  data?: any;
+
+  constructor(message: string, status: number, data?: any) {
+    super(message);
+    this.status = status;
+    this.data = data;
+  }
+}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -9,11 +21,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     ...options
   });
 
+  const data = await response.json().catch(() => null);
+
   if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    const errorMessage = data?.error || data?.message || `HTTP ${response.status}: ${response.statusText}`;
+    throw new ApiError(errorMessage, response.status, data);
   }
 
-  return response.json();
+  return data as T;
 }
 
 export interface PluginAction {
@@ -34,38 +49,128 @@ export interface Plugin {
 
 export interface Task {
   id: string;
+  accountId: string;
   pluginId: string;
   actionId: string;
-  status: 'pending' | 'running' | 'completed' | 'error';
+  config: Record<string, any>;
+  status: 'pending' | 'running' | 'completed' | 'error' | 'stopped';
   startTime?: string;
   endTime?: string;
   logs: string[];
   error?: string;
+  stopRequested?: boolean;
+}
+
+export interface Account {
+  id: string;
+  name: string;
+  deviceId: string;
+  createdAt: number;
+}
+
+export interface DeviceInfo {
+  deviceId: string;
+  status: string;
 }
 
 export const api = {
   health: () => request<{ status: string }>('/health'),
+
+  accounts: {
+    list: () =>
+      request<{ success: boolean; accounts: Account[] }>('/accounts'),
+    get: (id: string) =>
+      request<{ success: boolean; account: Account }>(`/accounts/${id}`),
+    create: (data: { name: string; deviceId: string }) =>
+      request<{ success: boolean; account: Account }>('/accounts', {
+        method: 'POST',
+        body: JSON.stringify(data)
+      }),
+    update: (id: string, data: { name?: string; deviceId?: string }) =>
+      request<{ success: boolean; account: Account }>(`/accounts/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(data)
+      }),
+    delete: (id: string) =>
+      request<{ success: boolean }>(`/accounts/${id}`, { method: 'DELETE' })
+  },
+
   device: {
-    status: () => request<{ connected: boolean; deviceInfo?: string }>('/device/status'),
-    connect: () => request<{ connected: boolean; message: string }>('/device/connect', { method: 'POST' }),
-    disconnect: () => request<{ success: boolean }>('/device/disconnect', { method: 'POST' }),
-    screenshot: () => request<{ success: boolean; data?: string; error?: string }>('/device/screenshot'),
-    tap: (x: number, y: number) => request('/device/tap', { method: 'POST', body: JSON.stringify({ x, y }) }),
-    swipe: (x1: number, y1: number, x2: number, y2: number, duration?: number) =>
-      request('/device/swipe', { method: 'POST', body: JSON.stringify({ x1, y1, x2, y2, duration }) })
+    scan: () =>
+      request<{ success: boolean; devices: DeviceInfo[] }>('/device/scan'),
+    status: (accountId: string) =>
+      request<{ connected: boolean; deviceInfo?: string }>(`/device/status?accountId=${accountId}`),
+    connect: (accountId: string) =>
+      request<{ connected: boolean; message: string }>('/device/connect', {
+        method: 'POST',
+        body: JSON.stringify({ accountId })
+      }),
+    disconnect: (accountId: string) =>
+      request<{ success: boolean }>('/device/disconnect', {
+        method: 'POST',
+        body: JSON.stringify({ accountId })
+      }),
+    screenshot: (accountId: string) =>
+      request<{ success: boolean; data?: string; error?: string }>(`/device/screenshot?accountId=${accountId}`),
+    tap: (accountId: string, x: number, y: number) =>
+      request('/device/tap', {
+        method: 'POST',
+        body: JSON.stringify({ accountId, x, y })
+      }),
+    swipe: (accountId: string, x1: number, y1: number, x2: number, y2: number, duration?: number) =>
+      request('/device/swipe', {
+        method: 'POST',
+        body: JSON.stringify({ accountId, x1, y1, x2, y2, duration })
+      })
   },
+
   plugins: {
-    list: () => request<{ success: boolean; plugins: Plugin[] }>('/plugins')
+    list: () =>
+      request<{ success: boolean; plugins: Plugin[] }>('/plugins'),
+    getConfig: (id: string, accountId: string) =>
+      request<{ success: boolean; config: Record<string, any>; defaultConfig: any }>(`/plugins/${id}/config?accountId=${accountId}`)
   },
+
   tasks: {
-    list: () => request<{ success: boolean; tasks: Task[] }>('/tasks'),
-    get: (id: string) => request<{ success: boolean; task: Task }>(`/tasks/${id}`),
-    create: (pluginId: string, actionId: string, config: Record<string, any> = {}) =>
+    list: () =>
+      request<{ success: boolean; tasks: Task[] }>('/tasks'),
+    get: (id: string) =>
+      request<{ success: boolean; task: Task }>(`/tasks/${id}`),
+    create: (accountId: string, pluginId: string, actionId: string, config: Record<string, any> = {}) =>
       request<{ success: boolean; task: Task }>('/tasks', {
         method: 'POST',
-        body: JSON.stringify({ pluginId, actionId, config })
+        body: JSON.stringify({ accountId, pluginId, actionId, config })
       }),
     run: (id: string) =>
-      request<{ success: boolean; task: Task }>(`/tasks/${id}/run`, { method: 'POST' })
+      request<{ success: boolean; task: Task }>(`/tasks/${id}/run`, { method: 'POST' }),
+    stop: (id: string) =>
+      request<{ success: boolean; message: string }>(`/tasks/${id}/stop`, { method: 'POST' })
+  },
+
+  config: {
+    getRokConfig: (accountId: string) =>
+      request<{ success: boolean; config: Record<string, any> }>(`/config/rok?accountId=${accountId}`),
+    saveRokConfig: (accountId: string, config: Record<string, any>) =>
+      request<{ success: boolean }>(`/config/rok?accountId=${accountId}`, {
+        method: 'PUT',
+        body: JSON.stringify(config)
+      })
+  },
+
+  license: {
+    getStatus: () =>
+      request<{ success: boolean; status: any }>('/license/status'),
+    activate: (code: string) =>
+      request<{ success: boolean; error?: string; expiresAt?: number }>('/license/activate', {
+        method: 'POST',
+        body: JSON.stringify({ code })
+      }),
+    preview: (code: string) =>
+      request<{ success: boolean; durationDays?: number; error?: string }>('/license/preview', {
+        method: 'POST',
+        body: JSON.stringify({ code })
+      }),
+    deactivate: () =>
+      request<{ success: boolean }>('/license/deactivate', { method: 'POST' })
   }
 };
