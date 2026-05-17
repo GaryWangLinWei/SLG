@@ -124,13 +124,24 @@ export function HomePage() {
       { type: '金矿', level: 2 },
       { type: '', level: 1 },
     ],
+    trainTroops: false,
+    trainTasks: { '兵营': 0, '马厩': 0, '靶场': 0, '攻城武器厂': 0 } as Record<string, number>,
+    autoExplore: false,
+    exploreCount: 3,
     loopInterval: 300,
   };
 
   const loadFeatures = () => {
     try {
       const saved = localStorage.getItem('home-features');
-      if (saved) return { ...DEFAULT_FEATURES, ...JSON.parse(saved) };
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        // 迁移旧版 trainTasks 数组格式 → Record 格式
+        if (Array.isArray(parsed.trainTasks)) {
+          parsed.trainTasks = DEFAULT_FEATURES.trainTasks;
+        }
+        return { ...DEFAULT_FEATURES, ...parsed };
+      }
     } catch {}
     return DEFAULT_FEATURES;
   };
@@ -143,6 +154,7 @@ export function HomePage() {
 
   const RESOURCE_TYPES = ['农田', '伐木场', '石矿', '金矿'];
   const RESOURCE_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8];
+  const TRAIN_TIERS = [1, 2, 3, 4, 5];
 
   const [buildingOptions, setBuildingOptions] = useState<string[]>([]);
   const [techOptions, setTechOptions] = useState<string[]>(['耕犁', '锯木厂', '铸币', '机械']);
@@ -245,6 +257,8 @@ export function HomePage() {
     if (features.upgradeBuildings) selectedActions.push('升级建筑');
     if (features.autoResearch) selectedActions.push('研究科技');
     if (features.gatherResources) selectedActions.push('城外采集');
+    if (features.trainTroops) selectedActions.push('训练兵种');
+    if (features.autoExplore) selectedActions.push('自动探索');
 
     if (selectedActions.length === 0) {
       setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 请至少勾选一个功能`]);
@@ -256,7 +270,9 @@ export function HomePage() {
     loopStopped = false;
     saveLoopState(currentAccountId);
     setTaskRunning(true);
-    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🚀 开始循环执行: ${selectedActions.join(' + ')} (间隔${features.loopInterval}秒)`]);
+    const isExploreMode = features.autoExplore;
+    const interval = isExploreMode ? 60 : features.loopInterval;
+    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🚀 开始${isExploreMode ? '自动探索' : '循环执行: ' + selectedActions.join(' + ')} (间隔${interval}秒)`]);
 
     const sleep = async (s: number) => new Promise(r => setTimeout(r, s * 1000));
 
@@ -287,58 +303,72 @@ export function HomePage() {
           return [];
         };
 
-        if (features.collectResources) await runTask('collect-resources');
-
-        if (features.upgradeBuildings && !loopStopped) {
-          const targetBuildings = features.selectedBuildings.filter(b => b);
-          if (targetBuildings.length > 0) {
-            const logs = await runTask('upgrade-buildings', { targetBuildings });
-            // 从日志中解析成功升级的建筑，从队列移除
-            const succeeded = targetBuildings.filter(b =>
-              logs.some(l => l.includes(`✅ ${b} 升级成功`))
-            );
-            if (succeeded.length > 0) {
-              setFeatures(prev => ({
-                ...prev,
-                selectedBuildings: prev.selectedBuildings.map(b => succeeded.includes(b) ? '' : b)
-              }));
-            }
-          }
-        }
-
-        if (features.autoResearch && !loopStopped) {
-          if (!buildingOptions.includes('学院')) {
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记学院位置，跳过研究科技`]);
+        if (isExploreMode) {
+          if (!buildingOptions.includes('斥候营地')) {
+            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记斥候营地位置，跳过自动探索`]);
           } else {
-            const techs = features.selectedTechs.filter(t => t);
-            if (techs.length > 0) {
-              const logs = await runTask('research-tech-queue', { targetTechs: techs, researchBuilding: '学院' });
-              // 从日志中解析成功研究的科技，从队列移除
-              const succeeded = techs.filter(t =>
-                logs.some(l => l.includes(`✅ ${t} 研究成功`))
+            await runTask('explore', { maxScouts: features.exploreCount });
+          }
+        } else {
+          if (features.collectResources) await runTask('collect-resources');
+
+          if (features.upgradeBuildings && !loopStopped) {
+            const targetBuildings = features.selectedBuildings.filter(b => b);
+            if (targetBuildings.length > 0) {
+              const logs = await runTask('upgrade-buildings', { targetBuildings });
+              const succeeded = targetBuildings.filter(b =>
+                logs.some(l => l.includes(`✅ ${b} 升级成功`))
               );
               if (succeeded.length > 0) {
                 setFeatures(prev => ({
                   ...prev,
-                  selectedTechs: prev.selectedTechs.map(t => succeeded.includes(t) ? '' : t)
+                  selectedBuildings: prev.selectedBuildings.map(b => succeeded.includes(b) ? '' : b)
                 }));
               }
             }
           }
-        }
 
-        if (features.gatherResources && !loopStopped) {
-          const gatherTasks = features.gatherTasks
-            .map((t, i) => ({ ...t, team: i + 1 }))
-            .filter(t => t.type);
-          if (gatherTasks.length > 0) await runTask('gather-resources', { gatherTasks });
+          if (features.autoResearch && !loopStopped) {
+            if (!buildingOptions.includes('学院')) {
+              setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记学院位置，跳过研究科技`]);
+            } else {
+              const techs = features.selectedTechs.filter(t => t);
+              if (techs.length > 0) {
+                const logs = await runTask('research-tech-queue', { targetTechs: techs, researchBuilding: '学院' });
+                const succeeded = techs.filter(t =>
+                  logs.some(l => l.includes(`✅ ${t} 研究成功`))
+                );
+                if (succeeded.length > 0) {
+                  setFeatures(prev => ({
+                    ...prev,
+                    selectedTechs: prev.selectedTechs.map(t => succeeded.includes(t) ? '' : t)
+                  }));
+                }
+              }
+            }
+          }
+
+          if (features.gatherResources && !loopStopped) {
+            const gatherTasks = features.gatherTasks
+              .map((t, i) => ({ ...t, team: i + 1 }))
+              .filter(t => t.type);
+            if (gatherTasks.length > 0) await runTask('gather-resources', { gatherTasks });
+          }
+
+          if (features.trainTroops && !loopStopped) {
+            const tasks = features.trainTasks as Record<string, number>;
+            const trainQueue = ['兵营', '马厩', '靶场', '攻城武器厂']
+              .filter(b => (tasks[b] ?? 0) > 0)
+              .map(b => ({ building: b, tier: tasks[b] }));
+            if (trainQueue.length > 0) await runTask('train-troops', { trainQueue });
+          }
         }
 
         if (loopStopped) break;
-        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏳ 等待 ${features.loopInterval} 秒...`]);
+        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏳ 等待 ${interval} 秒...`]);
         // 可中断的等待
         const startWait = Date.now();
-        while (!loopStopped && (Date.now() - startWait) < features.loopInterval * 1000) {
+        while (!loopStopped && (Date.now() - startWait) < interval * 1000) {
           await sleep(1);
         }
       }
@@ -438,8 +468,8 @@ export function HomePage() {
         <div className="bg-gray-800 rounded-xl p-6 mb-6">
           <h3 className="text-xl font-bold mb-4">功能设置</h3>
           <div className="grid grid-cols-2 gap-4">
-            <label className="flex items-center gap-3 p-4 bg-gray-700 rounded-lg cursor-pointer hover:bg-gray-600">
-              <input type="checkbox" checked={features.collectResources}
+            <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer hover:bg-gray-600 ${features.autoExplore ? 'bg-gray-800 opacity-50 pointer-events-none' : 'bg-gray-700'}`}>
+              <input type="checkbox" checked={features.collectResources} disabled={features.autoExplore}
                 onChange={(e) => setFeatures({ ...features, collectResources: e.target.checked })}
                 className="w-5 h-5 text-blue-600" />
               <div>
@@ -448,15 +478,15 @@ export function HomePage() {
               </div>
             </label>
 
-            <label className="flex items-center gap-3 p-4 bg-gray-700 rounded-lg cursor-pointer hover:bg-gray-600">
-              <input type="checkbox" checked={features.upgradeBuildings}
+            <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer hover:bg-gray-600 ${features.autoExplore ? 'bg-gray-800 opacity-50 pointer-events-none' : 'bg-gray-700'}`}>
+              <input type="checkbox" checked={features.upgradeBuildings} disabled={features.autoExplore}
                 onChange={(e) => setFeatures({ ...features, upgradeBuildings: e.target.checked })}
                 className="w-5 h-5 text-blue-600" />
               <div className="flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium">自动升级建筑</span>
                   {features.selectedBuildings.map((val, i) => (
-                    <select key={i} value={val} onChange={(e) => {
+                    <select key={i} value={val} disabled={features.autoExplore} onChange={(e) => {
                       const next = [...features.selectedBuildings]; next[i] = e.target.value;
                       setFeatures({ ...features, selectedBuildings: next });
                     }}
@@ -471,8 +501,8 @@ export function HomePage() {
               </div>
             </label>
 
-            <div className="flex items-center gap-3 p-4 bg-gray-700 rounded-lg hover:bg-gray-600">
-              <input type="checkbox" checked={features.autoResearch}
+            <div className={`flex items-center gap-3 p-4 rounded-lg hover:bg-gray-600 ${features.autoExplore ? 'bg-gray-800 opacity-50 pointer-events-none' : 'bg-gray-700'}`}>
+              <input type="checkbox" checked={features.autoResearch} disabled={features.autoExplore}
                 onChange={(e) => setFeatures({ ...features, autoResearch: e.target.checked })}
                 className="w-5 h-5 text-blue-600 cursor-pointer" />
               <div className="flex-1">
@@ -494,8 +524,8 @@ export function HomePage() {
               </div>
             </div>
 
-            <label className="flex items-center gap-3 p-4 bg-gray-700 rounded-lg cursor-pointer hover:bg-gray-600">
-              <input type="checkbox" checked={features.gatherResources}
+            <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer hover:bg-gray-600 ${features.autoExplore ? 'bg-gray-800 opacity-50 pointer-events-none' : 'bg-gray-700'}`}>
+              <input type="checkbox" checked={features.gatherResources} disabled={features.autoExplore}
                 onChange={(e) => setFeatures({ ...features, gatherResources: e.target.checked })}
                 className="w-5 h-5 text-blue-600" />
               <div className="flex-1">
@@ -503,7 +533,7 @@ export function HomePage() {
                 <div className="flex gap-1 mt-2">
                   {features.gatherTasks.map((task, i) => (
                     <div key={i} className="flex flex-col gap-1">
-                      <select value={task.type} onChange={(e) => {
+                      <select value={task.type} disabled={features.autoExplore} onChange={(e) => {
                         const next = [...features.gatherTasks]; next[i] = { ...next[i], type: e.target.value };
                         setFeatures({ ...features, gatherTasks: next });
                       }}
@@ -511,7 +541,7 @@ export function HomePage() {
                         <option value="">-</option>
                         {RESOURCE_TYPES.map(t => (<option key={t} value={t}>{t}</option>))}
                       </select>
-                      <select value={task.level} onChange={(e) => {
+                      <select value={task.level} disabled={features.autoExplore} onChange={(e) => {
                         const next = [...features.gatherTasks]; next[i] = { ...next[i], level: Number(e.target.value) };
                         setFeatures({ ...features, gatherTasks: next });
                       }}
@@ -522,6 +552,55 @@ export function HomePage() {
                   ))}
                 </div>
                 <p className="text-xs text-gray-400 mt-1">5个队伍按顺序派出采集</p>
+              </div>
+            </label>
+
+            <label className={`flex items-start gap-3 p-4 rounded-lg cursor-pointer hover:bg-gray-600 ${features.autoExplore ? 'bg-gray-800 opacity-50 pointer-events-none' : 'bg-gray-700'}`}>
+              <input type="checkbox" checked={features.trainTroops} disabled={features.autoExplore}
+                onChange={(e) => setFeatures({ ...features, trainTroops: e.target.checked })}
+                className="w-5 h-5 text-blue-600 mt-1" />
+              <div className="flex-1">
+                <span className="font-medium">自动训练兵种</span>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  {(['兵营', '马厩', '靶场', '攻城武器厂'] as const).map(building => (
+                    <div key={building} className="flex items-center gap-2">
+                      <span className="text-xs text-gray-400 w-16">{building}</span>
+                      <select value={(features.trainTasks as Record<string, number>)[building] ?? 0} disabled={features.autoExplore} onChange={(e) => {
+                        const next = { ...features.trainTasks as Record<string, number>, [building]: Number(e.target.value) };
+                        setFeatures({ ...features, trainTasks: next });
+                      }}
+                      className="px-1 py-1 bg-gray-800 rounded text-xs border border-gray-600 w-16">
+                        <option value={0}>-</option>
+                        {TRAIN_TIERS.map(t => (<option key={t} value={t}>T{t}</option>))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-400 mt-1">需标记对应建筑坐标</p>
+              </div>
+            </label>
+
+            <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer hover:bg-gray-700 ${features.autoExplore ? 'bg-purple-700 ring-2 ring-purple-400' : 'bg-gray-700'}`}>
+              <input type="checkbox" checked={features.autoExplore}
+                onChange={(e) => setFeatures({ ...features, autoExplore: e.target.checked })}
+                className="w-5 h-5 text-purple-500" />
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <span className="font-medium">自动探索</span>
+                  {features.autoExplore && <span className="text-xs px-1.5 py-0.5 bg-purple-500 text-white rounded">独立模式</span>}
+                  <span className="text-xs text-gray-400">派出</span>
+                  <select value={features.exploreCount} onChange={(e) => {
+                    setFeatures({ ...features, exploreCount: Number(e.target.value) });
+                  }}
+                  className="px-1 py-1 bg-gray-800 rounded text-xs border border-gray-600 w-12">
+                    {[1, 2, 3].map(n => (<option key={n} value={n}>{n}</option>))}
+                  </select>
+                  <span className="text-xs text-gray-400">个斥候</span>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">需标记斥候营地坐标</p>
+                {features.autoExplore && (
+                  <p className="text-xs text-yellow-400 mt-1">⚠ 探索模式已开启，其他功能已暂停</p>
+                )}
               </div>
             </label>
           </div>

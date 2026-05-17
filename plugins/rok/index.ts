@@ -3,6 +3,8 @@ import { collectResources } from './actions/collectResources';
 import { upgradeSingleBuilding } from './actions/upgradeBuildings';
 import { gatherSingleResource, GatherTask } from './actions/gatherResources';
 import { researchTech, TECH_TEMPLATES, ECONOMIC_TECHS, MILITARY_TECHS } from './actions/researchTech';
+import { trainTroopsSingle } from './actions/trainTroops';
+import { explore } from './actions/explore';
 import { ensureInCity } from './utils/location';
 
 // 万国觉醒 - 配置项
@@ -187,6 +189,10 @@ export const RiseOfKingdomsPlugin: Plugin = {
           ctx.log(`--- 队伍 ${task.team} ---`);
           const result = await gatherSingleResource(ctx, config, task, hasPaging);
           if (hasPaging === null) hasPaging = result.hasPaging;
+          if (result.noIdleTeams) {
+            ctx.log('⛔ 没有空闲队伍，停止采集任务');
+            return;
+          }
         }
 
         // 所有队伍采集完成后，等待2秒，然后智能切换回城内
@@ -289,6 +295,41 @@ export const RiseOfKingdomsPlugin: Plugin = {
           }
         }
         ctx.log('=== 研究队列执行完毕 ===');
+      }
+    },
+    {
+      id: 'train-troops',
+      name: '训练兵种',
+      description: '按队列训练兵种，busy 时停止',
+      run: async (ctx, params: { trainQueue: { building: string; tier: number }[] }) => {
+        const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
+        const queue = params.trainQueue.filter(t => t.building && t.tier);
+
+        ctx.log(`训练队列: [${queue.map(t => `${t.building} T${t.tier}`).join(', ')}]`);
+
+        for (let i = 0; i < queue.length; i++) {
+          const task = queue[i];
+          ctx.log(`--- [${i + 1}/${queue.length}] ${task.building} T${task.tier} ---`);
+          const result = await trainTroopsSingle(ctx, config, task.building, task.tier);
+          if (result === 'success') {
+            ctx.log(`✅ ${task.building} T${task.tier} 训练完成`);
+          } else if (result === 'busy') {
+            ctx.log(`⏳ ${task.building} 正在训练中，跳过`);
+          } else {
+            ctx.log(`❌ ${task.building} 训练失败 (${result})`);
+          }
+        }
+        ctx.log('=== 训练队列执行完毕 ===');
+      }
+    },
+    {
+      id: 'explore',
+      name: '自动探索',
+      description: '派出斥候探索迷雾',
+      run: async (ctx, params: { scoutBuilding?: string; maxScouts?: number } = {}) => {
+        const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
+        const outcome = await explore(ctx, config, params.scoutBuilding, params.maxScouts);
+        ctx.log(`派出斥候: ${outcome.dispatched} 个 (${outcome.result})`);
       }
     }
   ],

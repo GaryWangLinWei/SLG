@@ -1,10 +1,13 @@
 import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
 import * as path from 'path';
+import * as fs from 'fs/promises';
+import sharp from 'sharp';
 import { ensureInWorld } from '../utils/location';
 
 const TEMPLATE_DIR = path.join(__dirname, '../templates');
 const PAGE_INDICATOR_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_page_indicator.png');
+const ADD_TEAM_BTN_TEMPLATE = path.join(TEMPLATE_DIR, 'AddTeamBtn.png');
 
 export interface GatherTask {
   type: string;
@@ -35,7 +38,7 @@ export async function gatherSingleResource(
   config: RokConfig,
   task: GatherTask,
   hasPaging: boolean | null = null
-): Promise<{ success: boolean; hasPaging: boolean }> {
+): Promise<{ success: boolean; hasPaging: boolean; noIdleTeams?: boolean }> {
   const rc = config.resourceCollect;
   const rt = rc.resourceTypes[task.type];
   if (!rt) {
@@ -123,6 +126,25 @@ export async function gatherSingleResource(
   ctx.log(`  [6/9] 点击采集按钮 (1193, 604)`);
   await ctx.tap(1193, 604);
   await ctx.sleep(1.5);
+
+  // Step 6.5: Check if there are idle teams by detecting AddTeamBtn at (1517, 130)
+  ctx.log(`  [6.5/9] 检测是否有空闲队伍...`);
+  const { width: addTeamW = 80, height: addTeamH = 80 } = await sharp(ADD_TEAM_BTN_TEMPLATE).metadata();
+  const addTeamRegionX = 1517 - Math.floor(addTeamW! / 2);
+  const addTeamRegionY = 130 - Math.floor(addTeamH! / 2);
+  const addTeamRegionPath = await ctx.captureRegion(addTeamRegionX, addTeamRegionY, addTeamW!, addTeamH!);
+  const addTeamDiff = await ctx.compareImages(addTeamRegionPath, ADD_TEAM_BTN_TEMPLATE);
+  ctx.log(`  AddTeamBtn 匹对差异: ${(addTeamDiff * 100).toFixed(1)}%`);
+
+  if (addTeamDiff >= 0.3) {
+    ctx.log(`  ⚠️ 没有空闲队伍，停止采集`);
+    await fs.unlink(addTeamRegionPath).catch(() => {});
+    await ctx.tap(config.resourceCollect.worldSwitchButton.x, config.resourceCollect.worldSwitchButton.y);
+    await ctx.sleep(0.5);
+    return { success: false, hasPaging: hasPaging ?? false, noIdleTeams: true };
+  }
+  await fs.unlink(addTeamRegionPath).catch(() => {});
+  ctx.log(`  有空闲队伍，继续`);
 
   // Step 7: Click select team button
   ctx.log(`  [7/9] 点击选择队伍按钮 (${SELECT_TEAM_BUTTON.x}, ${SELECT_TEAM_BUTTON.y})`);
