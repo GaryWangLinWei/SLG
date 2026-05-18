@@ -552,14 +552,27 @@ export function HomePage() {
                   {features.selectedBuildings.map((val, i) => (
                     <select key={i} value={val} disabled={features.autoExplore} onChange={(e) => {
                       const next = [...features.selectedBuildings]; next[i] = e.target.value;
-                      setFeatures({ ...features, selectedBuildings: next });
+                      const nextCompleted = [...features.completedBuildings]; nextCompleted[i] = false;
+                      setFeatures({ ...features, selectedBuildings: next, completedBuildings: nextCompleted });
                     }}
-                    className="px-2 py-1 bg-gray-800 rounded text-sm border border-gray-600 w-20">
+                    className={`px-2 py-1 bg-gray-800 rounded text-sm border w-20 ${features.completedBuildings[i] ? 'text-green-400 border-green-500' : 'border-gray-600'}`}>
                       <option value="">-</option>
-                      {buildingOptions.filter(name => !features.selectedBuildings.includes(name) || name === features.selectedBuildings[i])
-                        .map(name => (<option key={name} value={name}>{name}</option>))}
+                      {buildingOptions.map(name => (
+                        <option key={name} value={name}>{name}</option>
+                      ))}
                     </select>
                   ))}
+                  {features.completedBuildings.some(Boolean) && (
+                    <button
+                      onClick={() => {
+                        const { selected, completed } = clearCompleted(features.selectedBuildings, features.completedBuildings);
+                        setFeatures(prev => ({ ...prev, selectedBuildings: selected, completedBuildings: completed }));
+                      }}
+                      className="px-2 py-1 text-xs bg-red-800 hover:bg-red-700 text-red-200 rounded whitespace-nowrap"
+                    >
+                      清除已完成
+                    </button>
+                  )}
                 </div>
                 <p className="text-xs text-gray-400 mt-1">确保资源足够升级建筑</p>
               </div>
