@@ -1,6 +1,7 @@
 import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
 import * as path from 'path';
+import sharp from 'sharp';
 
 const TEMPLATE_DIR = path.join(__dirname, '../templates');
 
@@ -16,6 +17,11 @@ const LOCATION_TEMPLATES = {
   city: path.join(TEMPLATE_DIR, 'switch_in_city.png'),
   world: path.join(TEMPLATE_DIR, 'switch_in_world.png'),
 };
+
+// 底部栏展开状态检测：检测弹出的菜单项来判断是否展开
+const BOTTOM_BAR_TEMPLATE = path.join(TEMPLATE_DIR, 'pop_mailBtn.png');
+const BOTTOM_BAR_CHECK = { x: 1410, y: 837 };
+const BOTTOM_BAR_COLLAPSE = { x: 1539, y: 837 };
 
 export type Location = 'city' | 'world' | 'unknown';
 
@@ -99,4 +105,44 @@ export async function ensureInCity(ctx: PluginContext, config: RokConfig): Promi
   ctx.log('  [位置] 状态未知，尝试切换...');
   await ctx.tap(config.resourceCollect.worldSwitchButton.x, config.resourceCollect.worldSwitchButton.y);
   await ctx.sleep(2);
+}
+
+/**
+ * 确保底部栏已收回。如果检测到底部栏展开则点击回收按钮。
+ * 这个判断每次运行只做一次，通过 PluginContext 的 bottomBarChecked 标记。
+ */
+export async function ensureBottomBarCollapsed(ctx: PluginContext): Promise<void> {
+  // @ts-ignore
+  if (ctx.bottomBarChecked) {
+    ctx.log('  [底部栏] 已检测过，跳过');
+    return;
+  }
+
+  try {
+    ctx.log(`  [底部栏] 开始检测，模板: ${BOTTOM_BAR_TEMPLATE}`);
+
+    const { width: tplW, height: tplH } = await sharp(BOTTOM_BAR_TEMPLATE).metadata();
+    ctx.log(`  [底部栏] 模板尺寸: ${tplW}x${tplH}`);
+
+    const left = BOTTOM_BAR_CHECK.x - Math.floor(tplW! / 2);
+    const top = BOTTOM_BAR_CHECK.y - Math.floor(tplH! / 2);
+    ctx.log(`  [底部栏] 截取区域: (${left}, ${top}, ${tplW}, ${tplH})`);
+
+    const regionPath = await ctx.captureRegion(left, top, tplW!, tplH!);
+    const diff = await ctx.compareImages(regionPath, BOTTOM_BAR_TEMPLATE);
+    ctx.log(`  [底部栏] 菜单匹配度: ${(diff * 100).toFixed(1)}%`);
+
+    if (diff < 0.3) {
+      ctx.log(`  [底部栏] 检测到菜单展开，点击收回 (${BOTTOM_BAR_COLLAPSE.x}, ${BOTTOM_BAR_COLLAPSE.y})`);
+      await ctx.tap(BOTTOM_BAR_COLLAPSE.x, BOTTOM_BAR_COLLAPSE.y);
+      await ctx.sleep(0.5);
+    } else {
+      ctx.log('  [底部栏] 已处于收回状态');
+    }
+  } catch (e: any) {
+    ctx.log(`  [底部栏] 检测出错: ${e.message || e}`);
+  }
+
+  // @ts-ignore
+  ctx.bottomBarChecked = true;
 }
