@@ -15,6 +15,8 @@ interface LicenseContextType {
   loading: boolean;
   error: string | null;
   activateError: string | null;  // 激活错误提示
+  expiredMessage: string | null; // 到期跳转时的一次性提示
+  setExpiredMessage: (msg: string | null) => void;
   activate: (code: string) => Promise<{ success: boolean; error?: string }>;
   preview: (code: string) => Promise<{ success: boolean; durationDays?: number; error?: string }>;
   deactivate: () => Promise<void>;
@@ -29,6 +31,7 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activateError, setActivateError] = useState<string | null>(null);
+  const [expiredMessage, setExpiredMessage] = useState<string | null>(null);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -99,7 +102,7 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
   }, [refreshStatus]);
 
   return (
-    <LicenseContext.Provider value={{ status, loading, error, activateError, activate, preview, deactivate, refreshStatus, clearActivateError }}>
+    <LicenseContext.Provider value={{ status, loading, error, activateError, expiredMessage, setExpiredMessage, activate, preview, deactivate, refreshStatus, clearActivateError }}>
       {children}
     </LicenseContext.Provider>
   );

@@ -1,5 +1,6 @@
 import { pluginService } from './PluginService';
 import { configService } from './ConfigService';
+import { licenseService } from '../../core/license';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
@@ -116,6 +117,14 @@ class TaskService {
     const checkStop = () => {
       if (task.stopRequested) {
         throw new Error('Task stopped by user');
+      }
+
+      // Check license expiration on every action tick
+      const licenseStatus = licenseService.getStatusSync();
+      if (licenseStatus.activated && licenseStatus.isExpired) {
+        task.stopRequested = true;
+        task.logs.push(`[${new Date().toLocaleTimeString()}] 许可证已过期，自动停止`);
+        throw new Error('License expired, task auto-stopped');
       }
     };
 

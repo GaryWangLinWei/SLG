@@ -1,10 +1,19 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLicense } from '../contexts/LicenseContext';
 
 export default function ActivationPage() {
-  const { activate, loading, activateError, clearActivateError } = useLicense();
+  const { activate, loading, activateError, clearActivateError, expiredMessage, setExpiredMessage } = useLicense();
   const [code, setCode] = useState('');
   const [success, setSuccess] = useState(false);
+  const [showExpired, setShowExpired] = useState(!!expiredMessage);
+
+  // 进入页面时如果有过期消息，显示并清除，避免刷新后再出现
+  useEffect(() => {
+    if (expiredMessage) {
+      setShowExpired(true);
+      setExpiredMessage(null); // 立即清除，确保刷新后不再显示
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -36,6 +45,13 @@ export default function ActivationPage() {
             <h1 className="text-2xl font-bold text-white mb-2">SLG 自动化工具</h1>
             <p className="text-slate-400">请输入激活码以继续使用</p>
           </div>
+
+          {showExpired && (
+              <div className="mb-4 p-4 bg-red-900/60 border border-red-600 rounded-xl text-red-200 text-sm text-center">
+                <p className="font-bold text-base mb-1">激活码已到期</p>
+                <p className="text-red-300">请重新输入激活码以继续使用</p>
+              </div>
+            )}
 
           <form onSubmit={handleSubmit} noValidate>
             <div className="mb-6">

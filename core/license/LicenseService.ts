@@ -1,6 +1,6 @@
 import { LicenseStatus, ActivationResult, HeartbeatResult, StoredLicenseData } from './types';
-import { loadLicense, saveLicense, clearLicense } from './LicenseStorage';
-import { generateFingerprint, verifyFingerprint } from './DeviceFingerprint';
+import { loadLicense, loadLicenseSync, saveLicense, clearLicense } from './LicenseStorage';
+import { generateFingerprint, verifyFingerprint, verifyFingerprintSync } from './DeviceFingerprint';
 
 // Auth server config - can be overridden by env
 const AUTH_SERVER_URL = process.env.AUTH_SERVER_URL || 'http://localhost:3456';
@@ -37,6 +37,21 @@ class LicenseService {
       isOffline: isExpired ? false : isOffline,
       graceRemainingMinutes: isOffline ? 0 : Math.ceil(graceRemainingMs / 60000),
       deviceFingerprint: stored.fingerprint,
+    };
+  }
+
+  // Synchronous license check for use in non-async callbacks (e.g. checkStop)
+  getStatusSync() {
+    const stored = loadLicenseSync();
+    if (!stored) return { activated: false, isExpired: true };
+
+    if (!verifyFingerprintSync(stored.fingerprint)) {
+      return { activated: false, isExpired: true };
+    }
+
+    return {
+      activated: true,
+      isExpired: Date.now() > stored.expiresAt,
     };
   }
 

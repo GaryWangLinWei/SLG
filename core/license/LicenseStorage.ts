@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { StoredLicenseData } from './types';
-import { generateFingerprint } from './DeviceFingerprint';
+import { generateFingerprint, generateFingerprintSync } from './DeviceFingerprint';
 
 // Config directory
 const CONFIG_DIR = join(homedir(), '.slg-automation');
@@ -77,6 +77,35 @@ export async function saveLicense(data: StoredLicenseData): Promise<void> {
   };
 
   writeFileSync(LICENSE_FILE, JSON.stringify(encryptedData, null, 2));
+}
+
+function getKeySync(): Buffer {
+  const fingerprint = generateFingerprintSync();
+  return scryptSync(fingerprint, SALT, 32);
+}
+
+export function loadLicenseSync(): StoredLicenseData | null {
+  ensureDir();
+  if (!existsSync(LICENSE_FILE)) return null;
+
+  try {
+    const encryptedData = JSON.parse(readFileSync(LICENSE_FILE, 'utf-8'));
+    const iv = Buffer.from(encryptedData.iv, 'hex');
+    const authTag = Buffer.from(encryptedData.authTag, 'hex');
+    const encryptedText = Buffer.from(encryptedData.data, 'hex');
+
+    const key = getKeySync();
+    const decipher = createDecipheriv(ALGORITHM, key, iv);
+    (decipher as any).setAuthTag(authTag);
+
+    let decrypted = decipher.update(encryptedText);
+    decrypted = Buffer.concat([decrypted, decipher.final()]);
+
+    return JSON.parse(decrypted.toString());
+  } catch {
+    try { if (existsSync(LICENSE_FILE)) writeFileSync(LICENSE_FILE, ''); } catch { /* ignore */ }
+    return null;
+  }
 }
 
 export async function clearLicense(): Promise<void> {

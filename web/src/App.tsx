@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, Link } from 'react-router-dom';
 import { HomePage } from './pages/Home';
 
@@ -9,6 +9,30 @@ import { AccountsPage } from './pages/Accounts';
 import ActivationPage from './pages/Activation';
 import { AccountProvider } from './contexts/AccountContext';
 import { LicenseProvider, useLicense } from './contexts/LicenseContext';
+
+function RemainingTime({ expiresAt }: { expiresAt: number }) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, [expiresAt]);
+
+  const ms = Math.max(0, expiresAt - now);
+  const d = Math.floor(ms / 86_400_000);
+  const h = Math.floor((ms % 86_400_000) / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+
+  if (ms <= 0) return <span className="text-sm text-red-400">已到期</span>;
+
+  const parts = [];
+  if (d > 0) parts.push(`${d}天`);
+  if (h > 0 || d > 0) parts.push(`${h}小时`);
+  parts.push(`${m}分钟`);
+
+  return <span className="text-sm text-gray-400">剩余: {parts.join('')}</span>;
+}
 
 function NavBar() {
   const { status, activate, preview } = useLicense();
@@ -48,14 +72,7 @@ function NavBar() {
         {/* License status */}
         {status?.activated && status.expiresAt && (
           <>
-            <span className="text-sm text-gray-400">
-              剩余: {(() => {
-                const ms = Math.max(0, status.expiresAt - Date.now());
-                const d = Math.floor(ms / (24 * 60 * 60 * 1000));
-                const h = Math.floor((ms % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
-                return d > 0 ? `${d}天${h}小时` : `${h}小时`;
-              })()}
-            </span>
+            <RemainingTime expiresAt={status.expiresAt} />
             <button
               onClick={async () => {
                 const newCode = prompt('请输入新的激活码：');

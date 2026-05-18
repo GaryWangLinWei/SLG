@@ -47,3 +47,26 @@ export async function verifyFingerprint(storedFingerprint: string): Promise<bool
   const current = await generateFingerprint();
   return storedFingerprint === current;
 }
+
+// Synchronous version for use in non-async contexts like checkStop callbacks
+export function generateFingerprintSync(): string {
+  try {
+    const cpuInfo = cpus();
+    const cpuId = cpuInfo[0]?.model || 'unknown-cpu';
+    const coreCount = cpuInfo.length || 4;
+    const osPlatform = platform();
+    const host = hostname();
+    let userName = '';
+    try { userName = userInfo().username || ''; } catch { /* ignore */ }
+
+    const raw = `${cpuId}|${coreCount}|${osPlatform}|${host}|${userName}`;
+    return createHash('sha256').update(raw).digest('hex').slice(0, 32);
+  } catch {
+    const fallback = `${platform()}|${hostname()}|${cpus()[0]?.model || 'unknown'}`;
+    return createHash('sha256').update(fallback).digest('hex').slice(0, 32);
+  }
+}
+
+export function verifyFingerprintSync(storedFingerprint: string): boolean {
+  return generateFingerprintSync() === storedFingerprint;
+}
