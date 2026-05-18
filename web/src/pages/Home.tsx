@@ -37,12 +37,13 @@ function clearCompleted(
   return { selected: newSelected, completed: newCompleted };
 }
 
-function TechSelect({ value, onChange, excludeValues, economicTechs, militaryTechs }: {
+function TechSelect({ value, onChange, excludeValues, economicTechs, militaryTechs, completed }: {
   value: string;
   onChange: (v: string) => void;
   excludeValues: string[];
   economicTechs: string[];
   militaryTechs: string[];
+  completed?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'economic' | 'military' | null>(null);
@@ -66,9 +67,9 @@ function TechSelect({ value, onChange, excludeValues, economicTechs, militaryTec
     <div ref={ref} className="relative">
       <button
         onClick={() => { setOpen(!open); setActiveTab(null); }}
-        className="px-2 py-1 bg-gray-800 rounded text-sm border border-gray-600 w-24 text-left truncate flex items-center justify-between"
+        className={`px-2 py-1 bg-gray-800 rounded text-sm border w-24 text-left truncate flex items-center justify-between ${completed ? 'text-green-400 border-green-500' : 'border-gray-600'}`}
       >
-        <span className="truncate">{value || <span className="text-gray-500">-</span>}</span>
+        <span className="truncate">{completed ? `✅ ${value}` : (value || <span className="text-gray-500">-</span>)}</span>
         {value && (
           <span className="ml-1 text-gray-500 hover:text-gray-300 flex-shrink-0" onClick={(e) => { e.stopPropagation(); onChange(''); }}>×</span>
         )}
@@ -589,13 +590,26 @@ export function HomePage() {
                     <TechSelect key={i} value={val}
                       onChange={(v) => {
                         const next = [...features.selectedTechs]; next[i] = v;
-                        setFeatures({ ...features, selectedTechs: next });
+                        const nextCompleted = [...features.completedTechs]; nextCompleted[i] = false;
+                        setFeatures({ ...features, selectedTechs: next, completedTechs: nextCompleted });
                       }}
-                      excludeValues={features.selectedTechs}
+                      excludeValues={[]}
                       economicTechs={economicTechs}
                       militaryTechs={militaryTechs}
+                      completed={features.completedTechs[i]}
                     />
                   ))}
+                  {features.completedTechs.some(Boolean) && (
+                    <button
+                      onClick={() => {
+                        const { selected, completed } = clearCompleted(features.selectedTechs, features.completedTechs);
+                        setFeatures(prev => ({ ...prev, selectedTechs: selected, completedTechs: completed }));
+                      }}
+                      className="px-2 py-1 text-xs bg-red-800 hover:bg-red-700 text-red-200 rounded whitespace-nowrap"
+                    >
+                      清除已完成
+                    </button>
+                  )}
                 </div>
                 <p className="text-xs text-gray-400 mt-1">请确保已标记学院坐标及资源充足</p>
               </div>
