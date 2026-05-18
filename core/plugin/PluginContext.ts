@@ -8,6 +8,7 @@ import { Vision } from '../vision';
 export class PluginContext {
   private logOutput: (msg: string) => void;
   private cache: Map<string, { x: number; y: number }> = new Map();
+  debugDir?: string;
 
   constructor(
     private device: Device,
@@ -58,6 +59,13 @@ export class PluginContext {
     const screenshotBuffer = await this.device.screenshot();
     const tempPath = path.join(os.tmpdir(), `screenshot-${Date.now()}.png`);
     await fs.writeFile(tempPath, screenshotBuffer);
+
+    // Save debug copy if debugDir is configured
+    if (this.debugDir) {
+      const debugPath = path.join(this.debugDir, `screenshot-${Date.now()}.png`);
+      await fs.mkdir(this.debugDir, { recursive: true }).catch(() => {});
+      await fs.writeFile(debugPath, screenshotBuffer).catch(() => {});
+    }
 
     try {
       const result = await this.vision.findImage(tempPath, templatePath, threshold, scales);

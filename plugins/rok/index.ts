@@ -5,7 +5,8 @@ import { gatherSingleResource, GatherTask } from './actions/gatherResources';
 import { researchTech, TECH_TEMPLATES, ECONOMIC_TECHS, MILITARY_TECHS } from './actions/researchTech';
 import { trainTroopsSingle } from './actions/trainTroops';
 import { explore } from './actions/explore';
-import { ensureInCity } from './utils/location';
+import { helpTeammates } from './actions/helpTeammates';
+import { ensureInCity, ensureBottomBarCollapsed } from './utils/location';
 
 // 万国觉醒 - 配置项
 // 这些坐标需要根据你的实际屏幕分辨率进行调整
@@ -144,6 +145,14 @@ export const RiseOfKingdomsPlugin: Plugin = {
   },
 
   actions: [
+    {
+      id: 'ensure-bottom-bar',
+      name: '底部栏检测',
+      description: '检测底部栏是否展开，展开时自动收回（每次运行只执行一次）',
+      run: async (ctx) => {
+        await ensureBottomBarCollapsed(ctx);
+      }
+    },
     {
       id: 'collect-resources',
       name: '收集所有资源',
@@ -320,6 +329,14 @@ export const RiseOfKingdomsPlugin: Plugin = {
           }
         }
         ctx.log('=== 训练队列执行完毕 ===');
+      }
+    },
+    {
+      id: 'help-teammates',
+      name: '帮助盟友',
+      description: '检测帮助图标并点击帮助盟友',
+      run: async (ctx) => {
+        await helpTeammates(ctx);
       }
     },
     {
