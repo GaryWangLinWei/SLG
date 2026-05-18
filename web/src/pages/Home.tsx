@@ -278,6 +278,13 @@ export function HomePage() {
     const interval = isExploreMode ? 60 : features.loopInterval;
     setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🚀 开始${isExploreMode ? '自动探索' : '循环执行: ' + selectedActions.join(' + ')} (间隔${interval}秒)`]);
 
+    // Reset completion state for a fresh run
+    setFeatures(prev => ({
+      ...prev,
+      completedBuildings: [false, false, false, false, false],
+      completedTechs: [false, false, false, false, false],
+    }));
+
     const sleep = async (s: number) => new Promise(r => setTimeout(r, s * 1000));
 
     // Fire and forget, stop button will cancel via task IDs
@@ -353,17 +360,21 @@ export function HomePage() {
           }
 
           if (features.upgradeBuildings && !loopStopped) {
-            const targetBuildings = features.selectedBuildings.filter(b => b);
+            const targetBuildings = features.selectedBuildings
+              .filter((b, i) => b && !features.completedBuildings[i]);
             if (targetBuildings.length > 0) {
               const logs = await runTask('upgrade-buildings', { targetBuildings });
-              const succeeded = targetBuildings.filter(b =>
-                logs.some(l => l.includes(`✅ ${b} 升级成功`))
-              );
-              if (succeeded.length > 0) {
-                setFeatures(prev => ({
-                  ...prev,
-                  selectedBuildings: prev.selectedBuildings.map(b => succeeded.includes(b) ? '' : b)
-                }));
+              // Mark completed slots by matching the building name against success logs
+              const newCompleted = [...features.completedBuildings];
+              let changed = false;
+              features.selectedBuildings.forEach((b, i) => {
+                if (b && !newCompleted[i] && logs.some(l => l.includes(`✅ ${b} 升级成功`))) {
+                  newCompleted[i] = true;
+                  changed = true;
+                }
+              });
+              if (changed) {
+                setFeatures(prev => ({ ...prev, completedBuildings: newCompleted }));
               }
             }
           }
@@ -372,17 +383,20 @@ export function HomePage() {
             if (!buildingOptions.includes('学院')) {
               setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记学院位置，跳过研究科技`]);
             } else {
-              const techs = features.selectedTechs.filter(t => t);
+              const techs = features.selectedTechs
+                .filter((t, i) => t && !features.completedTechs[i]);
               if (techs.length > 0) {
                 const logs = await runTask('research-tech-queue', { targetTechs: techs, researchBuilding: '学院' });
-                const succeeded = techs.filter(t =>
-                  logs.some(l => l.includes(`✅ ${t} 研究成功`))
-                );
-                if (succeeded.length > 0) {
-                  setFeatures(prev => ({
-                    ...prev,
-                    selectedTechs: prev.selectedTechs.map(t => succeeded.includes(t) ? '' : t)
-                  }));
+                const newCompleted = [...features.completedTechs];
+                let changed = false;
+                features.selectedTechs.forEach((t, i) => {
+                  if (t && !newCompleted[i] && logs.some(l => l.includes(`✅ ${t} 研究成功`))) {
+                    newCompleted[i] = true;
+                    changed = true;
+                  }
+                });
+                if (changed) {
+                  setFeatures(prev => ({ ...prev, completedTechs: newCompleted }));
                 }
               }
             }
