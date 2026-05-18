@@ -8,6 +8,8 @@ import { useLicense } from '../contexts/LicenseContext';
 let loopStopped = false;
 let loopRunning = false;
 let loopLogs: string[] = [];
+let loopCompletedBuildings: boolean[] = [false, false, false, false, false];
+let loopCompletedTechs: boolean[] = [false, false, false, false, false];
 
 const LOOP_STATE_KEY = 'loop-state';
 
@@ -279,7 +281,9 @@ export function HomePage() {
     const interval = isExploreMode ? 60 : features.loopInterval;
     setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🚀 开始${isExploreMode ? '自动探索' : '循环执行: ' + selectedActions.join(' + ')} (间隔${interval}秒)`]);
 
-    // Reset completion state for a fresh run
+    // Reset completion state for a fresh run (module-level for loop, state for UI)
+    loopCompletedBuildings = [false, false, false, false, false];
+    loopCompletedTechs = [false, false, false, false, false];
     setFeatures(prev => ({
       ...prev,
       completedBuildings: [false, false, false, false, false],
@@ -362,20 +366,19 @@ export function HomePage() {
 
           if (features.upgradeBuildings && !loopStopped) {
             const targetBuildings = features.selectedBuildings
-              .filter((b, i) => b && !features.completedBuildings[i]);
+              .filter((b, i) => b && !loopCompletedBuildings[i]);
             if (targetBuildings.length > 0) {
               const logs = await runTask('upgrade-buildings', { targetBuildings });
               // Mark completed slots by matching the building name against success logs
-              const newCompleted = [...features.completedBuildings];
               let changed = false;
               features.selectedBuildings.forEach((b, i) => {
-                if (b && !newCompleted[i] && logs.some(l => l.includes(`✅ ${b} 升级成功`))) {
-                  newCompleted[i] = true;
+                if (b && !loopCompletedBuildings[i] && logs.some(l => l.includes(`✅ ${b} 升级成功`))) {
+                  loopCompletedBuildings[i] = true;
                   changed = true;
                 }
               });
               if (changed) {
-                setFeatures(prev => ({ ...prev, completedBuildings: newCompleted }));
+                setFeatures(prev => ({ ...prev, completedBuildings: [...loopCompletedBuildings] }));
               }
             }
           }
@@ -385,19 +388,18 @@ export function HomePage() {
               setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记学院位置，跳过研究科技`]);
             } else {
               const techs = features.selectedTechs
-                .filter((t, i) => t && !features.completedTechs[i]);
+                .filter((t, i) => t && !loopCompletedTechs[i]);
               if (techs.length > 0) {
                 const logs = await runTask('research-tech-queue', { targetTechs: techs, researchBuilding: '学院' });
-                const newCompleted = [...features.completedTechs];
                 let changed = false;
                 features.selectedTechs.forEach((t, i) => {
-                  if (t && !newCompleted[i] && logs.some(l => l.includes(`✅ ${t} 研究成功`))) {
-                    newCompleted[i] = true;
+                  if (t && !loopCompletedTechs[i] && logs.some(l => l.includes(`✅ ${t} 研究成功`))) {
+                    loopCompletedTechs[i] = true;
                     changed = true;
                   }
                 });
                 if (changed) {
-                  setFeatures(prev => ({ ...prev, completedTechs: newCompleted }));
+                  setFeatures(prev => ({ ...prev, completedTechs: [...loopCompletedTechs] }));
                 }
               }
             }
@@ -567,6 +569,7 @@ export function HomePage() {
                     <button
                       onClick={() => {
                         const { selected, completed } = clearCompleted(features.selectedBuildings, features.completedBuildings);
+                        loopCompletedBuildings = completed;
                         setFeatures(prev => ({ ...prev, selectedBuildings: selected, completedBuildings: completed }));
                       }}
                       className="px-2 py-1 text-xs bg-red-800 hover:bg-red-700 text-red-200 rounded whitespace-nowrap"
@@ -603,6 +606,7 @@ export function HomePage() {
                     <button
                       onClick={() => {
                         const { selected, completed } = clearCompleted(features.selectedTechs, features.completedTechs);
+                        loopCompletedTechs = completed;
                         setFeatures(prev => ({ ...prev, selectedTechs: selected, completedTechs: completed }));
                       }}
                       className="px-2 py-1 text-xs bg-red-800 hover:bg-red-700 text-red-200 rounded whitespace-nowrap"
