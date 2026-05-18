@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAccount } from '../contexts/AccountContext';
+import { useLicense } from '../contexts/LicenseContext';
 
 // Module-level loop state — survives component unmount/remount during SPA navigation
 let loopStopped = false;
@@ -24,11 +25,16 @@ function clearLoopState() {
   try { sessionStorage.removeItem(LOOP_STATE_KEY); } catch {}
 }
 
-function getLoopState(): { accountId: string; logs: string[] } | null {
-  try {
-    const data = sessionStorage.getItem(LOOP_STATE_KEY);
-    return data ? JSON.parse(data) : null;
-  } catch { return null; }
+function clearCompleted(
+  selected: string[],
+  completed: boolean[]
+): { selected: string[]; completed: boolean[] } {
+  // Keep only uncompleted non-empty items
+  const remaining = selected.filter((_, i) => !completed[i] && selected[i] !== '');
+  // Pad to 5 slots
+  const newSelected = [...remaining, ...Array(5 - remaining.length).fill('')] as string[];
+  const newCompleted = newSelected.map(() => false) as boolean[];
+  return { selected: newSelected, completed: newCompleted };
 }
 
 function TechSelect({ value, onChange, excludeValues, economicTechs, militaryTechs }: {
@@ -103,6 +109,7 @@ function TechSelect({ value, onChange, excludeValues, economicTechs, militaryTec
 
 export function HomePage() {
   const { currentAccountId } = useAccount();
+  const { refreshStatus, setExpiredMessage } = useLicense();
   const [deviceConnected, setDeviceConnected] = useState(false);
   const [deviceLoading, setDeviceLoading] = useState(false);
   const [taskRunning, setTaskRunning] = useState(false);
@@ -114,8 +121,10 @@ export function HomePage() {
     collectResources: true,
     upgradeBuildings: true,
     selectedBuildings: ['', '', '', '', ''] as string[],
+    completedBuildings: [false, false, false, false, false] as boolean[],
     autoResearch: false,
     selectedTechs: ['', '', '', '', ''] as string[],
+    completedTechs: [false, false, false, false, false] as boolean[],
     gatherResources: false,
     gatherTasks: [
       { type: '农田', level: 5 },
@@ -128,6 +137,7 @@ export function HomePage() {
     trainTasks: { '兵营': 0, '马厩': 0, '靶场': 0, '攻城武器厂': 0 } as Record<string, number>,
     autoExplore: false,
     exploreCount: 3,
+    helpTeammates: false,
     loopInterval: 300,
   };
 
@@ -140,7 +150,15 @@ export function HomePage() {
         if (Array.isArray(parsed.trainTasks)) {
           parsed.trainTasks = DEFAULT_FEATURES.trainTasks;
         }
-        return { ...DEFAULT_FEATURES, ...parsed };
+        // Migrate old state without completed arrays
+        const merged = { ...DEFAULT_FEATURES, ...parsed };
+        if (!Array.isArray(merged.completedBuildings) || merged.completedBuildings.length !== 5) {
+          merged.completedBuildings = [false, false, false, false, false];
+        }
+        if (!Array.isArray(merged.completedTechs) || merged.completedTechs.length !== 5) {
+          merged.completedTechs = [false, false, false, false, false];
+        }
+        return merged;
       }
     } catch {}
     return DEFAULT_FEATURES;
@@ -169,32 +187,17 @@ export function HomePage() {
     } catch { setDeviceConnected(false); }
   };
 
-  // 恢复运行状态：挂载时检查是否有正在执行的任务或持久化的循环状态
+  // 恢复运行状态：挂载时检查 module-level 变量和 API 确认是否有正在执行的任务
   useEffect(() => {
     if (!currentAccountId) return;
-    // 先查 sessionStorage（覆盖任务间等待期）
-    const savedLoop = getLoopState();
-    if (savedLoop && savedLoop.accountId === currentAccountId) {
-      loopRunning = true;
-      loopStopped = false;
+
+    // 如果 module-level loopRunning 已为 true，立即恢复 UI 状态
+    if (loopRunning) {
       setTaskRunning(true);
-      if (savedLoop.logs?.length) {
-        loopLogs = savedLoop.logs;
-        setLogs(savedLoop.logs);
-      }
-      // 同时查询正在运行的任务ID用于停止
-      api.tasks.list().then(res => {
-        if (res.success) {
-          const running = res.tasks.filter(t => t.accountId === currentAccountId && t.status === 'running');
-          if (running.length > 0) {
-            runningTaskIdsRef.current = running.map(t => t.id);
-            setRunningTaskIds(running.map(t => t.id));
-          }
-        }
-      }).catch(() => {});
-      return;
+      setLogs(loopLogs);
     }
-    // 兼容旧版：无 sessionStorage 时回退到检查运行中的任务
+
+    // 通过 API 同步 runningTaskIds（用于停止按钮能取消正确的任务）
     api.tasks.list().then(res => {
       if (res.success) {
         const running = res.tasks.filter(t => t.accountId === currentAccountId && t.status === 'running');
@@ -258,6 +261,7 @@ export function HomePage() {
     if (features.autoResearch) selectedActions.push('研究科技');
     if (features.gatherResources) selectedActions.push('城外采集');
     if (features.trainTroops) selectedActions.push('训练兵种');
+    if (features.helpTeammates) selectedActions.push('帮助盟友');
     if (features.autoExplore) selectedActions.push('自动探索');
 
     if (selectedActions.length === 0) {
@@ -279,11 +283,19 @@ export function HomePage() {
     // Fire and forget, stop button will cancel via task IDs
     (async () => {
       let round = 0;
+      let bottomBarChecked = false;
       while (!loopStopped) {
         round++;
         setLogs(prev => { const next = [...prev, `[${new Date().toLocaleTimeString()}] 🔄 第${round}轮开始`]; saveLoopState(currentAccountId); return next; });
 
         const ids: string[] = [];
+
+        const handleLicenseExpired = () => {
+          setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
+          loopStopped = true;
+          setExpiredMessage('激活码已到期，请重新激活');
+          refreshStatus();
+        };
 
         const runTask = async (actionId: string, config?: Record<string, any>): Promise<string[]> => {
           if (loopStopped) return [];
@@ -294,14 +306,38 @@ export function HomePage() {
               runningTaskIdsRef.current = [...ids];
               setRunningTaskIds([...ids]);
               const runResult = await api.tasks.run(createResult.task.id);
+              const logs = runResult.task?.logs ?? [];
+
+              // 检查任务执行中是否因许可证过期被自动停止
+              const hasExpiredLog = logs.some(l => l.includes('许可证已过期'));
+              const hasExpiredError = runResult.task?.error && /license.*expir|许可证.*过/i.test(runResult.task.error);
+              if (hasExpiredLog || hasExpiredError) {
+                handleLicenseExpired();
+                return logs;
+              }
+
               setLogs(prev => { const next = [...prev, `[${new Date().toLocaleTimeString()}] ✅ ${createResult.task.actionId} 完成`]; saveLoopState(currentAccountId); return next; });
-              return runResult.task?.logs ?? [];
+              return logs;
             }
-          } catch (e) {
+          } catch (e: any) {
+            // 检查 API 层面的 LICENSE_EXPIRED（中间件拦截）
+            const isLicenseExpired =
+              e?.data?.error === 'LICENSE_EXPIRED' ||
+              e?.status === 403 ||
+              (e?.message && /license.*expir|许可证.*过/i.test(e.message));
+            if (isLicenseExpired) {
+              handleLicenseExpired();
+              return [];
+            }
             setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 执行失败: ${e}`]);
           }
           return [];
         };
+
+        if (!bottomBarChecked) {
+          await runTask('ensure-bottom-bar');
+          bottomBarChecked = true;
+        }
 
         if (isExploreMode) {
           if (!buildingOptions.includes('斥候营地')) {
@@ -311,6 +347,10 @@ export function HomePage() {
           }
         } else {
           if (features.collectResources) await runTask('collect-resources');
+
+          if (features.helpTeammates && !loopStopped) {
+            await runTask('help-teammates');
+          }
 
           if (features.upgradeBuildings && !loopStopped) {
             const targetBuildings = features.selectedBuildings.filter(b => b);
@@ -468,6 +508,16 @@ export function HomePage() {
         <div className="bg-gray-800 rounded-xl p-6 mb-6">
           <h3 className="text-xl font-bold mb-4">功能设置</h3>
           <div className="grid grid-cols-2 gap-4">
+            <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer hover:bg-gray-600 ${features.autoExplore ? 'bg-gray-800 opacity-50 pointer-events-none' : 'bg-gray-700'}`}>
+              <input type="checkbox" checked={features.helpTeammates} disabled={features.autoExplore}
+                onChange={(e) => setFeatures({ ...features, helpTeammates: e.target.checked })}
+                className="w-5 h-5 text-blue-600" />
+              <div>
+                <span className="font-medium">自动帮助盟友</span>
+                <p className="text-xs text-gray-400">检测帮助图标并自动点击帮助</p>
+              </div>
+            </label>
+
             <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer hover:bg-gray-600 ${features.autoExplore ? 'bg-gray-800 opacity-50 pointer-events-none' : 'bg-gray-700'}`}>
               <input type="checkbox" checked={features.collectResources} disabled={features.autoExplore}
                 onChange={(e) => setFeatures({ ...features, collectResources: e.target.checked })}
