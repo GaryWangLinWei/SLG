@@ -69,7 +69,7 @@ function TechSelect({ value, onChange, excludeValues, economicTechs, militaryTec
         onClick={() => { setOpen(!open); setActiveTab(null); }}
         className={`px-2 py-1 bg-gray-800 rounded text-sm border w-24 text-left truncate flex items-center justify-between ${completed ? 'text-green-400 border-green-500' : 'border-gray-600'}`}
       >
-        <span className="truncate">{completed ? `✅ ${value}` : (value || <span className="text-gray-500">-</span>)}</span>
+        <span className="truncate">{completed && value ? `✅ ${value}` : (value || <span className="text-gray-500">-</span>)}</span>
         {value && (
           <span className="ml-1 text-gray-500 hover:text-gray-300 flex-shrink-0" onClick={(e) => { e.stopPropagation(); onChange(''); }}>×</span>
         )}
