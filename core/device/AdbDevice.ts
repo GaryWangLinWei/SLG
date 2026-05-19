@@ -17,12 +17,45 @@ export function getAdbPath(): string {
 
 export const ADB_PATH = getAdbPath();
 
+export interface RandomizationConfig {
+  enabled: boolean;
+  tapOffset: number;
+  sleepJitter: number;  // 0~1, sleep-only-add percentage
+}
+
+const DEFAULT_RAND_CONFIG: RandomizationConfig = {
+  enabled: true,
+  tapOffset: 5,
+  sleepJitter: 0.15,
+};
+
 export class AdbDevice implements Device {
   private connected: boolean = false;
   private deviceId: string;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 3; // 最多重连 3 次
   private reconnectDelayMs = 3000; // 重连间隔 3 秒
+  private randConfig: RandomizationConfig = { ...DEFAULT_RAND_CONFIG };
+
+  private jitter(n: number): number {
+    if (!this.randConfig.enabled) return n;
+    return n * (1 + Math.random() * this.randConfig.sleepJitter);
+  }
+
+  private jitterCoord(v: number): number {
+    if (!this.randConfig.enabled) return v;
+    const offset = this.randConfig.tapOffset;
+    return Math.round(v + (Math.random() * 2 - 1) * offset);
+  }
+
+  setRandomizationEnabled(enabled: boolean): void {
+    this.randConfig.enabled = enabled;
+  }
+
+  setRandomizationConfig(config: Partial<RandomizationConfig>): void {
+    Object.assign(this.randConfig, config);
+  }
+
   protected execAsync = promisify(exec);
 
   constructor(deviceId: string) {
@@ -154,8 +187,10 @@ export class AdbDevice implements Device {
   }
 
   async tap(x: number, y: number): Promise<void> {
+    const tx = this.jitterCoord(x);
+    const ty = this.jitterCoord(y);
     await this.execAdb(
-      `"${getAdbPath()}" -s ${this.deviceId} shell input tap ${x} ${y}`, `点击 (${x},${y})`
+      `"${getAdbPath()}" -s ${this.deviceId} shell input tap ${tx} ${ty}`, `点击 (${x},${y})→(${tx},${ty})`
     );
   }
 
@@ -164,9 +199,16 @@ export class AdbDevice implements Device {
   }
 
   async swipe(x1: number, y1: number, x2: number, y2: number, duration: number = 500): Promise<void> {
+    const sx1 = this.jitterCoord(x1);
+    const sy1 = this.jitterCoord(y1);
+    const sx2 = this.jitterCoord(x2);
+    const sy2 = this.jitterCoord(y2);
+    const jitteredDuration = Math.round(this.randConfig.enabled
+      ? duration * (0.8 + Math.random() * 0.4)
+      : duration);
     await this.execAdb(
-      `"${getAdbPath()}" -s ${this.deviceId} shell input swipe ${x1} ${y1} ${x2} ${y2} ${duration}`,
-      `滑动 (${x1},${y1})→(${x2},${y2})`
+      `"${getAdbPath()}" -s ${this.deviceId} shell input swipe ${sx1} ${sy1} ${sx2} ${sy2} ${jitteredDuration}`,
+      `滑动 (${x1},${y1})→(${x2},${y2})→(${sx1},${sy1})→(${sx2},${sy2}) dur=${jitteredDuration}`
     );
   }
 
@@ -177,6 +219,7 @@ export class AdbDevice implements Device {
   }
 
   async sleep(seconds: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, seconds * 1000));
+    const actual = this.jitter(seconds);
+    return new Promise(resolve => setTimeout(resolve, actual * 1000));
   }
 }
