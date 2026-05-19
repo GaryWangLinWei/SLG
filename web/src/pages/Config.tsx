@@ -27,6 +27,9 @@ export function ConfigPage() {
   const [pendingCoord, setPendingCoord] = useState<{ x: number; y: number; domX: number; domY: number } | null>(null);
   const [selectedBuildingType, setSelectedBuildingType] = useState('');
   const [selectedSection, setSelectedSection] = useState<'buildings' | 'resources'>('buildings');
+  const [configName, setConfigName] = useState('默认配置');
+  const [configNames, setConfigNames] = useState<string[]>([]);
+  const [activeConfigName, setActiveConfigName] = useState('');
 
   const checkStatus = useCallback(async () => {
     if (!currentAccountId) return;
@@ -50,7 +53,41 @@ export function ConfigPage() {
     } catch { /* ignore */ }
   }, [currentAccountId]);
 
-  useEffect(() => { checkStatus(); loadConfig(); }, [checkStatus, loadConfig]);
+  const loadProfiles = useCallback(async () => {
+    if (!currentAccountId) return;
+    try {
+      const res = await api.config.getProfiles(currentAccountId);
+      if (res.success) {
+        setConfigNames(res.profiles);
+        setActiveConfigName(res.active);
+        setConfigName(res.active);
+      }
+    } catch { /* ignore */ }
+  }, [currentAccountId]);
+
+  const switchConfig = async (name: string) => {
+    if (!currentAccountId || name === configName) return;
+    try {
+      await api.config.switchProfile(currentAccountId, name);
+      setConfigName(name);
+      setActiveConfigName(name);
+      const res = await api.config.getRokConfig(currentAccountId, name);
+      if (res.success && res.config) {
+        if (res.config.buildingPositions) {
+          const entries = Object.entries(res.config.buildingPositions as Record<string, { x: number; y: number }>);
+          setBuildingPositions(entries.map(([bName, pos]) => ({ name: bName, x: pos.x, y: pos.y })));
+        } else {
+          setBuildingPositions([]);
+        }
+        if (res.config.resources) setResources(res.config.resources);
+        else setResources([]);
+      }
+    } catch (e: any) {
+      setMessage(e.message || '切换失败');
+    }
+  };
+
+  useEffect(() => { checkStatus(); loadConfig(); loadProfiles(); }, [checkStatus, loadConfig, loadProfiles]);
 
   const handleConnect = async () => {
     if (!currentAccountId) return;
@@ -147,10 +184,66 @@ export function ConfigPage() {
     if (!currentAccountId) return;
     setLoading(true);
     try {
-      const result = await api.config.saveRokConfig(currentAccountId, buildConfig());
+      const result = await api.config.saveRokConfig(currentAccountId, buildConfig(), configName);
       setMessage(result.success ? '配置已保存' : '保存失败');
     } catch { setMessage('保存失败'); }
     setLoading(false);
+  };
+
+  const handleCreateProfile = async () => {
+    const name = window.prompt('请输入新配置名称：');
+    if (!name || !name.trim()) return;
+    if (!currentAccountId) return;
+    try {
+      await api.config.createProfile(currentAccountId, name.trim());
+      setMessage(`配置「${name.trim()}」已创建`);
+      await loadProfiles();
+    } catch (e: any) {
+      setMessage(e.message || '创建失败');
+    }
+  };
+
+  const handleRenameProfile = async () => {
+    const newName = window.prompt(`重命名「${configName}」为：`);
+    if (!newName || !newName.trim()) return;
+    if (!currentAccountId) return;
+    try {
+      await api.config.renameProfile(currentAccountId, configName, newName.trim());
+      setMessage(`已重命名为「${newName.trim()}」`);
+      setConfigName(newName.trim());
+      await loadProfiles();
+    } catch (e: any) {
+      setMessage(e.message || '重命名失败');
+    }
+  };
+
+  const handleDeleteProfile = async () => {
+    if (!window.confirm(`确定删除配置「${configName}」？此操作不可恢复。`)) return;
+    if (!currentAccountId) return;
+    try {
+      await api.config.deleteProfile(currentAccountId, configName);
+      setMessage(`配置「${configName}」已删除`);
+      await loadProfiles();
+      const res2 = await api.config.getProfiles(currentAccountId);
+      if (res2.success && res2.active) {
+        setConfigName(res2.active);
+        setActiveConfigName(res2.active);
+        // Reload config for the new active profile
+        const cfg = await api.config.getRokConfig(currentAccountId);
+        if (cfg.success && cfg.config) {
+          if (cfg.config.buildingPositions) {
+            const entries = Object.entries(cfg.config.buildingPositions as Record<string, { x: number; y: number }>);
+            setBuildingPositions(entries.map(([bName, pos]) => ({ name: bName, x: pos.x, y: pos.y })));
+          } else {
+            setBuildingPositions([]);
+          }
+          if (cfg.config.resources) setResources(cfg.config.resources);
+          else setResources([]);
+        }
+      }
+    } catch (e: any) {
+      setMessage(e.message || '删除失败');
+    }
   };
 
 
@@ -169,6 +262,35 @@ export function ConfigPage() {
     <div>
       <h1 className="text-2xl font-bold mb-2">坐标配置</h1>
       <p className="text-sm text-gray-400 mb-6">截图后点击画面标注建筑坐标，保存到本地配置文件</p>
+
+      {/* 配置管理栏 */}
+      <div className="flex items-center gap-3 mb-4 bg-gray-800 rounded-lg p-3">
+        <span className="text-sm text-gray-400">配置：</span>
+        <select
+          value={configName}
+          onChange={e => switchConfig(e.target.value)}
+          className="px-3 py-1.5 bg-gray-700 rounded text-sm border border-gray-600 min-w-[140px]"
+        >
+          {configNames.map(name => (
+            <option key={name} value={name}>{name}{name === activeConfigName ? ' (当前)' : ''}</option>
+          ))}
+        </select>
+        <button
+          onClick={handleCreateProfile}
+          disabled={configNames.length >= 5}
+          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-sm disabled:opacity-30 disabled:cursor-not-allowed"
+        >新建</button>
+        <button
+          onClick={handleRenameProfile}
+          className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 rounded text-sm"
+        >重命名</button>
+        <button
+          onClick={handleDeleteProfile}
+          disabled={configNames.length <= 1}
+          className="px-3 py-1.5 bg-red-700 hover:bg-red-600 rounded text-sm disabled:opacity-30 disabled:cursor-not-allowed"
+        >删除</button>
+        <span className="text-xs text-gray-500 ml-auto">{configNames.length}/5</span>
+      </div>
 
       {message && <div className="mb-4 p-3 bg-blue-900 text-blue-200 rounded text-sm">{message}</div>}
 
