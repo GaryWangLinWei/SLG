@@ -115,6 +115,9 @@ class ConfigService {
 
   async deleteProfile(accountId: string, name: string): Promise<void> {
     const multi = await this.readMultiConfig(accountId);
+    if (!multi.configs[name]) {
+      throw new Error(`配置 "${name}" 不存在`);
+    }
     const names = Object.keys(multi.configs);
     if (names.length <= 1) {
       throw new Error('无法删除最后一个配置');
