@@ -422,11 +422,33 @@ export function HomePage() {
         }
 
         if (loopStopped) break;
-        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏳ 等待 ${interval} 秒...`]);
-        // 可中断的等待
-        const startWait = Date.now();
-        while (!loopStopped && (Date.now() - startWait) < interval * 1000) {
-          await sleep(1);
+        // 每次轮询的间隔加 ±10% 随机波动
+        const actualInterval = interval * (0.9 + Math.random() * 0.2);
+        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏳ 等待 ${actualInterval.toFixed(0)} 秒...`]);
+
+        // 等待期间随机拖拽，模仿人滑动浏览
+        const dragSafetyMargin = 5; // 下次循环前5秒内不拖拽
+        const dragWindow = actualInterval - dragSafetyMargin;
+        if (dragWindow > 15) {
+          // 在前 70% 的等待时间内随机选择一个时间点触发拖拽
+          const dragDelay = 5 + Math.random() * (dragWindow * 0.7);
+          const startWait = Date.now();
+          while (!loopStopped && (Date.now() - startWait) < dragDelay * 1000) {
+            await sleep(1);
+          }
+          if (!loopStopped) {
+            try { await runTask('idle-drag'); } catch {}
+          }
+          // 等待剩余时间（含安全窗口）
+          while (!loopStopped && (Date.now() - startWait) < actualInterval * 1000) {
+            await sleep(1);
+          }
+        } else {
+          // 间隔太短（< 15s），不做拖拽，正常等待
+          const startWait = Date.now();
+          while (!loopStopped && (Date.now() - startWait) < actualInterval * 1000) {
+            await sleep(1);
+          }
         }
       }
       loopRunning = false;
