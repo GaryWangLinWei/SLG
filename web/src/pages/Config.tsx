@@ -158,10 +158,15 @@ export function ConfigPage() {
     setBuildingPositions(prev => prev.filter((_, i) => i !== index));
   };
 
-  const clearAllBuildings = () => {
+  const clearAllBuildings = async () => {
     if (buildingPositions.length === 0) return;
     if (window.confirm(`确定清空所有 ${buildingPositions.length} 个建筑位置？此操作不可撤销。`)) {
       setBuildingPositions([]);
+      if (!currentAccountId) return;
+      try {
+        await api.config.saveRokConfig(currentAccountId, { buildingPositions: {}, resources }, configName);
+        setMessage('建筑位置已清空并保存');
+      } catch { setMessage('保存失败，请手动点击保存'); }
     }
   };
 
