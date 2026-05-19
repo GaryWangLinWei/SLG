@@ -158,6 +158,13 @@ export function ConfigPage() {
     setBuildingPositions(prev => prev.filter((_, i) => i !== index));
   };
 
+  const clearAllBuildings = () => {
+    if (buildingPositions.length === 0) return;
+    if (window.confirm(`确定清空所有 ${buildingPositions.length} 个建筑位置？此操作不可撤销。`)) {
+      setBuildingPositions([]);
+    }
+  };
+
   const assignBuildingToResource = (index: number, buildingName: string) => {
     setResources(prev => {
       const next = [...prev];
@@ -361,15 +368,25 @@ export function ConfigPage() {
               {buildingPositions.length === 0 ? (
                 <p className="text-gray-500 text-sm">在截图上点击标注建筑坐标</p>
               ) : (
-                <div className="space-y-2 max-h-96 overflow-y-auto">
-                  {buildingPositions.map((b, i) => (
-                    <div key={i} className="flex items-center gap-2 bg-gray-700 rounded p-2">
-                      <span className="text-sm flex-1">{b.name}</span>
-                      <span className="text-xs text-gray-400">({b.x}, {b.y})</span>
-                      <button onClick={() => removeBuilding(i)} className="text-red-400 hover:text-red-300 text-xs px-2">×</button>
+                <>
+                  <div className="space-y-2 max-h-96 overflow-y-auto">
+                    {buildingPositions.map((b, i) => (
+                      <div key={i} className="flex items-center gap-2 bg-gray-700 rounded p-2">
+                        <span className="text-sm flex-1">{b.name}</span>
+                        <span className="text-xs text-gray-400">({b.x}, {b.y})</span>
+                        <button onClick={() => removeBuilding(i)} className="text-red-400 hover:text-red-300 text-xs px-2">×</button>
+                      </div>
+                    ))}
+                  </div>
+                  {buildingPositions.length > 0 && (
+                    <div className="mt-3 text-right">
+                      <button
+                        onClick={clearAllBuildings}
+                        className="px-3 py-1.5 bg-red-700 hover:bg-red-600 rounded text-xs"
+                      >清空全部</button>
                     </div>
-                  ))}
-                </div>
+                  )}
+                </>
               )}
             </div>
           )}

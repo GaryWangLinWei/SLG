@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAccount } from '../contexts/AccountContext';
 import { useLicense } from '../contexts/LicenseContext';
+import { DEFAULT_HOME_FEATURES } from '../../../plugins/rok';
 
 // Module-level loop state — survives component unmount/remount during SPA navigation
 let loopStopped = false;
@@ -122,27 +123,9 @@ export function HomePage() {
   const [logs, setLogs] = useState<string[]>(loopLogs);
   useEffect(() => { loopLogs = logs; }, [logs]);
   const DEFAULT_FEATURES = {
-    collectResources: true,
-    upgradeBuildings: true,
-    selectedBuildings: ['', '', '', '', ''] as string[],
+    ...DEFAULT_HOME_FEATURES,
     completedBuildings: [false, false, false, false, false] as boolean[],
-    autoResearch: false,
-    selectedTechs: ['', '', '', '', ''] as string[],
     completedTechs: [false, false, false, false, false] as boolean[],
-    gatherResources: false,
-    gatherTasks: [
-      { type: '农田', level: 5 },
-      { type: '伐木场', level: 4 },
-      { type: '石矿', level: 3 },
-      { type: '金矿', level: 2 },
-      { type: '', level: 1 },
-    ],
-    trainTroops: false,
-    trainTasks: { '兵营': 0, '马厩': 0, '靶场': 0, '攻城武器厂': 0 } as Record<string, number>,
-    autoExplore: false,
-    exploreCount: 3,
-    helpTeammates: false,
-    loopInterval: 300,
   };
 
   const loadFeatures = () => {
@@ -170,9 +153,25 @@ export function HomePage() {
 
   const [features, setFeatures] = useState(loadFeatures);
 
+  const featuresToPersist = (f: typeof DEFAULT_FEATURES): typeof DEFAULT_HOME_FEATURES => {
+    const { completedBuildings, completedTechs, ...rest } = f;
+    return rest;
+  };
+
+  const [configNames, setConfigNames] = useState<string[]>([]);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(() => {
     localStorage.setItem('home-features', JSON.stringify(features));
-  }, [features]);
+    if (!currentAccountId || !activeConfigName) return;
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      api.config.saveRokConfig(currentAccountId, { homeFeatures: featuresToPersist(features) }, activeConfigName).catch(() => {});
+    }, 800);
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [features, currentAccountId, activeConfigName]);
 
   const RESOURCE_TYPES = ['农田', '伐木场', '石矿', '金矿'];
   const RESOURCE_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -240,12 +239,66 @@ export function HomePage() {
     }).catch(() => {});
   }, [currentAccountId]);
 
+  // On mount + account change: load features from config, migrate from localStorage if needed
   useEffect(() => {
     if (!currentAccountId) return;
-    api.config.getProfiles(currentAccountId).then(res => {
-      if (res.success) setActiveConfigName(res.active);
-    }).catch(() => {});
+    (async () => {
+      try {
+        const res = await api.config.getRokConfig(currentAccountId);
+        if (res.success && res.config?.homeFeatures) {
+          setFeatures((prev: typeof DEFAULT_FEATURES) => ({
+            ...DEFAULT_HOME_FEATURES,
+            ...res.config.homeFeatures,
+            completedBuildings: prev.completedBuildings,
+            completedTechs: prev.completedTechs,
+          }));
+        } else {
+          // One-shot migration: save current localStorage features to config
+          setFeatures((prev: typeof DEFAULT_FEATURES) => {
+            api.config.saveRokConfig(currentAccountId, { homeFeatures: featuresToPersist(prev) }, activeConfigName || '默认配置').catch(() => {});
+            return prev;
+          });
+        }
+      } catch {}
+      try {
+        const pRes = await api.config.getProfiles(currentAccountId);
+        if (pRes.success) {
+          setConfigNames(pRes.profiles);
+          if (!activeConfigName) setActiveConfigName(pRes.active);
+        }
+      } catch {}
+    })();
   }, [currentAccountId]);
+
+  const handleConfigSwitch = async (newName: string) => {
+    if (!currentAccountId || newName === activeConfigName) return;
+    // Cancel any pending debounce save
+    if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
+    // Save current features to old config immediately
+    try {
+      await api.config.saveRokConfig(currentAccountId, { homeFeatures: featuresToPersist(features) }, activeConfigName);
+    } catch {}
+    // Switch profile
+    try {
+      await api.config.switchProfile(currentAccountId, newName);
+      setActiveConfigName(newName);
+      const res = await api.config.getRokConfig(currentAccountId);
+      if (res.success && res.config?.homeFeatures) {
+        setFeatures({
+          ...DEFAULT_HOME_FEATURES,
+          ...res.config.homeFeatures,
+          completedBuildings: [false, false, false, false, false],
+          completedTechs: [false, false, false, false, false],
+        });
+      } else {
+        setFeatures({ ...DEFAULT_FEATURES });
+      }
+      loopCompletedBuildings = [false, false, false, false, false];
+      loopCompletedTechs = [false, false, false, false, false];
+    } catch (e: any) {
+      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 配置切换失败: ${e.message}`]);
+    }
+  };
 
   const handleConnectDevice = async () => {
     if (!currentAccountId) return;
@@ -502,7 +555,15 @@ export function HomePage() {
             {currentAccountId && (
               <span className="text-sm text-gray-400">
                 👤 {accounts.find(a => a.id === currentAccountId)?.name || currentAccountId}
-                {activeConfigName && <span className="ml-2">| 📐 {activeConfigName}</span>}
+                {configNames.length > 0 && (
+                  <select
+                    value={activeConfigName}
+                    onChange={e => handleConfigSwitch(e.target.value)}
+                    className="ml-2 px-2 py-0.5 bg-gray-700 rounded text-xs border border-gray-600 text-gray-300"
+                  >
+                    {configNames.map(n => <option key={n} value={n}>📐 {n}</option>)}
+                  </select>
+                )}
               </span>
             )}
           </div>
