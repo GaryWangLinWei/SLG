@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAccount } from '../contexts/AccountContext';
 import { useLicense } from '../contexts/LicenseContext';
-import { DEFAULT_HOME_FEATURES } from '../../../plugins/rok';
+import { DEFAULT_HOME_FEATURES } from '../../../plugins/rok/homeFeatures';
 
 // Module-level loop state — survives component unmount/remount during SPA navigation
 let loopStopped = false;
