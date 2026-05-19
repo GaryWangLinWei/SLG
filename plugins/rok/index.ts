@@ -5,6 +5,7 @@ import { gatherSingleResource, GatherTask } from './actions/gatherResources';
 import { researchTech, TECH_TEMPLATES, ECONOMIC_TECHS, MILITARY_TECHS } from './actions/researchTech';
 import { trainTroopsSingle } from './actions/trainTroops';
 import { explore } from './actions/explore';
+import { idleDrag } from './actions/idleDrag';
 import { helpTeammates } from './actions/helpTeammates';
 import { ensureInCity, ensureBottomBarCollapsed } from './utils/location';
 
@@ -329,6 +330,14 @@ export const RiseOfKingdomsPlugin: Plugin = {
           }
         }
         ctx.log('=== 训练队列执行完毕 ===');
+      }
+    },
+    {
+      id: 'idle-drag',
+      name: '随机拖拽',
+      description: '模拟人类在循环等待期间随机滑动屏幕',
+      run: async (ctx) => {
+        await idleDrag(ctx);
       }
     },
     {
