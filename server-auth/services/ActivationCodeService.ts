@@ -100,6 +100,23 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
   }
 
   // 首次激活：绑定设备
+  // Check for existing device bindings to accumulate remaining time (renewal with new code)
+  const existingBinding = db.prepare(`
+    SELECT ac.expires_at
+    FROM device_bindings db
+    JOIN activation_codes ac ON db.activation_code_id = ac.id
+    WHERE db.device_fingerprint = ?
+    ORDER BY ac.expires_at DESC
+    LIMIT 1
+  `).get(deviceFingerprint) as { expires_at?: number } | undefined;
+
+  let remainingMs = 0;
+  if (existingBinding?.expires_at) {
+    remainingMs = Math.max(0, existingBinding.expires_at - now);
+  }
+
+  const expiresAt = now + remainingMs + activationCode.duration_days * 24 * 60 * 60 * 1000;
+
   const updateCode = db.prepare(`
     UPDATE activation_codes SET status = 'used', used_at = ?, expires_at = ? WHERE id = ?
   `);
@@ -108,8 +125,6 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
     INSERT INTO device_bindings (activation_code_id, device_fingerprint, bound_at, last_heartbeat_at)
     VALUES (?, ?, ?, ?)
   `);
-
-  const expiresAt = now + activationCode.duration_days * 24 * 60 * 60 * 1000;
 
   const transaction = db.transaction(() => {
     updateCode.run(now, expiresAt, activationCode.id);
