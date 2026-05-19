@@ -198,6 +198,7 @@ export function ConfigPage() {
       await api.config.createProfile(currentAccountId, name.trim());
       setMessage(`配置「${name.trim()}」已创建`);
       await loadProfiles();
+      await loadConfig();
     } catch (e: any) {
       setMessage(e.message || '创建失败');
     }
@@ -224,23 +225,7 @@ export function ConfigPage() {
       await api.config.deleteProfile(currentAccountId, configName);
       setMessage(`配置「${configName}」已删除`);
       await loadProfiles();
-      const res2 = await api.config.getProfiles(currentAccountId);
-      if (res2.success && res2.active) {
-        setConfigName(res2.active);
-        setActiveConfigName(res2.active);
-        // Reload config for the new active profile
-        const cfg = await api.config.getRokConfig(currentAccountId);
-        if (cfg.success && cfg.config) {
-          if (cfg.config.buildingPositions) {
-            const entries = Object.entries(cfg.config.buildingPositions as Record<string, { x: number; y: number }>);
-            setBuildingPositions(entries.map(([bName, pos]) => ({ name: bName, x: pos.x, y: pos.y })));
-          } else {
-            setBuildingPositions([]);
-          }
-          if (cfg.config.resources) setResources(cfg.config.resources);
-          else setResources([]);
-        }
-      }
+      await loadConfig();
     } catch (e: any) {
       setMessage(e.message || '删除失败');
     }
