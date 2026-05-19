@@ -111,8 +111,9 @@ function TechSelect({ value, onChange, excludeValues, economicTechs, militaryTec
 }
 
 export function HomePage() {
-  const { currentAccountId } = useAccount();
+  const { currentAccountId, accounts } = useAccount();
   const { refreshStatus, setExpiredMessage } = useLicense();
+  const [activeConfigName, setActiveConfigName] = useState('');
   const [deviceConnected, setDeviceConnected] = useState(false);
   const [deviceLoading, setDeviceLoading] = useState(false);
   const [taskRunning, setTaskRunning] = useState(false);
@@ -236,6 +237,13 @@ export function HomePage() {
       if (res.defaultConfig?.techResearch?.militaryTechs) {
         setMilitaryTechs(res.defaultConfig.techResearch.militaryTechs);
       }
+    }).catch(() => {});
+  }, [currentAccountId]);
+
+  useEffect(() => {
+    if (!currentAccountId) return;
+    api.config.getProfiles(currentAccountId).then(res => {
+      if (res.success) setActiveConfigName(res.active);
     }).catch(() => {});
   }, [currentAccountId]);
 
@@ -489,7 +497,15 @@ export function HomePage() {
     <div className="min-h-screen bg-gray-900 text-white">
       <div className="bg-gray-800 p-4 border-b border-gray-700">
         <div className="max-w-4xl mx-auto flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-blue-400">万国觉醒自动化助手</h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-blue-400">万国觉醒自动化助手</h1>
+            {currentAccountId && (
+              <span className="text-sm text-gray-400">
+                👤 {accounts.find(a => a.id === currentAccountId)?.name || currentAccountId}
+                {activeConfigName && <span className="ml-2">| 📐 {activeConfigName}</span>}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
               <span className={`w-3 h-3 rounded-full ${deviceConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
