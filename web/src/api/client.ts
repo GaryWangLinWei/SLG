@@ -148,12 +148,36 @@ export const api = {
   },
 
   config: {
-    getRokConfig: (accountId: string) =>
-      request<{ success: boolean; config: Record<string, any> }>(`/config/rok?accountId=${accountId}`),
-    saveRokConfig: (accountId: string, config: Record<string, any>) =>
-      request<{ success: boolean }>(`/config/rok?accountId=${accountId}`, {
+    getRokConfig: (accountId: string, name?: string) => {
+      const params = new URLSearchParams({ accountId });
+      if (name) params.set('name', name);
+      return request<{ success: boolean; config: Record<string, any> }>(`/config/rok?${params}`);
+    },
+    saveRokConfig: (accountId: string, config: Record<string, any>, name: string) =>
+      request<{ success: boolean }>(`/config/rok?accountId=${accountId}&name=${encodeURIComponent(name)}`, {
         method: 'PUT',
         body: JSON.stringify(config)
+      }),
+    getProfiles: (accountId: string) =>
+      request<{ success: boolean; profiles: string[]; active: string }>(`/config/rok/profiles?accountId=${accountId}`),
+    switchProfile: (accountId: string, name: string) =>
+      request<{ success: boolean }>(`/config/rok/switch?accountId=${accountId}`, {
+        method: 'POST',
+        body: JSON.stringify({ name })
+      }),
+    createProfile: (accountId: string, name: string) =>
+      request<{ success: boolean }>(`/config/rok/create?accountId=${accountId}`, {
+        method: 'POST',
+        body: JSON.stringify({ name })
+      }),
+    deleteProfile: (accountId: string, name: string) =>
+      request<{ success: boolean }>(`/config/rok?accountId=${accountId}&name=${encodeURIComponent(name)}`, {
+        method: 'DELETE'
+      }),
+    renameProfile: (accountId: string, oldName: string, newName: string) =>
+      request<{ success: boolean }>(`/config/rok/rename?accountId=${accountId}`, {
+        method: 'POST',
+        body: JSON.stringify({ oldName, newName })
       })
   },
 
