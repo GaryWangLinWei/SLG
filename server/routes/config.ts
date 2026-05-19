@@ -15,10 +15,15 @@ router.get('/rok', async (ctx) => {
     return;
   }
 
-  const config = name
-    ? await configService.loadConfigByName(accountId, name)
-    : await configService.loadConfig(accountId);
-  ctx.body = { success: true, config };
+  try {
+    const config = name
+      ? await configService.loadConfigByName(accountId, name)
+      : await configService.loadConfig(accountId);
+    ctx.body = { success: true, config };
+  } catch (e: any) {
+    ctx.status = 400;
+    ctx.body = { success: false, error: e.message };
+  }
 });
 
 // PUT /api/config/rok?accountId=xxx&name=yyy — 保存配置
@@ -39,8 +44,13 @@ router.put('/rok', async (ctx) => {
     return;
   }
 
-  await configService.saveConfig(accountId, name, config);
-  ctx.body = { success: true };
+  try {
+    await configService.saveConfig(accountId, name, config);
+    ctx.body = { success: true };
+  } catch (e: any) {
+    ctx.status = 400;
+    ctx.body = { success: false, error: e.message };
+  }
 });
 
 // GET /api/config/rok/profiles?accountId=xxx — 列出所有配置
@@ -52,8 +62,13 @@ router.get('/rok/profiles', async (ctx) => {
     return;
   }
 
-  const result = await configService.listProfiles(accountId);
-  ctx.body = { success: true, ...result };
+  try {
+    const result = await configService.listProfiles(accountId);
+    ctx.body = { success: true, ...result };
+  } catch (e: any) {
+    ctx.status = 400;
+    ctx.body = { success: false, error: e.message };
+  }
 });
 
 // POST /api/config/rok/switch?accountId=xxx — 切换激活配置
