@@ -57,9 +57,48 @@ class AdbDevice {
 const actualInterval = loopInterval * (0.9 + Math.random() * 0.2);
 ```
 
+### 4. 等待期随机拖拽（idle drag）
+
+**文件:** `plugins/rok/actions/idleDrag.ts` (新建) + `plugins/rok/index.ts`
+
+在循环等待期间插入随机拖拽，模拟人在滑动浏览城池。
+
+**行为：**
+- 在等待期内随机执行 1-3 次拖拽
+- 每次拖拽的时间点随机分布
+- 拖拽方向随机（上下左右），距离随机（200~800px），速度随机（300~1200ms）
+- 城内城外不限制，可自由切换
+
+**实现方式：**
+
+新建 `idleDrag` action：
+
+```ts
+export async function idleDrag(ctx: PluginContext): Promise<void> {
+  const dragCount = 1 + Math.floor(Math.random() * 3); // 1-3 次
+  for (let i = 0; i < dragCount; i++) {
+    // 随机方向 + 随机距离 + 随机速度
+    const x1 = 200 + Math.random() * 680;   // 200~880
+    const y1 = 200 + Math.random() * 800;   // 200~1000
+    const x2 = x1 + (Math.random() - 0.5) * 800;
+    const y2 = y1 + (Math.random() - 0.5) * 800;
+    const duration = 300 + Math.random() * 900; // 300~1200ms
+    await ctx.swipe(x1, y1, x2, y2, duration);
+    // 拖拽间隔随机
+    await ctx.sleep(2 + Math.random() * 4);
+  }
+}
+```
+
+**前端触发：**
+
+`Home.tsx` 的主循环等待期间，随机时间点调用 `idle-drag` action（通过 API），将等待拆分为"等待一段 → 调用拖拽 → 等待剩余"。
+
 ### 涉及文件
 
 | 文件 | 改动 |
 |------|------|
-| `core/device/AdbDevice.ts` | 主要改动，加随机化逻辑 + 配置方法 |
-| `web/src/pages/Home.tsx` | loopInterval ±10% 波动 |
+| `core/device/AdbDevice.ts` | 主要改动，tap/swipe/sleep 加随机偏移 |
+| `plugins/rok/actions/idleDrag.ts` | 新建，随机拖拽 action |
+| `plugins/rok/index.ts` | 注册 idle-drag action |
+| `web/src/pages/Home.tsx` | loopInterval ±10% 波动 + 等待期插入 idleDrag |
