@@ -94,6 +94,8 @@ export async function idleDrag(ctx: PluginContext): Promise<void> {
 
 `Home.tsx` 的主循环等待期间，随机时间点调用 `idle-drag` action（通过 API），将等待拆分为"等待一段 → 调用拖拽 → 等待剩余"。
 
+**约束：** 距离下一次循环开始前 5 秒内不执行拖拽，避免与循环任务冲突。
+
 ### 涉及文件
 
 | 文件 | 改动 |

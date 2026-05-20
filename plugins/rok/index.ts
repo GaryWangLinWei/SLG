@@ -91,8 +91,13 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
     militaryTechs: Array.from(MILITARY_TECHS)
   },
 
-  // ========== 资源收集（通过坐标配置页面设置） ==========
-  resources: [],
+  // ========== 资源收集（默认采集这4种建筑，通过 buildingPositions 找坐标） ==========
+  resources: [
+    { building: '农场', collectOffset: { x: 0, y: 50 } },
+    { building: '木材厂', collectOffset: { x: 0, y: 50 } },
+    { building: '采石场', collectOffset: { x: 0, y: 50 } },
+    { building: '金矿', collectOffset: { x: 0, y: 50 } },
+  ],
 
   // ========== 城外资源采集 ==========
   resourceCollect: {
