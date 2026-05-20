@@ -7,6 +7,7 @@ import { trainTroopsSingle } from './actions/trainTroops';
 import { explore } from './actions/explore';
 import { idleDrag } from './actions/idleDrag';
 import { helpTeammates } from './actions/helpTeammates';
+import { readQueueOverview } from './actions/readQueueOverview';
 import { ensureInCity, ensureBottomBarCollapsed } from './utils/location';
 
 // 万国觉醒 - 配置项
@@ -62,6 +63,17 @@ export interface RokConfig {
       plusOffset: { x: number; y: number };
       searchOffset: { x: number; y: number };
     }>;
+  };
+
+  // 队列速览 OCR（读取建造/训练/研究倒计时）
+  queueOverview?: {
+    openButton: { x: number; y: number };
+    closeButton?: { x: number; y: number };
+    rows: {
+      build: { x: number; y: number; w: number; h: number };
+      train: { x: number; y: number; w: number; h: number };
+      research: { x: number; y: number; w: number; h: number };
+    };
   };
 
   homeFeatures?: HomeFeatures;
@@ -131,6 +143,9 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
       },
     }
   },
+
+  // ========== 队列速览 OCR ==========
+  queueOverview: undefined,
 
   homeFeatures: DEFAULT_HOME_FEATURES,
 };
@@ -367,7 +382,16 @@ export const RiseOfKingdomsPlugin: Plugin = {
         const outcome = await explore(ctx, config, params.scoutBuilding, params.maxScouts);
         ctx.log(`派出斥候: ${outcome.dispatched} 个 (${outcome.result})`);
       }
-    }
+    },
+    {
+      id: 'read-queue-overview',
+      name: '读取队列倒计时',
+      description: '打开队列速览面板，OCR 读取建造/训练/研究倒计时',
+      run: async (ctx) => {
+        const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
+        await readQueueOverview(ctx, config);
+      }
+    },
   ],
 
   onLoad: async () => {
