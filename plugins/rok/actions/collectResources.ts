@@ -7,10 +7,6 @@ export async function collectResources(
   config: RokConfig
 ): Promise<void> {
   ctx.log('=== Start collecting RoK resources...');
-
-  // 重置视角，确保建筑位置与配置坐标吻合
-  await resetCityView(ctx, config);
-
   ctx.log(`Found ${config.resources.length} resource buildings`);
 
   for (let i = 0; i < config.resources.length; i++) {
@@ -22,7 +18,10 @@ export async function collectResources(
     }
     ctx.log(`Processing [${i + 1}/${config.resources.length}]: ${resource.building}`);
 
-    // Tap resource building (直接点击建筑位置即可触发收集)
+    // 每项资源收集前重置视角，确保建筑位置与配置坐标吻合
+    await resetCityView(ctx, config);
+
+    // Tap resource building
     ctx.log(`Tap position: (${pos.x}, ${pos.y})`);
     await ctx.tap(pos.x, pos.y);
     await ctx.sleep(1);
