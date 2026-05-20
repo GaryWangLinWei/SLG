@@ -23,10 +23,8 @@ export function ConfigPage() {
   const [mode, setMode] = useState<'tap' | 'annotate'>('annotate');
 
   const [buildingPositions, setBuildingPositions] = useState<BuildingPos[]>([]);
-  const [resources, setResources] = useState<{ building: string; collectOffset: { x: number; y: number } }[]>([]);
   const [pendingCoord, setPendingCoord] = useState<{ x: number; y: number; domX: number; domY: number } | null>(null);
   const [selectedBuildingType, setSelectedBuildingType] = useState('');
-  const [selectedSection, setSelectedSection] = useState<'buildings' | 'resources'>('buildings');
   const [configName, setConfigName] = useState('默认配置');
   const [configNames, setConfigNames] = useState<string[]>([]);
   const [activeConfigName, setActiveConfigName] = useState('');
@@ -48,7 +46,6 @@ export function ConfigPage() {
           const entries = Object.entries(res.config.buildingPositions as Record<string, { x: number; y: number }>);
           setBuildingPositions(entries.map(([name, pos]) => ({ name, x: pos.x, y: pos.y })));
         }
-        if (res.config.resources) setResources(res.config.resources);
       }
     } catch { /* ignore */ }
   }, [currentAccountId]);
@@ -79,8 +76,6 @@ export function ConfigPage() {
         } else {
           setBuildingPositions([]);
         }
-        if (res.config.resources) setResources(res.config.resources);
-        else setResources([]);
       }
     } catch (e: any) {
       setMessage(e.message || '切换失败');
@@ -164,32 +159,16 @@ export function ConfigPage() {
       setBuildingPositions([]);
       if (!currentAccountId) return;
       try {
-        await api.config.saveRokConfig(currentAccountId, { buildingPositions: {}, resources }, configName);
+        await api.config.saveRokConfig(currentAccountId, { buildingPositions: {} }, configName);
         setMessage('建筑位置已清空并保存');
       } catch { setMessage('保存失败，请手动点击保存'); }
     }
   };
 
-  const assignBuildingToResource = (index: number, buildingName: string) => {
-    setResources(prev => {
-      const next = [...prev];
-      if (index >= next.length) {
-        next.push({ building: buildingName, collectOffset: { x: 0, y: 50 } });
-      } else {
-        next[index] = { ...next[index], building: buildingName };
-      }
-      return next;
-    });
-  };
-
-  const removeResource = (index: number) => {
-    setResources(prev => prev.filter((_, i) => i !== index));
-  };
-
   const buildConfig = () => {
     const bp: Record<string, { x: number; y: number }> = {};
     buildingPositions.forEach(b => { bp[b.name] = { x: b.x, y: b.y }; });
-    return { buildingPositions: bp, resources };
+    return { buildingPositions: bp };
   };
 
   const handleSave = async () => {
@@ -358,64 +337,32 @@ export function ConfigPage() {
         </div>
 
         <div className="w-96 flex-shrink-0">
-          <div className="flex gap-1 mb-4 bg-gray-800 rounded-lg p-1">
-            {(['buildings', 'resources'] as const).map(s => (
-              <button key={s} onClick={() => setSelectedSection(s)}
-                className={`flex-1 px-3 py-2 rounded text-sm ${selectedSection === s ? 'bg-gray-700' : ''}`}>
-                {{ buildings: '建筑', resources: '收集' }[s]}
-              </button>
-            ))}
-          </div>
-
-          {selectedSection === 'buildings' && (
-            <div className="bg-gray-800 rounded-lg p-4">
-              <h3 className="font-bold mb-3">建筑位置</h3>
-              {buildingPositions.length === 0 ? (
-                <p className="text-gray-500 text-sm">在截图上点击标注建筑坐标</p>
-              ) : (
-                <>
-                  <div className="space-y-2 max-h-96 overflow-y-auto">
-                    {buildingPositions.map((b, i) => (
-                      <div key={i} className="flex items-center gap-2 bg-gray-700 rounded p-2">
-                        <span className="text-sm flex-1">{b.name}</span>
-                        <span className="text-xs text-gray-400">({b.x}, {b.y})</span>
-                        <button onClick={() => removeBuilding(i)} className="text-red-400 hover:text-red-300 text-xs px-2">×</button>
-                      </div>
-                    ))}
-                  </div>
-                  {buildingPositions.length > 0 && (
-                    <div className="mt-3 text-right">
-                      <button
-                        onClick={clearAllBuildings}
-                        className="px-3 py-1.5 bg-red-700 hover:bg-red-600 rounded text-xs"
-                      >清空全部</button>
+          <div className="bg-gray-800 rounded-lg p-4">
+            <h3 className="font-bold mb-3">建筑位置</h3>
+            {buildingPositions.length === 0 ? (
+              <p className="text-gray-500 text-sm">在截图上点击标注建筑坐标</p>
+            ) : (
+              <>
+                <div className="space-y-2 max-h-96 overflow-y-auto">
+                  {buildingPositions.map((b, i) => (
+                    <div key={i} className="flex items-center gap-2 bg-gray-700 rounded p-2">
+                      <span className="text-sm flex-1">{b.name}</span>
+                      <span className="text-xs text-gray-400">({b.x}, {b.y})</span>
+                      <button onClick={() => removeBuilding(i)} className="text-red-400 hover:text-red-300 text-xs px-2">×</button>
                     </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-
-          {selectedSection === 'resources' && (
-            <div className="bg-gray-800 rounded-lg p-4">
-              <h3 className="font-bold mb-3">资源收集配置</h3>
-              <p className="text-xs text-gray-400 mb-3">指定哪些建筑需要收集资源</p>
-              {[0, 1, 2, 3, 4].map(i => {
-                const r = resources[i];
-                return (
-                  <div key={i} className="flex items-center gap-2 mb-2 bg-gray-700 rounded p-2">
-                    <span className="text-xs text-gray-400 w-4">#{i + 1}</span>
-                    <select value={r?.building || ''} onChange={e => assignBuildingToResource(i, e.target.value)}
-                      className="px-2 py-1 bg-gray-800 rounded text-sm border border-gray-600 flex-1">
-                      <option value="">-</option>
-                      {buildingPositions.map(b => (<option key={b.name} value={b.name}>{b.name}</option>))}
-                    </select>
-                    {r && <button onClick={() => removeResource(i)} className="text-red-400 hover:text-red-300 text-xs px-2">×</button>}
+                  ))}
+                </div>
+                {buildingPositions.length > 0 && (
+                  <div className="mt-3 text-right">
+                    <button
+                      onClick={clearAllBuildings}
+                      className="px-3 py-1.5 bg-red-700 hover:bg-red-600 rounded text-xs"
+                    >清空全部</button>
                   </div>
-                );
-              })}
-            </div>
-          )}
+                )}
+              </>
+            )}
+          </div>
 
         </div>
       </div>
