@@ -95,6 +95,38 @@ class LicenseService {
       return { success: false, error: '测试错误：激活码无效' };
     }
 
+    // 同级别续费测试码（时间累加）
+    if (activationCode === 'RENEW-SAME') {
+      const existing = await loadLicense();
+      if (!existing) {
+        return { success: false, error: '请先用基础激活码激活，再续费' };
+      }
+      const remainingMs = Math.max(0, existing.expiresAt - Date.now());
+      const newExpiresAt = Date.now() + remainingMs + 30 * 24 * 60 * 60 * 1000;
+      await saveLicense({ ...existing, expiresAt: newExpiresAt });
+      return { success: true, expiresAt: newExpiresAt, renewType: 'same' };
+    }
+
+    // 升级/降级测试码（时间重置）
+    if (activationCode === 'RENEW-UP') {
+      const existing = await loadLicense();
+      if (!existing) {
+        return { success: false, error: '请先用基础激活码激活，再续费' };
+      }
+      const newExpiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000;
+      await saveLicense({ ...existing, expiresAt: newExpiresAt });
+      return { success: true, expiresAt: newExpiresAt, renewType: 'up' };
+    }
+    if (activationCode === 'RENEW-DOWN') {
+      const existing = await loadLicense();
+      if (!existing) {
+        return { success: false, error: '请先用基础激活码激活，再续费' };
+      }
+      const newExpiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000;
+      await saveLicense({ ...existing, expiresAt: newExpiresAt });
+      return { success: true, expiresAt: newExpiresAt, renewType: 'down' };
+    }
+
     try {
       const response = await fetch(`${AUTH_SERVER_URL}/api/auth/activate`, {
         method: 'POST',
@@ -109,31 +141,46 @@ class LicenseService {
         return { success: false, error: data?.error || '激活失败，请检查激活码' };
       }
 
+      // Safety: never let expiration go backward from existing license
+      const existing = await loadLicense();
+      const safeExpiresAt = existing
+        ? Math.max(data.expiresAt, existing.expiresAt)
+        : data.expiresAt;
+
       const licenseData: StoredLicenseData = {
         token: data.token,
-        expiresAt: data.expiresAt,
+        expiresAt: safeExpiresAt,
         fingerprint,
-        activatedAt: Date.now(),
+        activatedAt: existing?.activatedAt || Date.now(),
         lastHeartbeatAt: Date.now(),
       };
 
       await saveLicense(licenseData);
       this.startHeartbeatInterval();
 
-      return { success: true, expiresAt: data.expiresAt };
+      return { success: true, expiresAt: safeExpiresAt };
     } catch (e: any) {
       return { success: false, error: '无法连接授权服务器，请检查网络: ' + e.message };
     }
   }
 
   // 预览激活码信息（续费前使用）
-  async preview(activationCode: string): Promise<{ success: boolean; durationDays?: number; changeType?: 'same'; error?: string }> {
+  async preview(activationCode: string): Promise<{ success: boolean; durationDays?: number; changeType?: 'same' | 'up' | 'down'; error?: string }> {
     // 测试码预览
     if (activationCode === 'DEMO-123456') {
       return { success: true, durationDays: 30, changeType: 'same' };
     }
     if (activationCode === 'RENEW') {
       return { success: true, durationDays: 30, changeType: 'same' };
+    }
+    if (activationCode === 'RENEW-SAME') {
+      return { success: true, durationDays: 30, changeType: 'same' };
+    }
+    if (activationCode === 'RENEW-UP') {
+      return { success: true, durationDays: 30, changeType: 'up' };
+    }
+    if (activationCode === 'RENEW-DOWN') {
+      return { success: true, durationDays: 30, changeType: 'down' };
     }
     if (activationCode === 'ERROR') {
       return { success: false, error: '测试错误：激活码无效' };

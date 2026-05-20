@@ -19,7 +19,7 @@ export interface ActivationResult {
   success: boolean;
   error?: string;
   expiresAt?: number;
-  renewType?: 'same';  // same = 续费累加时间
+  renewType?: 'same' | 'up' | 'down';  // same=续费累加, up/down=时间重置
 }
 
 export interface HeartbeatResult {
