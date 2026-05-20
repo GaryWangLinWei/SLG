@@ -1,11 +1,16 @@
 import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
+import { resetCityView } from '../utils/location';
 
 export async function collectResources(
   ctx: PluginContext,
   config: RokConfig
 ): Promise<void> {
   ctx.log('=== Start collecting RoK resources...');
+
+  // 重置视角，确保建筑位置与配置坐标吻合
+  await resetCityView(ctx, config);
+
   ctx.log(`Found ${config.resources.length} resource buildings`);
 
   for (let i = 0; i < config.resources.length; i++) {
