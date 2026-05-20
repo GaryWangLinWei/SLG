@@ -357,9 +357,12 @@ export function HomePage() {
     (async () => {
       let round = 0;
       let bottomBarChecked = false;
+      let lastCollectTime = 0;
+      const COLLECT_INTERVAL = 4 * 3600; // 4小时
+
       while (!loopStopped) {
         round++;
-        setLogs(prev => { const next = [...prev, `[${new Date().toLocaleTimeString()}] 🔄 第${round}轮开始`]; saveLoopState(currentAccountId); return next; });
+        setLogs(prev => { const next = [...prev, `[${new Date().toLocaleTimeString()}] 🔄 第${round}轮`]; saveLoopState(currentAccountId); return next; });
 
         const ids: string[] = [];
 
@@ -381,8 +384,7 @@ export function HomePage() {
               const runResult = await api.tasks.run(createResult.task.id);
               const logs = runResult.task?.logs ?? [];
 
-              // 检查任务执行中是否因许可证过期被自动停止
-              const hasExpiredLog = logs.some(l => l.includes('许可证已过期'));
+              const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
               const hasExpiredError = runResult.task?.error && /license.*expir|许可证.*过/i.test(runResult.task.error);
               if (hasExpiredLog || hasExpiredError) {
                 handleLicenseExpired();
@@ -393,7 +395,6 @@ export function HomePage() {
               return logs;
             }
           } catch (e: any) {
-            // 检查 API 层面的 LICENSE_EXPIRED（中间件拦截）
             const isLicenseExpired =
               e?.data?.error === 'LICENSE_EXPIRED' ||
               e?.status === 403 ||
@@ -407,91 +408,129 @@ export function HomePage() {
           return [];
         };
 
+        const parseOcrResult = (logs: string[]): { build: number | null; train: number | null; research: number | null } => {
+          const line = logs.find((l: string) => l.startsWith('[OCR-RESULT]'));
+          if (!line) return { build: null, train: null, research: null };
+          const match = line.match(/build=(-?\d+|null)\s+train=(-?\d+|null)\s+research=(-?\d+|null)/);
+          if (!match) return { build: null, train: null, research: null };
+          const parse = (s: string) => s === 'null' ? null : parseInt(s, 10);
+          return { build: parse(match[1]), train: parse(match[2]), research: parse(match[3]) };
+        };
+
         if (!bottomBarChecked) {
           await runTask('ensure-bottom-bar');
           bottomBarChecked = true;
         }
 
-        if (isExploreMode) {
+        // Step 1: OCR 队列倒计时
+        const ocrLogs = await runTask('read-queue-overview');
+        const timers = parseOcrResult(ocrLogs);
+
+        if (loopStopped) break;
+
+        // Step 2: 执行到期/就绪的 action
+        const hasUpgrade = features.upgradeBuildings &&
+          features.selectedBuildings.some((b: string, i: number) => b && !loopCompletedBuildings[i]);
+        const hasResearch = features.autoResearch &&
+          features.selectedTechs.some((t: string, i: number) => t && !loopCompletedTechs[i]);
+        const hasTrain = features.trainTroops &&
+          (Object.values(features.trainTasks as Record<string, number>) as number[]).some((v: number) => v > 0);
+
+        if (hasUpgrade && timers.build !== null && timers.build <= 0) {
+          const targetBuildings = features.selectedBuildings
+            .filter((b: string, i: number) => b && !loopCompletedBuildings[i]);
+          if (targetBuildings.length > 0) {
+            const logs = await runTask('upgrade-buildings', { targetBuildings });
+            let changed = false;
+            features.selectedBuildings.forEach((b: string, i: number) => {
+              if (b && !loopCompletedBuildings[i] && logs.some((l: string) => l.includes(`✅ ${b} 升级成功`))) {
+                loopCompletedBuildings[i] = true;
+                changed = true;
+              }
+            });
+            if (changed) setFeatures((prev: typeof features) => ({ ...prev, completedBuildings: [...loopCompletedBuildings] }));
+          }
+        }
+
+        if (loopStopped) break;
+
+        if (hasResearch && timers.research !== null && timers.research <= 0) {
+          if (!buildingOptions.includes('学院')) {
+            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记学院位置，跳过研究科技`]);
+          } else {
+            const techs = features.selectedTechs.filter((t: string, i: number) => t && !loopCompletedTechs[i]);
+            if (techs.length > 0) {
+              const logs = await runTask('research-tech-queue', { targetTechs: techs, researchBuilding: '学院' });
+              let changed = false;
+              features.selectedTechs.forEach((t: string, i: number) => {
+                if (t && !loopCompletedTechs[i] && logs.some((l: string) => l.includes(`✅ ${t} 研究成功`))) {
+                  loopCompletedTechs[i] = true;
+                  changed = true;
+                }
+              });
+              if (changed) setFeatures((prev: typeof features) => ({ ...prev, completedTechs: [...loopCompletedTechs] }));
+            }
+          }
+        }
+
+        if (loopStopped) break;
+
+        if (hasTrain && timers.train !== null && timers.train <= 0) {
+          const tasks = features.trainTasks as Record<string, number>;
+          const trainQueue = ['兵营', '马厩', '靶场', '攻城武器厂']
+            .filter(b => (tasks[b] ?? 0) > 0)
+            .map(b => ({ building: b, tier: tasks[b] }));
+          if (trainQueue.length > 0) await runTask('train-troops', { trainQueue });
+        }
+
+        // Step 3: 收集资源（4小时间隔）
+        const now = Date.now() / 1000;
+        if (features.collectResources && (now - lastCollectTime >= COLLECT_INTERVAL)) {
+          await runTask('collect-resources');
+          lastCollectTime = now;
+        }
+
+        // Step 4: 帮助盟友 & 城外采集 & 探索（每次检查执行）
+        if (features.helpTeammates && !loopStopped) {
+          await runTask('help-teammates');
+        }
+
+        if (features.gatherResources && !loopStopped) {
+          const gatherTasks = features.gatherTasks
+            .map((t: { type: string; level: number }, i: number) => ({ ...t, team: i + 1 }))
+            .filter((t: { type: string; level: number; team: number }) => t.type);
+          if (gatherTasks.length > 0) await runTask('gather-resources', { gatherTasks });
+        }
+
+        if (features.autoExplore && !loopStopped) {
           if (!buildingOptions.includes('斥候营地')) {
             setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记斥候营地位置，跳过自动探索`]);
           } else {
             await runTask('explore', { maxScouts: features.exploreCount });
           }
-        } else {
-          if (features.collectResources) await runTask('collect-resources');
-
-          if (features.helpTeammates && !loopStopped) {
-            await runTask('help-teammates');
-          }
-
-          if (features.upgradeBuildings && !loopStopped) {
-            const targetBuildings = features.selectedBuildings
-              .filter((b, i) => b && !loopCompletedBuildings[i]);
-            if (targetBuildings.length > 0) {
-              const logs = await runTask('upgrade-buildings', { targetBuildings });
-              // Mark completed slots by matching the building name against success logs
-              let changed = false;
-              features.selectedBuildings.forEach((b, i) => {
-                if (b && !loopCompletedBuildings[i] && logs.some(l => l.includes(`✅ ${b} 升级成功`))) {
-                  loopCompletedBuildings[i] = true;
-                  changed = true;
-                }
-              });
-              if (changed) {
-                setFeatures(prev => ({ ...prev, completedBuildings: [...loopCompletedBuildings] }));
-              }
-            }
-          }
-
-          if (features.autoResearch && !loopStopped) {
-            if (!buildingOptions.includes('学院')) {
-              setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记学院位置，跳过研究科技`]);
-            } else {
-              const techs = features.selectedTechs
-                .filter((t, i) => t && !loopCompletedTechs[i]);
-              if (techs.length > 0) {
-                const logs = await runTask('research-tech-queue', { targetTechs: techs, researchBuilding: '学院' });
-                let changed = false;
-                features.selectedTechs.forEach((t, i) => {
-                  if (t && !loopCompletedTechs[i] && logs.some(l => l.includes(`✅ ${t} 研究成功`))) {
-                    loopCompletedTechs[i] = true;
-                    changed = true;
-                  }
-                });
-                if (changed) {
-                  setFeatures(prev => ({ ...prev, completedTechs: [...loopCompletedTechs] }));
-                }
-              }
-            }
-          }
-
-          if (features.gatherResources && !loopStopped) {
-            const gatherTasks = features.gatherTasks
-              .map((t, i) => ({ ...t, team: i + 1 }))
-              .filter(t => t.type);
-            if (gatherTasks.length > 0) await runTask('gather-resources', { gatherTasks });
-          }
-
-          if (features.trainTroops && !loopStopped) {
-            const tasks = features.trainTasks as Record<string, number>;
-            const trainQueue = ['兵营', '马厩', '靶场', '攻城武器厂']
-              .filter(b => (tasks[b] ?? 0) > 0)
-              .map(b => ({ building: b, tier: tasks[b] }));
-            if (trainQueue.length > 0) await runTask('train-troops', { trainQueue });
-          }
         }
 
         if (loopStopped) break;
-        // 每次轮询的间隔加 ±10% 随机波动
-        const actualInterval = interval * (0.9 + Math.random() * 0.2);
-        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏳ 等待 ${actualInterval.toFixed(0)} 秒...`]);
 
-        // 等待期间随机拖拽，模仿人滑动浏览
-        const dragSafetyMargin = 5; // 下次循环前5秒内不拖拽
-        const dragWindow = actualInterval - dragSafetyMargin;
+        // Step 5: 计算下次唤醒时间
+        const allTimers = [timers.build, timers.train, timers.research].filter((t): t is number => t !== null && t > 0);
+        const minTimer = allTimers.length > 0 ? Math.min(...allTimers) : null;
+
+        let nextWake: number;
+        if (minTimer !== null) {
+          nextWake = Math.min(minTimer * 0.6, 1800); // 系数 0.6，上限 30 分钟
+        } else {
+          nextWake = 1800; // 无活跃队列，30 分钟后再查
+        }
+        nextWake += -30 + Math.random() * 150; // 随机抖动 -30s ~ +120s
+        nextWake = Math.max(60, nextWake); // 最少等 60 秒
+
+        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏳ 下次检查 ${nextWake.toFixed(0)} 秒后 (build=${timers.build}s train=${timers.train}s research=${timers.research}s)`]);
+
+        // 等待期间随机拖拽
+        const dragSafetyMargin = 5;
+        const dragWindow = nextWake - dragSafetyMargin;
         if (dragWindow > 15) {
-          // 在前 70% 的等待时间内随机选择一个时间点触发拖拽
           const dragDelay = 5 + Math.random() * (dragWindow * 0.7);
           const startWait = Date.now();
           while (!loopStopped && (Date.now() - startWait) < dragDelay * 1000) {
@@ -500,14 +539,12 @@ export function HomePage() {
           if (!loopStopped) {
             try { await runTask('idle-drag'); } catch {}
           }
-          // 等待剩余时间（含安全窗口）
-          while (!loopStopped && (Date.now() - startWait) < actualInterval * 1000) {
+          while (!loopStopped && (Date.now() - startWait) < nextWake * 1000) {
             await sleep(1);
           }
         } else {
-          // 间隔太短（< 15s），不做拖拽，正常等待
           const startWait = Date.now();
-          while (!loopStopped && (Date.now() - startWait) < actualInterval * 1000) {
+          while (!loopStopped && (Date.now() - startWait) < nextWake * 1000) {
             await sleep(1);
           }
         }
