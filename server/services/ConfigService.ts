@@ -35,6 +35,8 @@ function applyOverrides(merged: RokConfig, saved: Partial<RokConfig>): RokConfig
     merged.resourceCollect.resourceTypes = saved.resourceCollect.resourceTypes;
   }
   merged.techResearch.availableTechs = DEFAULT_ROK_CONFIG.techResearch.availableTechs;
+  // resources are hardcoded defaults, not user-configurable — ignore saved values
+  merged.resources = DEFAULT_ROK_CONFIG.resources;
   return merged;
 }
 
@@ -92,14 +94,12 @@ class ConfigService {
     const multi = await this.readMultiConfig(accountId);
     const existing = multi.configs[name] || {};
     const merged = deepMerge(existing as Record<string, any>, config) as Partial<RokConfig>;
-    // buildingPositions and resources are always sent as full snapshots from the
-    // frontend, so replace rather than deep-merge to support clearing entries.
+    // buildingPositions is always sent as a full snapshot from the frontend,
+    // so replace rather than deep-merge to support clearing entries.
     if ('buildingPositions' in config) {
       merged.buildingPositions = config.buildingPositions as any;
     }
-    if ('resources' in config) {
-      (merged as any).resources = config.resources;
-    }
+    // resources are hardcoded — ignore any saved value, overwritten on load
     multi.configs[name] = merged;
     await this.writeMultiConfig(accountId, multi);
   }
