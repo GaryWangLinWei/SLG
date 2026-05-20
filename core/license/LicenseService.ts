@@ -147,6 +147,11 @@ class LicenseService {
         ? Math.max(data.expiresAt, existing.expiresAt)
         : data.expiresAt;
 
+      console.log('[续费调试] 服务器返回expiresAt:', data.expiresAt, new Date(data.expiresAt).toLocaleString());
+      console.log('[续费调试] 已有expiresAt:', existing?.expiresAt, existing?.expiresAt ? new Date(existing.expiresAt).toLocaleString() : '无');
+      console.log('[续费调试] safeExpiresAt:', safeExpiresAt, new Date(safeExpiresAt).toLocaleString());
+      console.log('[续费调试] 采用: safeExpiresAt === serverExpiresAt?', safeExpiresAt === data.expiresAt, '=== existingExpiresAt?', safeExpiresAt === (existing?.expiresAt ?? 0));
+
       const licenseData: StoredLicenseData = {
         token: data.token,
         expiresAt: safeExpiresAt,
