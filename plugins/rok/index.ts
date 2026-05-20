@@ -70,8 +70,12 @@ export interface RokConfig {
     openButton: { x: number; y: number };
     closeButton?: { x: number; y: number };
     rows: {
-      build: { x: number; y: number; w: number; h: number };
-      train: { x: number; y: number; w: number; h: number };
+      build1: { x: number; y: number; w: number; h: number };
+      build2: { x: number; y: number; w: number; h: number };
+      train_bingying: { x: number; y: number; w: number; h: number };
+      train_majiu: { x: number; y: number; w: number; h: number };
+      train_bachang: { x: number; y: number; w: number; h: number };
+      train_gongcheng: { x: number; y: number; w: number; h: number };
       research: { x: number; y: number; w: number; h: number };
     };
   };
@@ -145,7 +149,19 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
   },
 
   // ========== 队列速览 OCR ==========
-  queueOverview: undefined,
+  queueOverview: {
+    openButton: { x: 44, y: 175 },
+    closeButton:{ x: 415, y: 459 },
+    rows: {
+      build1: { x: 286, y: 596, w: 154, h: 23 },
+      build2: { x: 286, y: 676, w: 154, h: 23 },
+      train_bingying: { x: 268, y: 212, w: 205, h: 23 },
+      train_majiu: { x: 268, y: 373, w: 205, h: 23 },
+      train_bachang: { x: 268, y: 293, w: 205, h: 23 },
+      train_gongcheng: { x: 268, y: 455, w: 205, h: 23 },
+      research: { x: 285, y: 816, w: 205, h: 23 }
+    }
+  },
 
   homeFeatures: DEFAULT_HOME_FEATURES,
 };

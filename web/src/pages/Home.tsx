@@ -408,13 +408,13 @@ export function HomePage() {
           return [];
         };
 
-        const parseOcrResult = (logs: string[]): { build: number | null; train: number | null; research: number | null } => {
+        const parseOcrResult = (logs: string[]): { build1: number | null; build2: number | null; train_bingying: number | null; train_majiu: number | null; train_bachang: number | null; train_gongcheng: number | null; research: number | null } => {
           const line = logs.find((l: string) => l.startsWith('[OCR-RESULT]'));
-          if (!line) return { build: null, train: null, research: null };
-          const match = line.match(/build=(-?\d+|null)\s+train=(-?\d+|null)\s+research=(-?\d+|null)/);
-          if (!match) return { build: null, train: null, research: null };
+          if (!line) return { build1: null, build2: null, train_bingying: null, train_majiu: null, train_bachang: null, train_gongcheng: null, research: null };
+          const match = line.match(/build1=(-?\d+|null)\s+build2=(-?\d+|null)\s+train_bingying=(-?\d+|null)\s+train_majiu=(-?\d+|null)\s+train_bachang=(-?\d+|null)\s+train_gongcheng=(-?\d+|null)\s+research=(-?\d+|null)/);
+          if (!match) return { build1: null, build2: null, train_bingying: null, train_majiu: null, train_bachang: null, train_gongcheng: null, research: null };
           const parse = (s: string) => s === 'null' ? null : parseInt(s, 10);
-          return { build: parse(match[1]), train: parse(match[2]), research: parse(match[3]) };
+          return { build1: parse(match[1]), build2: parse(match[2]), train_bingying: parse(match[3]), train_majiu: parse(match[4]), train_bachang: parse(match[5]), train_gongcheng: parse(match[6]), research: parse(match[7]) };
         };
 
         if (!bottomBarChecked) {
@@ -436,7 +436,7 @@ export function HomePage() {
         const hasTrain = features.trainTroops &&
           (Object.values(features.trainTasks as Record<string, number>) as number[]).some((v: number) => v > 0);
 
-        if (hasUpgrade && timers.build !== null && timers.build <= 0) {
+        if (hasUpgrade && (timers.build1 !== null && timers.build1 <= 0 || timers.build2 !== null && timers.build2 <= 0)) {
           const targetBuildings = features.selectedBuildings
             .filter((b: string, i: number) => b && !loopCompletedBuildings[i]);
           if (targetBuildings.length > 0) {
@@ -475,10 +475,16 @@ export function HomePage() {
 
         if (loopStopped) break;
 
-        if (hasTrain && timers.train !== null && timers.train <= 0) {
+        if (hasTrain) {
+          const trainTimerMap: Record<string, number | null> = {
+            '兵营': timers.train_bingying,
+            '马厩': timers.train_majiu,
+            '靶场': timers.train_bachang,
+            '攻城武器厂': timers.train_gongcheng,
+          };
           const tasks = features.trainTasks as Record<string, number>;
           const trainQueue = ['兵营', '马厩', '靶场', '攻城武器厂']
-            .filter(b => (tasks[b] ?? 0) > 0)
+            .filter(b => (tasks[b] ?? 0) > 0 && trainTimerMap[b] !== null && trainTimerMap[b]! <= 0)
             .map(b => ({ building: b, tier: tasks[b] }));
           if (trainQueue.length > 0) await runTask('train-troops', { trainQueue });
         }
@@ -513,7 +519,7 @@ export function HomePage() {
         if (loopStopped) break;
 
         // Step 5: 计算下次唤醒时间
-        const allTimers = [timers.build, timers.train, timers.research].filter((t): t is number => t !== null && t > 0);
+        const allTimers = [timers.build1, timers.build2, timers.train_bingying, timers.train_majiu, timers.train_bachang, timers.train_gongcheng, timers.research].filter((t): t is number => t !== null && t > 0);
         const minTimer = allTimers.length > 0 ? Math.min(...allTimers) : null;
 
         let nextWake: number;
@@ -525,7 +531,7 @@ export function HomePage() {
         nextWake += -30 + Math.random() * 150; // 随机抖动 -30s ~ +120s
         nextWake = Math.max(60, nextWake); // 最少等 60 秒
 
-        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏳ 下次检查 ${nextWake.toFixed(0)} 秒后 (build=${timers.build}s train=${timers.train}s research=${timers.research}s)`]);
+        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏳ 下次检查 ${nextWake.toFixed(0)} 秒后 (build1=${timers.build1}s build2=${timers.build2}s train=${timers.train_bingying}/${timers.train_majiu}/${timers.train_bachang}/${timers.train_gongcheng}s research=${timers.research}s)`]);
 
         // 等待期间随机拖拽
         const dragSafetyMargin = 5;
