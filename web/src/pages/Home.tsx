@@ -436,7 +436,7 @@ export function HomePage() {
         const hasTrain = features.trainTroops &&
           (Object.values(features.trainTasks as Record<string, number>) as number[]).some((v: number) => v > 0);
 
-        if (hasUpgrade && (timers.build1 !== null && timers.build1 <= 0 || timers.build2 !== null && timers.build2 <= 0)) {
+        if (hasUpgrade && (timers.build1 === null || timers.build1! <= 0 || timers.build2 === null || timers.build2! <= 0)) {
           const targetBuildings = features.selectedBuildings
             .filter((b: string, i: number) => b && !loopCompletedBuildings[i]);
           if (targetBuildings.length > 0) {
@@ -454,7 +454,7 @@ export function HomePage() {
 
         if (loopStopped) break;
 
-        if (hasResearch && timers.research !== null && timers.research <= 0) {
+        if (hasResearch && (timers.research === null || timers.research! <= 0)) {
           if (!buildingOptions.includes('学院')) {
             setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记学院位置，跳过研究科技`]);
           } else {
@@ -484,7 +484,7 @@ export function HomePage() {
           };
           const tasks = features.trainTasks as Record<string, number>;
           const trainQueue = ['兵营', '马厩', '靶场', '攻城武器厂']
-            .filter(b => (tasks[b] ?? 0) > 0 && trainTimerMap[b] !== null && trainTimerMap[b]! <= 0)
+            .filter(b => (tasks[b] ?? 0) > 0 && (trainTimerMap[b] === null || trainTimerMap[b]! <= 0))
             .map(b => ({ building: b, tier: tasks[b] }));
           if (trainQueue.length > 0) await runTask('train-troops', { trainQueue });
         }
