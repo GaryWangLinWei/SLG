@@ -69,6 +69,8 @@ export interface RokConfig {
   queueOverview?: {
     openButton: { x: number; y: number };
     closeButton?: { x: number; y: number };
+    // 打开面板后向下滑动，确保所有队列都出现
+    swipeDown?: { fromX: number; fromY: number; toX: number; toY: number };
     rows: {
       build1: { x: number; y: number; w: number; h: number };
       build2: { x: number; y: number; w: number; h: number };
@@ -98,9 +100,9 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
   techResearch: {
     researchBuilding: '',
     popupResearchOffset: { x: 131, y: 146 },
-    detailResearchButton: { x: 1237, y: 668 },
+    detailResearchButton: { x: 1161, y: 682 },
     swipeFromX: 1400,
-    swipeToX: 600,
+    swipeToX: 610,
     swipeY: 826,
     availableTechs: Object.keys(TECH_TEMPLATES),
     economicTechs: Array.from(ECONOMIC_TECHS),
@@ -150,16 +152,17 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
 
   // ========== 队列速览 OCR ==========
   queueOverview: {
-    openButton: { x: 44, y: 175 },
+    openButton: { x: 42, y: 161 },
     closeButton:{ x: 415, y: 459 },
+    swipeDown: { fromX: 300, fromY: 524, toX: 300, toY: 300 },
     rows: {
-      build1: { x: 286, y: 596, w: 154, h: 23 },
-      build2: { x: 286, y: 676, w: 154, h: 23 },
-      train_bingying: { x: 268, y: 212, w: 205, h: 23 },
-      train_majiu: { x: 268, y: 373, w: 205, h: 23 },
-      train_bachang: { x: 268, y: 293, w: 205, h: 23 },
-      train_gongcheng: { x: 268, y: 455, w: 205, h: 23 },
-      research: { x: 285, y: 816, w: 205, h: 23 }
+      build1: { x: 103, y: 585, w: 267, h: 23 },
+      build2: { x: 103, y: 665, w: 267, h: 23 },
+      train_bingying: { x: 103, y: 201, w: 267, h: 23 },
+      train_majiu: { x: 104, y: 362, w: 267, h: 23 },
+      train_bachang: { x: 103, y: 280, w: 267, h: 23 },
+      train_gongcheng: { x: 103, y: 444, w: 267, h: 23 },
+      research: { x: 103, y: 805, w: 267, h: 23 }
     }
   },
 

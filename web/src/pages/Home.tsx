@@ -359,6 +359,8 @@ export function HomePage() {
       let bottomBarChecked = false;
       let lastCollectTime = 0;
       const COLLECT_INTERVAL = 4 * 3600; // 4小时
+      let lastHelpTime = 0;
+      const HELP_INTERVAL = 60; // 60秒
 
       while (!loopStopped) {
         round++;
@@ -409,7 +411,7 @@ export function HomePage() {
         };
 
         const parseOcrResult = (logs: string[]): { build1: number | null; build2: number | null; train_bingying: number | null; train_majiu: number | null; train_bachang: number | null; train_gongcheng: number | null; research: number | null } => {
-          const line = logs.find((l: string) => l.startsWith('[OCR-RESULT]'));
+          const line = logs.find((l: string) => l.includes('[OCR-RESULT]'));
           if (!line) return { build1: null, build2: null, train_bingying: null, train_majiu: null, train_bachang: null, train_gongcheng: null, research: null };
           const match = line.match(/build1=(-?\d+|null)\s+build2=(-?\d+|null)\s+train_bingying=(-?\d+|null)\s+train_majiu=(-?\d+|null)\s+train_bachang=(-?\d+|null)\s+train_gongcheng=(-?\d+|null)\s+research=(-?\d+|null)/);
           if (!match) return { build1: null, build2: null, train_bingying: null, train_majiu: null, train_bachang: null, train_gongcheng: null, research: null };
@@ -420,6 +422,40 @@ export function HomePage() {
         if (!bottomBarChecked) {
           await runTask('ensure-bottom-bar');
           bottomBarChecked = true;
+        }
+
+        const now = Date.now() / 1000;
+
+        // 探索模式：与其他任务互斥，只执行探索
+        if (features.autoExplore) {
+          if (!buildingOptions.includes('斥候营地')) {
+            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记斥候营地位置，跳过自动探索`]);
+          } else {
+            await runTask('explore', { maxScouts: features.exploreCount });
+          }
+          if (loopStopped) break;
+          // 探索模式下固定 1 分钟后检查
+          const exploreNextWake = 60 + (-30 + Math.random() * 150);
+          setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🔍 探索模式，下次检查 ${exploreNextWake.toFixed(0)} 秒后`]);
+          const exploreDragSafety = 5;
+          const exploreDragWindow = exploreNextWake - exploreDragSafety;
+          if (exploreDragWindow > 15) {
+            const dragDelay = 5 + Math.random() * (exploreDragWindow * 0.7);
+            const exploreStartWait = Date.now();
+            while (!loopStopped && (Date.now() - exploreStartWait) < dragDelay * 1000) {
+              await sleep(1);
+            }
+            if (!loopStopped) {
+              try { await runTask('idle-drag'); } catch {}
+            }
+            while (!loopStopped && (Date.now() - exploreStartWait) < exploreNextWake * 1000) {
+              await sleep(1);
+            }
+          } else {
+            await sleep(exploreNextWake);
+          }
+          if (loopStopped) break;
+          continue;
         }
 
         // Step 1: OCR 队列倒计时
@@ -490,15 +526,15 @@ export function HomePage() {
         }
 
         // Step 3: 收集资源（4小时间隔）
-        const now = Date.now() / 1000;
         if (features.collectResources && (now - lastCollectTime >= COLLECT_INTERVAL)) {
           await runTask('collect-resources');
           lastCollectTime = now;
         }
 
-        // Step 4: 帮助盟友 & 城外采集 & 探索（每次检查执行）
-        if (features.helpTeammates && !loopStopped) {
+        // Step 4: 帮助盟友 & 城外采集（每次检查执行）
+        if (features.helpTeammates && !loopStopped && (now - lastHelpTime >= HELP_INTERVAL)) {
           await runTask('help-teammates');
+          lastHelpTime = now;
         }
 
         if (features.gatherResources && !loopStopped) {
@@ -506,14 +542,6 @@ export function HomePage() {
             .map((t: { type: string; level: number }, i: number) => ({ ...t, team: i + 1 }))
             .filter((t: { type: string; level: number; team: number }) => t.type);
           if (gatherTasks.length > 0) await runTask('gather-resources', { gatherTasks });
-        }
-
-        if (features.autoExplore && !loopStopped) {
-          if (!buildingOptions.includes('斥候营地')) {
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记斥候营地位置，跳过自动探索`]);
-          } else {
-            await runTask('explore', { maxScouts: features.exploreCount });
-          }
         }
 
         if (loopStopped) break;

@@ -9,7 +9,7 @@ interface BuildingPos {
 }
 
 const BUILDING_TYPES = [
-  '市政厅', '仓库', '城堡', '学院', '酒馆', '联盟中心',
+  '市政厅', '仓库', '城堡', '城墙', '学院', '酒馆', '联盟中心',
   '斥候营地', '医院', '农场', '木材厂', '采石场', '金矿',
   '兵营', '马厩', '靶场', '攻城武器厂', '商栈', '政务院',
 ];
@@ -125,6 +125,16 @@ export function ConfigPage() {
     }
   };
 
+  const autoSave = async (positions: BuildingPos[]) => {
+    if (!currentAccountId) return;
+    const bp: Record<string, { x: number; y: number }> = {};
+    positions.forEach(b => { bp[b.name] = { x: b.x, y: b.y }; });
+    try {
+      await api.config.saveRokConfig(currentAccountId, { buildingPositions: bp }, configName);
+      setMessage('已保存');
+    } catch { setMessage('保存失败'); }
+  };
+
   const addBuilding = (buildingType: string) => {
     if (!pendingCoord || !buildingType) return;
 
@@ -136,49 +146,33 @@ export function ConfigPage() {
         setSelectedBuildingType('');
         return;
       }
-      setBuildingPositions(prev =>
-        prev.map(b => b.name === buildingType
-          ? { ...b, x: pendingCoord.x, y: pendingCoord.y }
-          : b
-        )
+      const newPositions = buildingPositions.map(b => b.name === buildingType
+        ? { ...b, x: pendingCoord.x, y: pendingCoord.y }
+        : b
       );
+      setBuildingPositions(newPositions);
+      autoSave(newPositions);
     } else {
-      setBuildingPositions(prev => [...prev, { name: buildingType, x: pendingCoord.x, y: pendingCoord.y }]);
+      const newPositions = [...buildingPositions, { name: buildingType, x: pendingCoord.x, y: pendingCoord.y }];
+      setBuildingPositions(newPositions);
+      autoSave(newPositions);
     }
     setPendingCoord(null);
     setSelectedBuildingType('');
   };
 
   const removeBuilding = (index: number) => {
-    setBuildingPositions(prev => prev.filter((_, i) => i !== index));
+    const newPositions = buildingPositions.filter((_, i) => i !== index);
+    setBuildingPositions(newPositions);
+    autoSave(newPositions);
   };
 
   const clearAllBuildings = async () => {
     if (buildingPositions.length === 0) return;
     if (window.confirm(`确定清空所有 ${buildingPositions.length} 个建筑位置？此操作不可撤销。`)) {
       setBuildingPositions([]);
-      if (!currentAccountId) return;
-      try {
-        await api.config.saveRokConfig(currentAccountId, { buildingPositions: {} }, configName);
-        setMessage('建筑位置已清空并保存');
-      } catch { setMessage('保存失败，请手动点击保存'); }
+      autoSave([]);
     }
-  };
-
-  const buildConfig = () => {
-    const bp: Record<string, { x: number; y: number }> = {};
-    buildingPositions.forEach(b => { bp[b.name] = { x: b.x, y: b.y }; });
-    return { buildingPositions: bp };
-  };
-
-  const handleSave = async () => {
-    if (!currentAccountId) return;
-    setLoading(true);
-    try {
-      const result = await api.config.saveRokConfig(currentAccountId, buildConfig(), configName);
-      setMessage(result.success ? '配置已保存' : '保存失败');
-    } catch { setMessage('保存失败'); }
-    setLoading(false);
   };
 
   const handleCreateProfile = async () => {
@@ -188,8 +182,11 @@ export function ConfigPage() {
     try {
       await api.config.createProfile(currentAccountId, name.trim());
       setMessage(`配置「${name.trim()}」已创建`);
+      await api.config.switchProfile(currentAccountId, name.trim());
+      setConfigName(name.trim());
+      setActiveConfigName(name.trim());
+      setBuildingPositions([]);
       await loadProfiles();
-      await loadConfig();
     } catch (e: any) {
       setMessage(e.message || '创建失败');
     }
@@ -285,8 +282,6 @@ export function ConfigPage() {
             className={`px-4 py-1 rounded ${mode === 'tap' ? 'bg-blue-600' : ''}`}>点击模式</button>
         </div>
         <div className="flex-1" />
-        <button onClick={handleSave} disabled={loading}
-          className="px-6 py-2 bg-green-600 hover:bg-green-700 rounded disabled:opacity-50">保存配置</button>
       </div>
 
       <div className="flex gap-6">

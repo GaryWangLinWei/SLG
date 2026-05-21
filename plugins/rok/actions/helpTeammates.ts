@@ -21,11 +21,6 @@ export async function helpTeammates(ctx: PluginContext): Promise<void> {
     btnH!
   );
 
-  // 保存比对区域截图用于调试
-  const debugDir = path.join(__dirname, '../debug');
-  await mkdir(debugDir, { recursive: true });
-  await copyFile(regionPath, path.join(debugDir, `help-${Date.now()}.png`));
-
   const diff = await ctx.compareImages(regionPath, templatePath);
   ctx.log(`帮助图标差异: ${(diff * 100).toFixed(1)}%`);
 

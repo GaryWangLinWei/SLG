@@ -245,7 +245,10 @@ class LicenseService {
 
   async init(): Promise<void> {
     const status = await this.getStatus();
-    if (status.activated && !status.isExpired) this.startHeartbeatInterval();
+    if (status.activated && !status.isExpired) {
+      await this.heartbeat().catch(() => {});
+      this.startHeartbeatInterval();
+    }
   }
 }
 

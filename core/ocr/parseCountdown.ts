@@ -14,38 +14,40 @@
  * 返回 null 表示无法解析（空闲、非倒计时文本等）。
  */
 export function parseCountdown(text: string): number | null {
-  // Normalize: fix common OCR errors
+  // Normalize common OCR errors
   let t = text
     .replace(/夭/g, '天')
     .replace(/\./g, ':')
     .replace(/：/g, ':')
-    .replace(/[^0-9天:：. ]/g, '')
-    .trim();
-
-  if (!t) return null;
+    .replace(/O/g, '0')
+    .replace(/o/g, '0');
 
   let days = 0;
-
-  // Extract days if present
   const dayMatch = t.match(/(\d+)\s*天/);
   if (dayMatch) {
     days = parseInt(dayMatch[1], 10);
-    t = t.replace(dayMatch[0], '').trim();
   }
 
-  // Parse remaining H:MM:SS or M:SS or SS
-  const parts = t.split(':').map(s => parseInt(s, 10)).filter(n => !isNaN(n));
+  // Extract H:MM:SS or M:SS time pattern from potentially noisy text
+  const timeMatch = t.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  if (!timeMatch) {
+    // No time pattern — maybe just a plain number (seconds only)
+    const numMatch = t.match(/(\d+)/);
+    if (numMatch && days === 0) {
+      return parseInt(numMatch[1], 10);
+    }
+    return days > 0 ? days * 86400 : null;
+  }
 
-  if (parts.length === 0) return null;
+  const h = parseInt(timeMatch[1], 10);
+  const m = parseInt(timeMatch[2], 10);
+  const s = timeMatch[3] ? parseInt(timeMatch[3], 10) : 0;
 
   let seconds = days * 86400;
-
-  if (parts.length === 3) {
-    seconds += parts[0] * 3600 + parts[1] * 60 + parts[2];
-  } else if (parts.length === 2) {
-    seconds += parts[0] * 60 + parts[1];
+  if (timeMatch[3] !== undefined) {
+    seconds += h * 3600 + m * 60 + s;
   } else {
-    seconds += parts[0];
+    seconds += h * 60 + m;
   }
 
   return seconds;

@@ -2,6 +2,7 @@ import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
 import { resetCityView } from '../utils/location';
 import * as path from 'path';
+import * as fs from 'fs/promises';
 import sharp from 'sharp';
 
 const TEMPLATE_DIR = path.join(__dirname, '../templates');
@@ -261,9 +262,27 @@ export async function researchTech(
   await ctx.sleep(2);
 
   // ============================================
-  // 第 5 步: 点击研究按钮开始研究
+  // 第 5 步: 图像确认在详情页，然后点击研究按钮
   // ============================================
-  ctx.log('--- 第 5 步: 点击研究按钮 ---');
+  ctx.log('--- 第 5 步: 确认详情页并点击研究 ---');
+  const detailUpgradeTemplate = path.join(TEMPLATE_DIR, 'detailUpgradeButton.png');
+
+  // 保存对比区域截图到 debug 目录
+  const debugDir = path.join(process.cwd(), 'plugins', 'rok', 'debug');
+  await fs.mkdir(debugDir, { recursive: true });
+  const debugRegion = await ctx.captureRegion(800, 550, 400, 300);
+  await fs.unlink(debugRegion).catch(() => {});
+
+  const detail = await ctx.findImageWithLocation(detailUpgradeTemplate, 0.7);
+  if (!detail.found) {
+    ctx.log(`  [5] ⚠ 未找到详情升级按钮 (${detail.confidence.toFixed(3)})，点击2次返回`);
+    await ctx.tap(config.backButton.x, config.backButton.y);
+    await ctx.sleep(1);
+    await ctx.tap(config.backButton.x, config.backButton.y);
+    await ctx.sleep(1);
+    return 'no_research_button';
+  }
+  ctx.log(`  [5] 点击研究按钮 (${config.techResearch.detailResearchButton.x}, ${config.techResearch.detailResearchButton.y})`);
   await ctx.tap(config.techResearch.detailResearchButton.x, config.techResearch.detailResearchButton.y);
   await ctx.sleep(1.5);
 
