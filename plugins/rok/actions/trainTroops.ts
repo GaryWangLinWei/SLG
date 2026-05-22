@@ -2,6 +2,7 @@ import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
 import { resetCityView } from '../utils/location';
 import * as path from 'path';
+import * as fs from 'fs/promises';
 import sharp from 'sharp';
 
 const TEMPLATE_DIR = path.join(__dirname, '../templates');
@@ -89,27 +90,20 @@ export async function trainTroopsSingle(
   await ctx.sleep(2);
 
   // ============================================
-  // 第 3 步: 检测是否已在训练中
+  // 第 3 步: 检测是否已在训练中 (detailUpgradeButton)
   // ============================================
   ctx.log('--- 第 3 步: 检测是否已在训练中 ---');
-  const cancelTemplate = path.join(TEMPLATE_DIR, 'cancelTrainBtn.png');
-  const { width: cancelW = 120, height: cancelH = 50 } = await sharp(cancelTemplate).metadata();
-  const cancelRegion = await ctx.captureRegion(
-    808 - Math.floor(cancelW! / 2),
-    526 - Math.floor(cancelH! / 2),
-    cancelW!, cancelH!
-  );
+  const detailUpgradeTemplate = path.join(TEMPLATE_DIR, 'detailUpgradeButton.png');
+  const { width: detailW = 200, height: detailH = 60 } = await sharp(detailUpgradeTemplate).metadata();
 
-  const cancelDiff = await ctx.compareImages(cancelRegion, cancelTemplate);
-  ctx.log(`  取消训练按钮匹对差异: ${(cancelDiff * 100).toFixed(1)}%`);
-
-  if (cancelDiff < 0.3) {
-    ctx.log('  ⏳ 已有兵种正在训练中，返回');
+  const detail = await ctx.findImageWithLocation(detailUpgradeTemplate, 0.7);
+  if (!detail.found) {
+    ctx.log(`  ❌ 未识别到可训练状态 (${detail.confidence.toFixed(3)})，返回`);
     await ctx.tap(config.backButton.x, config.backButton.y);
     await ctx.sleep(1);
-    return 'busy';
+    return 'no_train_button';
   }
-  ctx.log('  训练队列空闲，继续');
+  ctx.log(`  训练队列空闲 (confidence: ${detail.confidence.toFixed(3)})，继续`);
 
   // ============================================
   // 第 4 步: 选择兵种等级 T1-T5
@@ -127,6 +121,93 @@ export async function trainTroopsSingle(
   // 第 5 步: 点击训练按钮
   // ============================================
   ctx.log(`--- 第 5 步: 点击训练按钮 (${TRAIN_BUTTON.x}, ${TRAIN_BUTTON.y}) ---`);
+  await ctx.tap(TRAIN_BUTTON.x, TRAIN_BUTTON.y);
+  await ctx.sleep(1);
+
+  // ============================================
+  // 第 6 步: 检测资源不足弹窗
+  // ============================================
+  ctx.log('--- 第 6 步: 检测资源不足弹窗 ---');
+  const closeBtnTemplate = path.join(TEMPLATE_DIR, config.closeBtnTemplate);
+  const { width: closeW = 40, height: closeH = 40 } = await sharp(closeBtnTemplate).metadata();
+  const closeRegion = await ctx.captureRegion(1243, 158, closeW!, closeH!);
+
+  const closeDiff = await ctx.compareImages(closeRegion, closeBtnTemplate);
+  ctx.log(`  closeBtn 匹对差异: ${(closeDiff * 100).toFixed(1)}%`);
+  await fs.unlink(closeRegion).catch(() => {});
+
+  if (closeDiff >= 0.3) {
+    ctx.log(`=== ${targetBuilding} T${targetTier} 训练完成 ===`);
+    return 'success';
+  }
+
+  ctx.log('  💰 资源不足，点击一键补充');
+
+  // ============================================
+  // 第 6.1 步: 点击一键补充按钮
+  // ============================================
+  ctx.log('--- 第 6.1 步: 点击一键补充 ---');
+  const REPLENISH_BTN = { x: 1004, y: 624 };
+  await ctx.tap(REPLENISH_BTN.x, REPLENISH_BTN.y);
+  await ctx.sleep(1);
+
+  // ============================================
+  // 第 6.2 步: 判断弹窗类型并处理
+  // ============================================
+  ctx.log('--- 第 6.2 步: 判断弹窗类型 ---');
+  const yesBtnTemplate = path.join(TEMPLATE_DIR, 'yesBtn.png');
+  const { width: yesW = 200, height: yesH = 60 } = await sharp(yesBtnTemplate).metadata();
+
+  const detail2 = await ctx.findImageWithLocation(detailUpgradeTemplate, 0.7);
+  if (detail2.found) {
+    // 识别到 detailUpgradeButton → 资源补完，回到训练界面
+    ctx.log(`  资源补充完成，回到训练界面 (confidence: ${detail2.confidence.toFixed(3)})`);
+    ctx.log('  点击训练按钮');
+    await ctx.tap(TRAIN_BUTTON.x, TRAIN_BUTTON.y);
+    await ctx.sleep(1);
+    ctx.log(`=== ${targetBuilding} T${targetTier} 训练完成 ===`);
+    return 'success';
+  }
+  ctx.log(`  未识别到 detailUpgradeButton (${detail2.confidence.toFixed(3)})`);
+
+  // 未识别到 detailUpgradeButton → 有弹窗，判断弹窗类型
+  ctx.log('  有弹窗，判断弹窗类型...');
+  const yesRegion = await ctx.captureRegion(567, 611, yesW!, yesH!);
+  const yesDiff = await ctx.compareImages(yesRegion, yesBtnTemplate);
+  ctx.log(`  yesBtn 匹对差异: ${(yesDiff * 100).toFixed(1)}%`);
+  await fs.unlink(yesRegion).catch(() => {});
+
+  if (yesDiff < 0.3) {
+    // 资源超出保护提示
+    ctx.log('  资源超出保护提示，点击确认');
+    await ctx.tap(567, 611);
+    await ctx.sleep(1);
+    ctx.log('  点击训练按钮');
+    await ctx.tap(TRAIN_BUTTON.x, TRAIN_BUTTON.y);
+    await ctx.sleep(1);
+    ctx.log(`=== ${targetBuilding} T${targetTier} 训练完成 ===`);
+    return 'success';
+  }
+
+  // 二次确认弹窗
+  ctx.log('  二次确认弹窗，点击确认');
+  const CONFIRM_BTN = { x: 803, y: 685 };
+  await ctx.tap(CONFIRM_BTN.x, CONFIRM_BTN.y);
+  await ctx.sleep(1);
+
+  // 再次判断是否有资源超出保护提示
+  const yesRegion2 = await ctx.captureRegion(567, 611, yesW!, yesH!);
+  const yesDiff2 = await ctx.compareImages(yesRegion2, yesBtnTemplate);
+  ctx.log(`  二次检测 yesBtn 匹对差异: ${(yesDiff2 * 100).toFixed(1)}%`);
+  await fs.unlink(yesRegion2).catch(() => {});
+
+  if (yesDiff2 < 0.3) {
+    ctx.log('  资源超出保护提示，点击确认');
+    await ctx.tap(567, 611);
+    await ctx.sleep(1);
+  }
+
+  ctx.log('  点击训练按钮');
   await ctx.tap(TRAIN_BUTTON.x, TRAIN_BUTTON.y);
   await ctx.sleep(1);
 

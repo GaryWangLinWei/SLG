@@ -266,12 +266,7 @@ export async function researchTech(
   // ============================================
   ctx.log('--- 第 5 步: 确认详情页并点击研究 ---');
   const detailUpgradeTemplate = path.join(TEMPLATE_DIR, 'detailUpgradeButton.png');
-
-  // 保存对比区域截图到 debug 目录
-  const debugDir = path.join(process.cwd(), 'plugins', 'rok', 'debug');
-  await fs.mkdir(debugDir, { recursive: true });
-  const debugRegion = await ctx.captureRegion(800, 550, 400, 300);
-  await fs.unlink(debugRegion).catch(() => {});
+  const { width: detailW = 200, height: detailH = 60 } = await sharp(detailUpgradeTemplate).metadata();
 
   const detail = await ctx.findImageWithLocation(detailUpgradeTemplate, 0.7);
   if (!detail.found) {
@@ -287,16 +282,114 @@ export async function researchTech(
   await ctx.sleep(1.5);
 
   // ============================================
-  // 完成，返回主界面
+  // 第 6 步: 检测资源不足弹窗
   // ============================================
+  ctx.log('--- 第 6 步: 检测资源不足弹窗 ---');
+  const closeBtnTemplate = path.join(TEMPLATE_DIR, config.closeBtnTemplate);
+  const { width: closeW = 40, height: closeH = 40 } = await sharp(closeBtnTemplate).metadata();
+  const closeRegion = await ctx.captureRegion(1243, 158, closeW!, closeH!);
+
+  const closeDiff = await ctx.compareImages(closeRegion, closeBtnTemplate);
+  ctx.log(`  closeBtn 匹对差异: ${(closeDiff * 100).toFixed(1)}%`);
+  await fs.unlink(closeRegion).catch(() => {});
+
+  if (closeDiff >= 0.3) {
+    // 无弹窗，研究成功
+    ctx.log('=== 科技研究操作完成 ===');
+    await ctx.tap(config.backButton.x, config.backButton.y);
+    await ctx.sleep(1);
+    await resetCityView(ctx, config);
+    ctx.log(`  请求盟友帮助 — 点击 ${buildingName} (${academyPos.x}, ${academyPos.y})`);
+    await ctx.tap(academyPos.x, academyPos.y);
+    await ctx.sleep(0.5);
+    return 'success';
+  }
+
+  ctx.log('  💰 资源不足，点击一键补充');
+
+  // ============================================
+  // 第 6.1 步: 点击一键补充按钮
+  // ============================================
+  ctx.log('--- 第 6.1 步: 点击一键补充 ---');
+  const REPLENISH_BTN = { x: 1004, y: 624 };
+  await ctx.tap(REPLENISH_BTN.x, REPLENISH_BTN.y);
+  await ctx.sleep(1);
+
+  // ============================================
+  // 第 6.2 步: 判断弹窗类型并处理
+  // ============================================
+  ctx.log('--- 第 6.2 步: 判断弹窗类型 ---');
+  const yesBtnTemplate = path.join(TEMPLATE_DIR, 'yesBtn.png');
+  const { width: yesW = 200, height: yesH = 60 } = await sharp(yesBtnTemplate).metadata();
+
+  const detail2 = await ctx.findImageWithLocation(detailUpgradeTemplate, 0.7);
+  if (detail2.found) {
+    // 识别到 detailUpgradeButton → 资源补完，回到详情页
+    ctx.log(`  资源补充完成，回到详情页 (confidence: ${detail2.confidence.toFixed(3)})`);
+    ctx.log(`  点击研究按钮 (${config.techResearch.detailResearchButton.x}, ${config.techResearch.detailResearchButton.y})`);
+    await ctx.tap(config.techResearch.detailResearchButton.x, config.techResearch.detailResearchButton.y);
+    await ctx.sleep(1.5);
+    ctx.log('=== 科技研究操作完成 ===');
+    await ctx.tap(config.backButton.x, config.backButton.y);
+    await ctx.sleep(1);
+    await resetCityView(ctx, config);
+    ctx.log(`  请求盟友帮助 — 点击 ${buildingName} (${academyPos.x}, ${academyPos.y})`);
+    await ctx.tap(academyPos.x, academyPos.y);
+    await ctx.sleep(0.5);
+    return 'success';
+  }
+
+  // 未识别到 detailUpgradeButton → 有弹窗，判断弹窗类型
+  ctx.log('  有弹窗，判断弹窗类型...');
+  const yesRegion = await ctx.captureRegion(567, 611, yesW!, yesH!);
+  const yesDiff = await ctx.compareImages(yesRegion, yesBtnTemplate);
+  ctx.log(`  yesBtn 匹对差异: ${(yesDiff * 100).toFixed(1)}%`);
+  await fs.unlink(yesRegion).catch(() => {});
+
+  if (yesDiff < 0.3) {
+    // 资源超出保护提示
+    ctx.log('  资源超出保护提示，点击确认');
+    await ctx.tap(567, 611);
+    await ctx.sleep(1);
+    ctx.log(`  点击研究按钮 (${config.techResearch.detailResearchButton.x}, ${config.techResearch.detailResearchButton.y})`);
+    await ctx.tap(config.techResearch.detailResearchButton.x, config.techResearch.detailResearchButton.y);
+    await ctx.sleep(1.5);
+    ctx.log('=== 科技研究操作完成 ===');
+    await ctx.tap(config.backButton.x, config.backButton.y);
+    await ctx.sleep(1);
+    await resetCityView(ctx, config);
+    ctx.log(`  请求盟友帮助 — 点击 ${buildingName} (${academyPos.x}, ${academyPos.y})`);
+    await ctx.tap(academyPos.x, academyPos.y);
+    await ctx.sleep(0.5);
+    return 'success';
+  }
+
+  // 二次确认弹窗
+  ctx.log('  二次确认弹窗，点击确认');
+  const CONFIRM_BTN = { x: 803, y: 685 };
+  await ctx.tap(CONFIRM_BTN.x, CONFIRM_BTN.y);
+  await ctx.sleep(1);
+
+  // 再次判断是否有资源超出保护提示
+  const yesRegion2 = await ctx.captureRegion(567, 611, yesW!, yesH!);
+  const yesDiff2 = await ctx.compareImages(yesRegion2, yesBtnTemplate);
+  ctx.log(`  二次检测 yesBtn 匹对差异: ${(yesDiff2 * 100).toFixed(1)}%`);
+  await fs.unlink(yesRegion2).catch(() => {});
+
+  if (yesDiff2 < 0.3) {
+    ctx.log('  资源超出保护提示，点击确认');
+    await ctx.tap(567, 611);
+    await ctx.sleep(1);
+  }
+
+  ctx.log(`  点击研究按钮 (${config.techResearch.detailResearchButton.x}, ${config.techResearch.detailResearchButton.y})`);
+  await ctx.tap(config.techResearch.detailResearchButton.x, config.techResearch.detailResearchButton.y);
+  await ctx.sleep(1.5);
+
   ctx.log('=== 科技研究操作完成 ===');
   await ctx.tap(config.backButton.x, config.backButton.y);
   await ctx.sleep(1);
-
-  // 重置城内视角
   await resetCityView(ctx, config);
-
-  // 发送盟友帮助请求
   ctx.log(`  请求盟友帮助 — 点击 ${buildingName} (${academyPos.x}, ${academyPos.y})`);
   await ctx.tap(academyPos.x, academyPos.y);
   await ctx.sleep(0.5);
