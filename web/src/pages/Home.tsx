@@ -481,7 +481,7 @@ export function HomePage() {
           }
           if (loopStopped) break;
           // 探索模式下固定 1 分钟后检查
-          const exploreNextWake = 60 + (-30 + Math.random() * 150);
+          const exploreNextWake = 45 + Math.random() * 15;
           setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🔍 探索模式，下次检查 ${exploreNextWake.toFixed(0)} 秒后`]);
           const exploreDragSafety = 5;
           const exploreDragWindow = exploreNextWake - exploreDragSafety;
@@ -585,8 +585,14 @@ export function HomePage() {
 
         if (loopStopped) break;
 
-        // Step 5: 计算下次唤醒时间
-        const allTimers = [timers.build1, timers.build2, timers.train_bingying, timers.train_majiu, timers.train_bachang, timers.train_gongcheng, timers.research].filter((t): t is number => t !== null && t > 0);
+        // Step 5: 派发完毕后重新 OCR，获取最新倒计时
+        const reOcrLogs = await runTask('read-queue-overview');
+        const latestTimers = parseOcrResult(reOcrLogs);
+
+        if (loopStopped) break;
+
+        // Step 6: 计算下次唤醒时间（基于最新 OCR 结果）
+        const allTimers = [latestTimers.build1, latestTimers.build2, latestTimers.train_bingying, latestTimers.train_majiu, latestTimers.train_bachang, latestTimers.train_gongcheng, latestTimers.research].filter((t): t is number => t !== null && t > 0);
         const minTimer = allTimers.length > 0 ? Math.min(...allTimers) : null;
 
         let nextWake: number;
@@ -595,10 +601,10 @@ export function HomePage() {
         } else {
           nextWake = 1800; // 无活跃队列，30 分钟后再查
         }
-        nextWake += -30 + Math.random() * 150; // 随机抖动 -30s ~ +120s
+        nextWake += Math.random() * 30; // 随机抖动 0 ~ 30s
         nextWake = Math.max(60, nextWake); // 最少等 60 秒
 
-        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏳ 下次检查 ${nextWake.toFixed(0)} 秒后 (build1=${timers.build1}s build2=${timers.build2}s train=${timers.train_bingying}/${timers.train_majiu}/${timers.train_bachang}/${timers.train_gongcheng}s research=${timers.research}s)`]);
+        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏳ 下次检查 ${nextWake.toFixed(0)} 秒后 (build1=${latestTimers.build1}s build2=${latestTimers.build2}s train=${latestTimers.train_bingying}/${latestTimers.train_majiu}/${latestTimers.train_bachang}/${latestTimers.train_gongcheng}s research=${latestTimers.research}s)`]);
 
         // 等待期间随机拖拽
         const dragSafetyMargin = 5;

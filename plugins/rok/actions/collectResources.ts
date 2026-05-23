@@ -21,9 +21,12 @@ export async function collectResources(
     // 每项资源收集前重置视角，确保建筑位置与配置坐标吻合
     await resetCityView(ctx, config);
 
-    // Tap resource building
-    ctx.log(`Tap position: (${pos.x}, ${pos.y})`);
-    await ctx.tap(pos.x, pos.y);
+    // 拖动建筑到屏幕中心
+    ctx.log(`拖动 ${resource.building} 到屏幕中心 (${pos.x}, ${pos.y} → 800, 450)`);
+    await ctx.swipe(pos.x, pos.y, 800, 450, 1000);
+    await ctx.tap(800, 450);  // 打断惯性
+    await ctx.sleep(0.3);
+    await ctx.tap(800, 450);
     await ctx.sleep(1);
   }
 

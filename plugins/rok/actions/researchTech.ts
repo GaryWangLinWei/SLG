@@ -143,13 +143,13 @@ export async function researchTech(
     ctx.log(`❌ 未找到建筑坐标: ${buildingName}`);
     return 'not_found';
   }
-  ctx.log(`--- 第 1 步: 拖动 ${buildingName} 到屏幕中心 (${academyPos.x}, ${academyPos.y} → 960, 540) ---`);
-  await ctx.swipe(academyPos.x, academyPos.y, 960, 540, 1000);
-  await ctx.tap(960, 540);  // 打断惯性
+  ctx.log(`--- 第 1 步: 拖动 ${buildingName} 到屏幕中心 (${academyPos.x}, ${academyPos.y} → 800, 450) ---`);
+  await ctx.swipe(academyPos.x, academyPos.y, 800, 450, 1000);
+  await ctx.tap(800, 450);  // 打断惯性
   await ctx.sleep(0.3);
-  await ctx.tap(960, 540);
+  await ctx.tap(800, 450);
   await ctx.sleep(0.5);
-  await ctx.tap(960, 540);
+  await ctx.tap(800, 450);
   await ctx.sleep(1);
 
   // ============================================
@@ -304,8 +304,8 @@ export async function researchTech(
     await ctx.tap(config.backButton.x, config.backButton.y);
     await ctx.sleep(1);
 
-    ctx.log(`  请求盟友帮助 — 点击 ${buildingName} (960, 540)`);
-    await ctx.tap(960, 540);
+    ctx.log(`  请求盟友帮助 — 点击 ${buildingName} (800, 450)`);
+    await ctx.tap(800, 450);
     await ctx.sleep(0.5);
     return 'success';
   }
@@ -338,8 +338,8 @@ export async function researchTech(
     await ctx.tap(config.backButton.x, config.backButton.y);
     await ctx.sleep(1);
 
-    ctx.log(`  请求盟友帮助 — 点击 ${buildingName} (960, 540)`);
-    await ctx.tap(960, 540);
+    ctx.log(`  请求盟友帮助 — 点击 ${buildingName} (800, 450)`);
+    await ctx.tap(800, 450);
     await ctx.sleep(0.5);
     return 'success';
   }
@@ -363,8 +363,8 @@ export async function researchTech(
     await ctx.tap(config.backButton.x, config.backButton.y);
     await ctx.sleep(1);
 
-    ctx.log(`  请求盟友帮助 — 点击 ${buildingName} (960, 540)`);
-    await ctx.tap(960, 540);
+    ctx.log(`  请求盟友帮助 — 点击 ${buildingName} (800, 450)`);
+    await ctx.tap(800, 450);
     await ctx.sleep(0.5);
     return 'success';
   }
@@ -394,8 +394,8 @@ export async function researchTech(
   ctx.log('=== 科技研究操作完成 ===');
   await ctx.tap(config.backButton.x, config.backButton.y);
   await ctx.sleep(1);
-  ctx.log(`  请求盟友帮助 — 点击 ${buildingName} (960, 540)`);
-  await ctx.tap(960, 540);
+  ctx.log(`  请求盟友帮助 — 点击 ${buildingName} (800, 450)`);
+  await ctx.tap(800, 450);
   await ctx.sleep(0.5);
   return 'success';
 }

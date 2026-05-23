@@ -57,13 +57,13 @@ export async function trainTroopsSingle(
     ctx.log(`❌ 未找到建筑坐标: ${targetBuilding}`);
     return 'not_found';
   }
-  ctx.log(`--- 第 1 步: 拖动 ${targetBuilding} 到屏幕中心 (${buildPos.x}, ${buildPos.y} → 960, 540) ---`);
-  await ctx.swipe(buildPos.x, buildPos.y, 960, 540, 1000);
-  await ctx.tap(960, 540);  // 打断惯性
+  ctx.log(`--- 第 1 步: 拖动 ${targetBuilding} 到屏幕中心 (${buildPos.x}, ${buildPos.y} → 800, 450) ---`);
+  await ctx.swipe(buildPos.x, buildPos.y, 800, 450, 1000);
+  await ctx.tap(800, 450);  // 打断惯性
   await ctx.sleep(0.3);
-  await ctx.tap(960, 540);
+  await ctx.tap(800, 450);
   await ctx.sleep(0.5);
-  await ctx.tap(960, 540);
+  await ctx.tap(800, 450);
   await ctx.sleep(1);
 
   // ============================================

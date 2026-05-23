@@ -49,9 +49,13 @@ export async function explore(
     // ============================================
     await resetCityView(ctx, config);
 
-    ctx.log(`  [1/8] 点击 ${buildingName} (${buildPos.x}, ${buildPos.y})`);
-    await ctx.tap(buildPos.x, buildPos.y);
-    await ctx.sleep(1.5);
+    // 拖动建筑到屏幕中心
+    ctx.log(`  [1/8] 拖动 ${buildingName} 到屏幕中心 (${buildPos.x}, ${buildPos.y} → 800, 450)`);
+    await ctx.swipe(buildPos.x, buildPos.y, 800, 450, 1000);
+    await ctx.tap(800, 450);  // 打断惯性
+    await ctx.sleep(0.5);
+    await ctx.tap(800, 450);
+    await ctx.sleep(1);
 
     // 第 3 步: 图像识别弹出侦查按钮
     ctx.log('  [3/8] 识别弹出侦查按钮');
