@@ -84,7 +84,7 @@ export async function trainTroopsSingle(
     trainX = popup.x;
     trainY = popup.y;
     ctx.setCachedLocation(CACHE_KEY, trainX, trainY);
-    ctx.log(`识别并缓存训练按钮 (${trainX}, ${trainY})`);
+    ctx.log(`识别并缓存训练按钮 (${trainX}, ${trainY}) confidence: ${popup.confidence.toFixed(3)}`);
   }
   await ctx.tap(trainX, trainY);
   await ctx.sleep(2);

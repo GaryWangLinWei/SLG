@@ -306,6 +306,18 @@ export function HomePage() {
     try {
       const result = await api.device.connect(currentAccountId);
       setDeviceConnected(result.connected);
+      if (result.connected) {
+        // 新连接 → 重置运行状态
+        loopStopped = true;
+        loopRunning = false;
+        clearLoopState();
+        for (const id of runningTaskIdsRef.current) {
+          try { await api.tasks.stop(id); } catch {}
+        }
+        runningTaskIdsRef.current = [];
+        setTaskRunning(false);
+        setRunningTaskIds([]);
+      }
     } catch (e) {
       console.error('连接失败', e);
     }
@@ -329,7 +341,7 @@ export function HomePage() {
     if (features.autoExplore) selectedActions.push('自动探索');
 
     if (selectedActions.length === 0) {
-      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 请至少勾选一个功能`]);
+      alert('请勾选要执行的功能');
       return;
     }
 
@@ -361,6 +373,42 @@ export function HomePage() {
       const COLLECT_INTERVAL = 4 * 3600; // 4小时
       let lastHelpTime = 0;
       const HELP_INTERVAL = 60; // 60秒
+
+      // 城外采集独立循环 — 按固定间隔执行，不受 OCR 调度影响
+      const gatherLoop = (async () => {
+        while (!loopStopped) {
+          const startWait = Date.now();
+          while (!loopStopped && (Date.now() - startWait) < features.loopInterval * 1000) {
+            await sleep(1);
+          }
+          if (loopStopped) break;
+          if (!features.gatherResources || features.autoExplore) continue;
+          const gatherTasks = features.gatherTasks
+            .map((t: { type: string; level: number }, i: number) => ({ ...t, team: i + 1 }))
+            .filter((t: { type: string; level: number; team: number }) => t.type);
+          if (gatherTasks.length === 0) continue;
+          try {
+            const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'gather-resources', { gatherTasks });
+            if (createResult.success) {
+              runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
+              setRunningTaskIds([...runningTaskIdsRef.current]);
+              const runResult = await api.tasks.run(createResult.task.id);
+              runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
+              setRunningTaskIds([...runningTaskIdsRef.current]);
+              const logs = runResult.task?.logs ?? [];
+              const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
+              if (hasExpiredLog) {
+                setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
+                loopStopped = true;
+                setExpiredMessage('激活码已到期，请重新激活');
+                refreshStatus();
+              } else {
+                setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 城外采集 完成`]);
+              }
+            }
+          } catch {}
+        }
+      })();
 
       while (!loopStopped) {
         round++;
@@ -537,13 +585,6 @@ export function HomePage() {
           lastHelpTime = now;
         }
 
-        if (features.gatherResources && !loopStopped) {
-          const gatherTasks = features.gatherTasks
-            .map((t: { type: string; level: number }, i: number) => ({ ...t, team: i + 1 }))
-            .filter((t: { type: string; level: number; team: number }) => t.type);
-          if (gatherTasks.length > 0) await runTask('gather-resources', { gatherTasks });
-        }
-
         if (loopStopped) break;
 
         // Step 5: 计算下次唤醒时间
@@ -583,6 +624,7 @@ export function HomePage() {
           }
         }
       }
+      await gatherLoop;
       loopRunning = false;
       clearLoopState();
       runningTaskIdsRef.current = [];
@@ -737,7 +779,8 @@ export function HomePage() {
                   ))}
                   {features.completedBuildings.some(Boolean) && (
                     <button
-                      onClick={() => {
+                      onClick={(e) => {
+                        e.preventDefault();
                         const { selected, completed } = clearCompleted(features.selectedBuildings, features.completedBuildings);
                         loopCompletedBuildings = completed;
                         setFeatures(prev => ({ ...prev, selectedBuildings: selected, completedBuildings: completed }));

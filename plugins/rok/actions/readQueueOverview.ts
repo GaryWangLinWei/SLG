@@ -43,28 +43,47 @@ export async function readQueueOverview(
   // 向下滑动确保所有队列都显示
   if (qo.swipeDown) {
     await ctx.swipe(qo.swipeDown.fromX, qo.swipeDown.fromY, qo.swipeDown.toX, qo.swipeDown.toY);
-    await ctx.sleep(0.5);
+    await ctx.sleep(1.5);
   }
 
   const result: QueueTimers = { build1: null, build2: null, train_bingying: null, train_majiu: null, train_bachang: null, train_gongcheng: null, research: null };
 
   for (const [key, region] of Object.entries(qo.rows) as [string, { x: number; y: number; w: number; h: number }][]) {
     if (!(key in result)) continue;
+    const KEY_LABELS: Record<string, string> = {
+      build1: '建筑队列1', build2: '建筑队列2',
+      train_bingying: '训练-兵营', train_majiu: '训练-马厩',
+      train_bachang: '训练-靶场', train_gongcheng: '训练-攻城武器厂',
+      research: '研究',
+    };
     ctx.log(`[OCR] 读取 ${key} 倒计时 (${region.x},${region.y} ${region.w}x${region.h})`);
+    const label = KEY_LABELS[key] || key;
+    let regionPath: string | null = null;
     try {
-      const regionPath = await ctx.captureRegion(region.x, region.y, region.w, region.h);
-      const text = await ocrService.readText(regionPath);
-      // 保存截图到 debug 目录以便排查
-      const debugDir = path.join(process.cwd(), 'plugins', 'rok', 'debug');
+      regionPath = await ctx.captureRegion(region.x, region.y, region.w, region.h);
+      let text = '';
+      let seconds: number | null = null;
+      try {
+        text = await ocrService.readText(regionPath);
+        seconds = parseCountdown(text);
+        ctx.log(`[OCR] ${key} 原始="${text}" → ${seconds !== null ? seconds + 's' : '空闲/未识别'}`);
+      } catch (ocrErr: any) {
+        ctx.log(`[OCR] ${key} OCR识别失败: ${ocrErr.message}`);
+      }
+
+      // 保存截图到 debug/OCR 目录
+      const debugDir = path.join(__dirname, '../debug/OCR');
       await fs.mkdir(debugDir, { recursive: true });
-      
-      await fs.unlink(regionPath).catch(() => {});
-      const seconds = parseCountdown(text);
-      ctx.log(`[OCR] ${key} 原始="${text}" → ${seconds !== null ? seconds + 's' : '空闲/未识别'}`);
+      const safeText = text.trim().replace(/[\\/:*?"<>|\n\r]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || '未识别';
+      const destName = `${label}-剩余${safeText}.png`;
+      await fs.copyFile(regionPath, path.join(debugDir, destName));
+
       (result as any)[key] = seconds;
     } catch (e: any) {
       ctx.log(`[OCR] ${key} 读取失败: ${e.message}`);
       (result as any)[key] = null;
+    } finally {
+      if (regionPath) await fs.unlink(regionPath).catch(() => {});
     }
   }
 
