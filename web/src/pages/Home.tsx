@@ -11,6 +11,7 @@ let loopRunning = false;
 let loopLogs: string[] = [];
 let loopCompletedBuildings: boolean[] = [false, false, false, false, false];
 let loopCompletedTechs: boolean[] = [false, false, false, false, false];
+let deviceBusy = false;
 
 const LOOP_STATE_KEY = 'loop-state';
 
@@ -365,48 +366,120 @@ export function HomePage() {
 
     const sleep = async (s: number) => new Promise(r => setTimeout(r, s * 1000));
 
+    const acquireLock = async (): Promise<boolean> => {
+      while (deviceBusy && !loopStopped) { await sleep(0.3); }
+      if (loopStopped) return false;
+      deviceBusy = true;
+      return true;
+    };
+    const releaseLock = () => { deviceBusy = false; };
+
     // Fire and forget, stop button will cancel via task IDs
     (async () => {
       let round = 0;
       let bottomBarChecked = false;
-      let lastCollectTime = 0;
-      const COLLECT_INTERVAL = 4 * 3600; // 4小时
-      let lastHelpTime = 0;
-      const HELP_INTERVAL = 60; // 60秒
 
       // 城外采集独立循环 — 按固定间隔执行，不受 OCR 调度影响
       const gatherLoop = (async () => {
+        let first = true;
         while (!loopStopped) {
+          if (first) { first = false; await sleep(10); continue; }
+          if (features.gatherResources && !features.autoExplore) {
+            const gatherTasks = features.gatherTasks
+              .map((t: { type: string; level: number }, i: number) => ({ ...t, team: i + 1 }))
+              .filter((t: { type: string; level: number; team: number }) => t.type);
+            if (gatherTasks.length > 0) {
+              if (!await acquireLock()) break;
+              try {
+                const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'gather-resources', { gatherTasks });
+                if (createResult.success) {
+                  runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
+                  setRunningTaskIds([...runningTaskIdsRef.current]);
+                  const runResult = await api.tasks.run(createResult.task.id);
+                  runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
+                  setRunningTaskIds([...runningTaskIdsRef.current]);
+                  const logs = runResult.task?.logs ?? [];
+                  const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
+                  if (hasExpiredLog) {
+                    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
+                    loopStopped = true;
+                    setExpiredMessage('激活码已到期，请重新激活');
+                    refreshStatus();
+                  } else {
+                    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 城外采集 完成`]);
+                  }
+                }
+              } catch {} finally { releaseLock(); }
+            }
+          }
           const startWait = Date.now();
           while (!loopStopped && (Date.now() - startWait) < features.loopInterval * 1000) {
             await sleep(1);
           }
-          if (loopStopped) break;
-          if (!features.gatherResources || features.autoExplore) continue;
-          const gatherTasks = features.gatherTasks
-            .map((t: { type: string; level: number }, i: number) => ({ ...t, team: i + 1 }))
-            .filter((t: { type: string; level: number; team: number }) => t.type);
-          if (gatherTasks.length === 0) continue;
-          try {
-            const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'gather-resources', { gatherTasks });
-            if (createResult.success) {
-              runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
-              setRunningTaskIds([...runningTaskIdsRef.current]);
-              const runResult = await api.tasks.run(createResult.task.id);
-              runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
-              setRunningTaskIds([...runningTaskIdsRef.current]);
-              const logs = runResult.task?.logs ?? [];
-              const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
-              if (hasExpiredLog) {
-                setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
-                loopStopped = true;
-                setExpiredMessage('激活码已到期，请重新激活');
-                refreshStatus();
-              } else {
-                setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 城外采集 完成`]);
+        }
+      })();
+
+      // 帮助盟友独立循环 — 每 60s
+      const helpLoop = (async () => {
+        let first = true;
+        while (!loopStopped) {
+          if (first) { first = false; await sleep(10); continue; }
+          if (features.helpTeammates && !features.autoExplore) {
+            if (!await acquireLock()) break;
+            try {
+              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'help-teammates');
+              if (createResult.success) {
+                runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
+                setRunningTaskIds([...runningTaskIdsRef.current]);
+                const runResult = await api.tasks.run(createResult.task.id);
+                runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
+                setRunningTaskIds([...runningTaskIdsRef.current]);
+                const logs = runResult.task?.logs ?? [];
+                const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
+                if (hasExpiredLog) {
+                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
+                  loopStopped = true;
+                  setExpiredMessage('激活码已到期，请重新激活');
+                  refreshStatus();
+                } else {
+                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 帮助盟友 完成`]);
+                }
               }
-            }
-          } catch {}
+            } catch {} finally { releaseLock(); }
+          }
+          await sleep(60);
+        }
+      })();
+
+      // 收集资源独立循环 — 每 4h
+      const collectLoop = (async () => {
+        let first = true;
+        while (!loopStopped) {
+          if (first) { first = false; await sleep(10); continue; }
+          if (features.collectResources && !features.autoExplore) {
+            if (!await acquireLock()) break;
+            try {
+              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'collect-resources');
+              if (createResult.success) {
+                runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
+                setRunningTaskIds([...runningTaskIdsRef.current]);
+                const runResult = await api.tasks.run(createResult.task.id);
+                runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
+                setRunningTaskIds([...runningTaskIdsRef.current]);
+                const logs = runResult.task?.logs ?? [];
+                const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
+                if (hasExpiredLog) {
+                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
+                  loopStopped = true;
+                  setExpiredMessage('激活码已到期，请重新激活');
+                  refreshStatus();
+                } else {
+                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 收集资源 完成`]);
+                }
+              }
+            } catch {} finally { releaseLock(); }
+          }
+          await sleep(4 * 3600);
         }
       })();
 
@@ -466,18 +539,21 @@ export function HomePage() {
         };
 
         if (!bottomBarChecked) {
-          await runTask('ensure-bottom-bar');
-          bottomBarChecked = true;
+          if (await acquireLock()) {
+            try { await runTask('ensure-bottom-bar'); bottomBarChecked = true; }
+            finally { releaseLock(); }
+          }
         }
-
-        const now = Date.now() / 1000;
 
         // 探索模式：与其他任务互斥，只执行探索
         if (features.autoExplore) {
           if (!buildingOptions.includes('斥候营地')) {
             setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记斥候营地位置，跳过自动探索`]);
           } else {
-            await runTask('explore', { maxScouts: features.exploreCount });
+            if (await acquireLock()) {
+              try { await runTask('explore', { maxScouts: features.exploreCount }); }
+              finally { releaseLock(); }
+            }
           }
           if (loopStopped) break;
           // 探索模式下固定 1 分钟后检查
@@ -492,7 +568,9 @@ export function HomePage() {
               await sleep(1);
             }
             if (!loopStopped) {
-              try { await runTask('idle-drag'); } catch {}
+              if (await acquireLock()) {
+                try { await runTask('idle-drag'); } catch {} finally { releaseLock(); }
+              }
             }
             while (!loopStopped && (Date.now() - exploreStartWait) < exploreNextWake * 1000) {
               await sleep(1);
@@ -504,6 +582,16 @@ export function HomePage() {
           continue;
         }
 
+        let latestTimers: ReturnType<typeof parseOcrResult>;
+        let dispatchedAny = false;
+
+        // 获取设备锁，执行 OCR + 派发
+        if (loopStopped) break;
+        if (!await acquireLock()) {
+          if (loopStopped) break;
+          continue;
+        }
+        try {
         // Step 1: OCR 队列倒计时
         const ocrLogs = await runTask('read-queue-overview');
         const timers = parseOcrResult(ocrLogs);
@@ -523,6 +611,7 @@ export function HomePage() {
             .filter((b: string, i: number) => b && !loopCompletedBuildings[i]);
           if (targetBuildings.length > 0) {
             const logs = await runTask('upgrade-buildings', { targetBuildings });
+            dispatchedAny = true;
             let changed = false;
             features.selectedBuildings.forEach((b: string, i: number) => {
               if (b && !loopCompletedBuildings[i] && logs.some((l: string) => l.includes(`✅ ${b} 升级成功`))) {
@@ -543,6 +632,7 @@ export function HomePage() {
             const techs = features.selectedTechs.filter((t: string, i: number) => t && !loopCompletedTechs[i]);
             if (techs.length > 0) {
               const logs = await runTask('research-tech-queue', { targetTechs: techs, researchBuilding: '学院' });
+              dispatchedAny = true;
               let changed = false;
               features.selectedTechs.forEach((t: string, i: number) => {
                 if (t && !loopCompletedTechs[i] && logs.some((l: string) => l.includes(`✅ ${t} 研究成功`))) {
@@ -568,30 +658,24 @@ export function HomePage() {
           const trainQueue = ['兵营', '马厩', '靶场', '攻城武器厂']
             .filter(b => (tasks[b] ?? 0) > 0 && (trainTimerMap[b] === null || trainTimerMap[b]! <= 0))
             .map(b => ({ building: b, tier: tasks[b] }));
-          if (trainQueue.length > 0) await runTask('train-troops', { trainQueue });
-        }
-
-        // Step 3: 收集资源（4小时间隔）
-        if (features.collectResources && (now - lastCollectTime >= COLLECT_INTERVAL)) {
-          await runTask('collect-resources');
-          lastCollectTime = now;
-        }
-
-        // Step 4: 帮助盟友 & 城外采集（每次检查执行）
-        if (features.helpTeammates && !loopStopped && (now - lastHelpTime >= HELP_INTERVAL)) {
-          await runTask('help-teammates');
-          lastHelpTime = now;
+          if (trainQueue.length > 0) { await runTask('train-troops', { trainQueue }); dispatchedAny = true; }
         }
 
         if (loopStopped) break;
 
-        // Step 5: 派发完毕后重新 OCR，获取最新倒计时
-        const reOcrLogs = await runTask('read-queue-overview');
-        const latestTimers = parseOcrResult(reOcrLogs);
+        // Step 3: 有派发任务时才重新 OCR，获取最新倒计时
+        if (dispatchedAny) {
+          const reOcrLogs = await runTask('read-queue-overview');
+          latestTimers = parseOcrResult(reOcrLogs);
+        } else {
+          latestTimers = timers;
+        }
+
+        } finally { releaseLock(); }
 
         if (loopStopped) break;
 
-        // Step 6: 计算下次唤醒时间（基于最新 OCR 结果）
+        // Step 4: 计算下次唤醒时间（基于最新 OCR 结果）
         const allTimers = [latestTimers.build1, latestTimers.build2, latestTimers.train_bingying, latestTimers.train_majiu, latestTimers.train_bachang, latestTimers.train_gongcheng, latestTimers.research].filter((t): t is number => t !== null && t > 0);
         const minTimer = allTimers.length > 0 ? Math.min(...allTimers) : null;
 
@@ -616,7 +700,9 @@ export function HomePage() {
             await sleep(1);
           }
           if (!loopStopped) {
-            try { await runTask('idle-drag'); } catch {}
+            if (await acquireLock()) {
+              try { await runTask('idle-drag'); } catch {} finally { releaseLock(); }
+            }
           }
           while (!loopStopped && (Date.now() - startWait) < nextWake * 1000) {
             await sleep(1);
@@ -628,7 +714,7 @@ export function HomePage() {
           }
         }
       }
-      await gatherLoop;
+      await Promise.all([helpLoop, collectLoop, gatherLoop]);
       loopRunning = false;
       clearLoopState();
       runningTaskIdsRef.current = [];

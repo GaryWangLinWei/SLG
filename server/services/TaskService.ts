@@ -55,6 +55,7 @@ export interface Task {
 class TaskService {
   private tasks: Map<string, Task> = new Map();
   private abortControllers: Map<string, AbortController> = new Map();
+  private accountBusy: Map<string, boolean> = new Map();
 
   createTask(accountId: string, pluginId: string, actionId: string, config: Record<string, any> = {}): Task {
     const id = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -113,6 +114,12 @@ class TaskService {
 
     const abort = new AbortController();
     this.abortControllers.set(taskId, abort);
+
+    // Per-account mutex: ensure only one task per account runs at a time
+    while (this.accountBusy.get(task.accountId)) {
+      await new Promise(r => setTimeout(r, 300));
+    }
+    this.accountBusy.set(task.accountId, true);
 
     const checkStop = () => {
       if (task.stopRequested) {
@@ -174,6 +181,7 @@ class TaskService {
       }
     } finally {
       this.abortControllers.delete(taskId);
+      this.accountBusy.set(task.accountId, false);
     }
 
     task.endTime = new Date();
