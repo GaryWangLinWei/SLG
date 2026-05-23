@@ -25,11 +25,15 @@ export async function upgradeSingleBuilding(
   // Step 0: Reset city camera by toggling world/city twice
   await resetCityView(ctx, config);
 
-  // Step 1: Tap building
-  ctx.log(`  [1/6] 点击建筑 (${pos.x}, ${pos.y})`);
-  await ctx.tap(pos.x, pos.y);
-  await ctx.tap(pos.x, pos.y);
-  await ctx.sleep(2);
+  // Step 1: Drag building to center, then tap
+  ctx.log(`  [1/6] 拖动建筑到屏幕中心 (${pos.x}, ${pos.y} → 540, 960)`);
+  await ctx.swipe(pos.x, pos.y, 960, 540, 1000);
+  await ctx.tap(960, 540);  // 打断惯性
+  await ctx.sleep(0.3);
+  await ctx.tap(960, 540);
+  await ctx.sleep(0.5);
+  await ctx.tap(960, 540);
+  await ctx.sleep(1);
 
   // Step 2: Find and tap popup upgrade button
   const upgradeTemplate = path.join(TEMPLATE_DIR, config.popupUpgradeTemplate);
@@ -125,10 +129,10 @@ export async function upgradeSingleBuilding(
       await ctx.tap(detail2.x, detail2.y);
       await ctx.sleep(1);
 
-      ctx.log(`  [5/6] 请求盟友帮助 (${pos.x}, ${pos.y})`);
-      await resetCityView(ctx, config);
+      ctx.log(`  [5/6] 请求盟友帮助 (960, 540)`);
+
       await ctx.sleep(1);
-      await ctx.tap(pos.x, pos.y);
+      await ctx.tap(960, 540);
       await ctx.sleep(0.5);
       return 'success';
     }
@@ -157,10 +161,10 @@ export async function upgradeSingleBuilding(
         return 'no_upgrade_button';
       }
 
-      ctx.log(`  [5/6] 请求盟友帮助 (${pos.x}, ${pos.y})`);
-      await resetCityView(ctx, config);
+      ctx.log(`  [5/6] 请求盟友帮助 (960, 540)`);
+
       await ctx.sleep(1);
-      await ctx.tap(pos.x, pos.y);
+      await ctx.tap(960, 540);
       await ctx.sleep(0.5);
       return 'success';
     }
@@ -193,10 +197,10 @@ export async function upgradeSingleBuilding(
       return 'no_upgrade_button';
     }
 
-    ctx.log(`  [5/6] 请求盟友帮助 (${pos.x}, ${pos.y})`);
-      await resetCityView(ctx, config);
+    ctx.log(`  [5/6] 请求盟友帮助 (960, 540)`);
+
     await ctx.sleep(1);
-    await ctx.tap(pos.x, pos.y);
+    await ctx.tap(960, 540);
     await ctx.sleep(0.5);
     return 'success';
   }
@@ -204,10 +208,10 @@ export async function upgradeSingleBuilding(
   ctx.log(`  [4/6] ✅ 升级已开始`);
 
   // Step 5: Request alliance help (tap building again to hit the help button above)
-  ctx.log(`  [5/6] 请求盟友帮助 (${pos.x}, ${pos.y})`);
-      await resetCityView(ctx, config);
+  ctx.log(`  [5/6] 请求盟友帮助 (960, 540)`);
+
   await ctx.sleep(1);
-  await ctx.tap(pos.x, pos.y);
+  await ctx.tap(960, 540);
   await ctx.sleep(0.5);
   return 'success';
 }

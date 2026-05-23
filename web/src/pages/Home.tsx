@@ -414,7 +414,6 @@ export function HomePage() {
         round++;
         setLogs(prev => { const next = [...prev, `[${new Date().toLocaleTimeString()}] 🔄 第${round}轮`]; saveLoopState(currentAccountId); return next; });
 
-        const ids: string[] = [];
 
         const handleLicenseExpired = () => {
           setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
@@ -428,9 +427,8 @@ export function HomePage() {
           try {
             const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, config);
             if (createResult.success) {
-              ids.push(createResult.task.id);
-              runningTaskIdsRef.current = [...ids];
-              setRunningTaskIds([...ids]);
+              runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
+              setRunningTaskIds([...runningTaskIdsRef.current]);
               const runResult = await api.tasks.run(createResult.task.id);
               const logs = runResult.task?.logs ?? [];
 

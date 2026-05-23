@@ -50,17 +50,21 @@ export async function trainTroopsSingle(
   await resetCityView(ctx, config);
 
   // ============================================
-  // 第 1 步: 点击兵营建筑
+  // 第 1 步: 拖动建筑到中心，再点击
   // ============================================
   const buildPos = config.buildingPositions[targetBuilding];
   if (!buildPos) {
     ctx.log(`❌ 未找到建筑坐标: ${targetBuilding}`);
     return 'not_found';
   }
-  ctx.log(`--- 第 1 步: 点击 ${targetBuilding} (${buildPos.x}, ${buildPos.y}) ---`);
-  await ctx.tap(buildPos.x, buildPos.y);
-  await ctx.tap(buildPos.x, buildPos.y);
-  await ctx.sleep(2);
+  ctx.log(`--- 第 1 步: 拖动 ${targetBuilding} 到屏幕中心 (${buildPos.x}, ${buildPos.y} → 960, 540) ---`);
+  await ctx.swipe(buildPos.x, buildPos.y, 960, 540, 1000);
+  await ctx.tap(960, 540);  // 打断惯性
+  await ctx.sleep(0.3);
+  await ctx.tap(960, 540);
+  await ctx.sleep(0.5);
+  await ctx.tap(960, 540);
+  await ctx.sleep(1);
 
   // ============================================
   // 第 2 步: 图像识别训练按钮，首次缩放识别后缓存坐标
