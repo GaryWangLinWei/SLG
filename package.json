@@ -17,7 +17,7 @@
   },
   "build": {
     "appId": "com.rok.automation",
-    "productName": "万国觉醒自动化助手",
+    "productName": "ROK助手",
     "directories": {
       "output": "release"
     },

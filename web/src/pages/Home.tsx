@@ -113,7 +113,7 @@ function TechSelect({ value, onChange, excludeValues, economicTechs, militaryTec
 }
 
 export function HomePage() {
-  const { currentAccountId, accounts } = useAccount();
+  const { currentAccountId } = useAccount();
   const { refreshStatus, setExpiredMessage } = useLicense();
   const [activeConfigName, setActiveConfigName] = useState('');
   const [deviceConnected, setDeviceConnected] = useState(false);
@@ -353,7 +353,8 @@ export function HomePage() {
     setTaskRunning(true);
     const isExploreMode = features.autoExplore;
     const interval = isExploreMode ? 60 : features.loopInterval;
-    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🚀 开始${isExploreMode ? '自动探索' : '循环执行: ' + selectedActions.join(' + ')} (间隔${interval}秒)`]);
+    clearLoopState();
+    setLogs([`[${new Date().toLocaleTimeString()}] 🚀 开始${isExploreMode ? '自动探索' : '循环执行: ' + selectedActions.join(' + ')} (间隔${interval}秒)`]);
 
     // Reset completion state for a fresh run (module-level for loop, state for UI)
     loopCompletedBuildings = [false, false, false, false, false];
@@ -781,20 +782,15 @@ export function HomePage() {
       <div className="bg-gray-800 p-4 border-b border-gray-700">
         <div className="max-w-4xl mx-auto flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-blue-400">万国觉醒自动化助手</h1>
-            {currentAccountId && (
-              <span className="text-sm text-gray-400">
-                👤 {accounts.find(a => a.id === currentAccountId)?.name || currentAccountId}
-                {configNames.length > 0 && (
-                  <select
-                    value={activeConfigName}
-                    onChange={e => handleConfigSwitch(e.target.value)}
-                    className="ml-2 px-2 py-0.5 bg-gray-700 rounded text-xs border border-gray-600 text-gray-300"
-                  >
-                    {configNames.map(n => <option key={n} value={n}>📐 {n}</option>)}
-                  </select>
-                )}
-              </span>
+            <h1 className="text-2xl font-bold text-blue-400">ROK助手</h1>
+            {currentAccountId && configNames.length > 0 && (
+              <select
+                value={activeConfigName}
+                onChange={e => handleConfigSwitch(e.target.value)}
+                className="px-2 py-0.5 bg-gray-700 rounded text-xs border border-gray-600 text-gray-300"
+              >
+                {configNames.map(n => <option key={n} value={n}>📐 {n}</option>)}
+              </select>
             )}
           </div>
           <div className="flex items-center gap-4">

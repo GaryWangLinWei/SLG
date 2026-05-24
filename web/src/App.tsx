@@ -39,9 +39,9 @@ function NavBar() {
   const isElectron = typeof window !== 'undefined' && 'electronAPI' in window;
 
   return (
-    <nav className="bg-gray-800 p-4 border-b border-gray-700">
+    <nav className="bg-gray-800 p-4 border-b border-gray-700" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
       <div className="container mx-auto flex gap-6 items-center">
-        <Link to="/" className="text-xl font-bold text-blue-400">万国觉醒助手</Link>
+        <Link to="/" className="text-xl font-bold text-blue-400" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>ROK助手</Link>
         <Link to="/" className="hover:text-blue-400">首页</Link>
         <Link to="/config" className="hover:text-blue-400">坐标配置</Link>
 

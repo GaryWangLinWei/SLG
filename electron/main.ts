@@ -13,7 +13,7 @@ let tray: Tray | null = null;
 let serverProcess: any = null;
 let isQuiting = false;
 
-const APP_NAME = '万国觉醒自动化助手';
+const APP_NAME = 'ROK助手';
 
 // Fix for __dirname in Electron with TypeScript
 const getResourcePath = (resourceName: string) => {
@@ -58,6 +58,7 @@ function createWindow() {
     minHeight: 700,
     title: APP_NAME,
     icon: path.join(__dirname, '../icon.png'),
+    frame: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
@@ -167,6 +168,15 @@ ipcMain.handle('get-adb-path', () => {
     return path.join(__dirname, '../tools/platform-tools/platform-tools/adb.exe');
   }
   return path.join(process.resourcesPath, 'adb/adb.exe');
+});
+
+ipcMain.on('minimize-to-tray', () => {
+  mainWindow?.hide();
+});
+
+ipcMain.on('close-app', () => {
+  isQuiting = true;
+  app.quit();
 });
 
 // App events
