@@ -12,3 +12,4 @@ storage/db/*
 *.db-shm
 *.db-wal
 release/
+plugins/rok/debug/
