@@ -71,13 +71,6 @@ export async function readQueueOverview(
         ctx.log(`[OCR] ${key} OCR识别失败: ${ocrErr.message}`);
       }
 
-      // 保存截图到 debug/OCR 目录
-      const debugDir = path.join(__dirname, '../debug/OCR');
-      await fs.mkdir(debugDir, { recursive: true });
-      const safeText = text.trim().replace(/[\\/:*?"<>|\n\r]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') || '未识别';
-      const destName = `${label}-剩余${safeText}.png`;
-      await fs.copyFile(regionPath, path.join(debugDir, destName));
-
       (result as any)[key] = seconds;
     } catch (e: any) {
       ctx.log(`[OCR] ${key} 读取失败: ${e.message}`);

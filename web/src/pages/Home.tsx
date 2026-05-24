@@ -503,6 +503,8 @@ export function HomePage() {
               runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
               setRunningTaskIds([...runningTaskIdsRef.current]);
               const runResult = await api.tasks.run(createResult.task.id);
+              runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
+              setRunningTaskIds([...runningTaskIdsRef.current]);
               const logs = runResult.task?.logs ?? [];
 
               const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
@@ -557,7 +559,7 @@ export function HomePage() {
           }
           if (loopStopped) break;
           // 探索模式下固定 1 分钟后检查
-          const exploreNextWake = 45 + Math.random() * 15;
+          const exploreNextWake = 30 + Math.random() * 15;
           setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🔍 探索模式，下次检查 ${exploreNextWake.toFixed(0)} 秒后`]);
           const exploreDragSafety = 5;
           const exploreDragWindow = exploreNextWake - exploreDragSafety;
@@ -728,8 +730,8 @@ export function HomePage() {
     loopStopped = true;
     loopRunning = false;
     clearLoopState();
-    for (const id of runningTaskIdsRef.current) {
-      try { await api.tasks.stop(id); } catch { /* ok */ }
+    if (runningTaskIdsRef.current.length > 0) {
+      await Promise.all(runningTaskIdsRef.current.map(id => api.tasks.stop(id).catch(() => {})));
     }
     runningTaskIdsRef.current = [];
     setTaskRunning(false);
