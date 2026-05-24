@@ -34,66 +34,123 @@ function RemainingTime({ expiresAt }: { expiresAt: number }) {
   return <span className="text-sm text-gray-400">剩余: {parts.join('')}</span>;
 }
 
+function RenewButton() {
+  const { activate, preview } = useLicense();
+  const [mode, setMode] = useState<'idle' | 'input' | 'loading' | 'msg'>('idle');
+  const [code, setCode] = useState('');
+  const [msg, setMsg] = useState('');
+  const [msgOk, setMsgOk] = useState(true);
+
+  const handleRenew = async () => {
+    const trimmed = code.trim();
+    if (!trimmed) return;
+    setMode('loading');
+    const previewResult = await preview(trimmed);
+    if (!previewResult.success) {
+      setMsg('激活码无效：' + previewResult.error);
+      setMsgOk(false);
+      setMode('msg');
+      return;
+    }
+    const result = await activate(trimmed);
+    if (result.success) {
+      setMsg('续费成功！有效期已延长');
+      setMsgOk(true);
+    } else {
+      setMsg('激活失败：' + result.error);
+      setMsgOk(false);
+    }
+    setMode('msg');
+  };
+
+  if (mode === 'input' || mode === 'loading') {
+    return (
+      <form onSubmit={e => { e.preventDefault(); handleRenew(); }}
+        className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <input
+          autoFocus
+          value={code}
+          onChange={e => setCode(e.target.value)}
+          placeholder="输入激活码"
+          disabled={mode === 'loading'}
+          className="px-2 py-0.5 text-sm bg-gray-700 border border-gray-600 rounded text-white w-32 focus:outline-none focus:border-blue-500"
+        />
+        <button type="submit" disabled={mode === 'loading'}
+          className="text-sm text-blue-400 hover:text-blue-300 px-1 py-0.5 rounded hover:bg-gray-700 disabled:opacity-50">
+          {mode === 'loading' ? '...' : '确认'}
+        </button>
+        <button type="button" onClick={() => { setMode('idle'); setCode(''); }}
+          className="text-sm text-gray-400 hover:text-red-400 px-1 py-0.5 rounded hover:bg-gray-700">
+          取消
+        </button>
+      </form>
+    );
+  }
+
+  if (mode === 'msg') {
+    return (
+      <span className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
+        <span className={`text-sm ${msgOk ? 'text-green-400' : 'text-red-400'}`}>{msg}</span>
+        <button onClick={() => { setMode('idle'); setCode(''); }}
+          className="text-sm text-gray-400 hover:text-blue-400 px-1 py-0.5 rounded hover:bg-gray-700">
+          关闭
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setMode('input')}
+      className="text-sm text-blue-400 hover:text-blue-300 px-2 py-1 rounded hover:bg-gray-700"
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+    >
+      续费
+    </button>
+  );
+}
+
 function NavBar() {
-  const { status, activate, preview } = useLicense();
+  const { status } = useLicense();
   const isElectron = typeof window !== 'undefined' && 'electronAPI' in window;
 
   return (
-    <nav className="bg-gray-800 p-4 border-b border-gray-700" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
-      <div className="container mx-auto flex gap-6 items-center">
+    <nav className="bg-gray-800 p-4 border-b border-gray-700 shrink-0" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+      <div className="flex gap-4 items-center">
         <Link to="/" className="text-xl font-bold text-blue-400" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>ROK助手</Link>
-        <Link to="/" className="hover:text-blue-400">首页</Link>
-        <Link to="/config" className="hover:text-blue-400">坐标配置</Link>
+        <Link to="/" className="hover:text-blue-400" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>首页</Link>
+        <Link to="/config" className="hover:text-blue-400" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>坐标配置</Link>
 
-        <Link to="/accounts" className="hover:text-blue-400">模拟器配置</Link>
+        <Link to="/accounts" className="hover:text-blue-400" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>模拟器配置</Link>
 
         <div className="flex-1" />
+
+        {/* License status */}
+        {status?.activated && status.expiresAt && (
+          <>
+            <RemainingTime expiresAt={status.expiresAt} />
+            <RenewButton />
+          </>
+        )}
 
         {/* Electron controls */}
         {isElectron && (
           <>
             <button
               onClick={() => window.electronAPI!.minimizeToTray()}
-              className="text-sm text-gray-400 hover:text-blue-400 px-2 py-1 rounded hover:bg-gray-700"
-              title="最小化到系统托盘 (关闭窗口不退出)"
+              className="text-lg text-gray-400 hover:text-blue-400 w-7 h-7 rounded hover:bg-gray-700 flex items-center justify-center leading-none"
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+              title="最小化到系统托盘"
             >
-              最小化到托盘
+              &#x2212;
             </button>
             <button
               onClick={() => window.electronAPI!.closeApp()}
-              className="text-sm text-red-500 hover:text-red-400 px-2 py-1 rounded hover:bg-gray-700"
-              title="完全退出应用"
+              className="text-lg text-gray-400 hover:text-red-400 w-7 h-7 rounded hover:bg-gray-700 flex items-center justify-center leading-none"
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+              title="退出"
             >
-              退出
-            </button>
-          </>
-        )}
-
-        {/* License status */}
-        {status?.activated && status.expiresAt && (
-          <>
-            <RemainingTime expiresAt={status.expiresAt} />
-            <button
-              onClick={async () => {
-                const newCode = prompt('请输入新的激活码：');
-                if (!newCode?.trim()) return;
-
-                const previewResult = await preview(newCode.trim());
-                if (!previewResult.success) {
-                  alert('激活码无效：' + previewResult.error);
-                  return;
-                }
-
-                const result = await activate(newCode.trim());
-                if (result.success) {
-                  alert('续费成功！有效期已延长');
-                } else {
-                  alert('激活失败：' + result.error);
-                }
-              }}
-              className="text-sm text-blue-400 hover:text-blue-300 px-2 py-1 rounded hover:bg-gray-700"
-            >
-              续费
+              &#x00d7;
             </button>
           </>
         )}
@@ -151,16 +208,18 @@ function AppContent() {
   return (
     <LicenseGate>
       <AccountProvider>
-        <div className="min-h-screen bg-gray-900 text-white">
+        <div className="h-screen bg-gray-900 text-white flex flex-col">
           <NavBar />
-          <Routes>
-            <Route path="/" element={<HomePage />} />
+          <div className="flex-1 overflow-y-auto">
+            <Routes>
+              <Route path="/" element={<HomePage />} />
 
-            <Route path="/config" element={<ConfigPage />} />
-            <Route path="/plugins" element={<PluginsPage />} />
-            <Route path="/tasks" element={<TasksPage />} />
-            <Route path="/accounts" element={<AccountsPage />} />
-          </Routes>
+              <Route path="/config" element={<ConfigPage />} />
+              <Route path="/plugins" element={<PluginsPage />} />
+              <Route path="/tasks" element={<TasksPage />} />
+              <Route path="/accounts" element={<AccountsPage />} />
+            </Routes>
+          </div>
         </div>
       </AccountProvider>
     </LicenseGate>

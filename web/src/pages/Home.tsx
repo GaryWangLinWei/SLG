@@ -120,7 +120,7 @@ export function HomePage() {
   const [deviceLoading, setDeviceLoading] = useState(false);
   const [taskRunning, setTaskRunning] = useState(false);
   const runningTaskIdsRef = useRef<string[]>([]);
-  const [runningTaskIds, setRunningTaskIds] = useState<string[]>([]);
+  const [_runningTaskIds, setRunningTaskIds] = useState<string[]>([]);
   const [logs, setLogs] = useState<string[]>(loopLogs);
   useEffect(() => { loopLogs = logs; }, [logs]);
   const DEFAULT_FEATURES = {
@@ -179,7 +179,7 @@ export function HomePage() {
   const TRAIN_TIERS = [1, 2, 3, 4, 5];
 
   const [buildingOptions, setBuildingOptions] = useState<string[]>([]);
-  const [techOptions, setTechOptions] = useState<string[]>(['耕犁', '锯木厂', '铸币', '机械']);
+  const [_techOptions, setTechOptions] = useState<string[]>(['耕犁', '锯木厂', '铸币', '机械']);
   const [economicTechs, setEconomicTechs] = useState<string[]>([]);
   const [militaryTechs, setMilitaryTechs] = useState<string[]>([]);
 
@@ -359,7 +359,7 @@ export function HomePage() {
     // Reset completion state for a fresh run (module-level for loop, state for UI)
     loopCompletedBuildings = [false, false, false, false, false];
     loopCompletedTechs = [false, false, false, false, false];
-    setFeatures(prev => ({
+    setFeatures((prev: typeof DEFAULT_FEATURES) => ({
       ...prev,
       completedBuildings: [false, false, false, false, false],
       completedTechs: [false, false, false, false, false],
@@ -779,37 +779,20 @@ export function HomePage() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      <div className="bg-gray-800 p-4 border-b border-gray-700">
-        <div className="max-w-4xl mx-auto flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl font-bold text-blue-400">ROK助手</h1>
-            {currentAccountId && configNames.length > 0 && (
-              <select
-                value={activeConfigName}
-                onChange={e => handleConfigSwitch(e.target.value)}
-                className="px-2 py-0.5 bg-gray-700 rounded text-xs border border-gray-600 text-gray-300"
-              >
-                {configNames.map(n => <option key={n} value={n}>📐 {n}</option>)}
-              </select>
-            )}
-          </div>
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <span className={`w-3 h-3 rounded-full ${deviceConnected ? 'bg-green-500' : 'bg-red-500'}`}></span>
-              <span className="text-sm">{deviceConnected ? '设备已连接' : '未连接设备'}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className={`w-3 h-3 rounded-full ${taskRunning ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`}></span>
-              <span className="text-sm">{taskRunning ? '运行中' : '已停止'}</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
       <div className="max-w-4xl mx-auto p-6">
         <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-8 mb-8 text-center shadow-2xl">
           <h2 className="text-3xl font-bold mb-2">一键全能模式</h2>
-          <p className="text-blue-100 mb-4">自动收集资源 + 升级建筑 + 定时循环</p>
+          <p className="text-blue-100 mb-4">城外采集定时循环</p>
+          <div className="flex items-center justify-center gap-4 mb-4">
+            <div className="flex items-center gap-2">
+              <span className={`w-2.5 h-2.5 rounded-full ${deviceConnected ? 'bg-green-400' : 'bg-red-400'}`}></span>
+              <span className="text-sm text-blue-100">{deviceConnected ? '设备已连接' : '未连接设备'}</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className={`w-2.5 h-2.5 rounded-full ${taskRunning ? 'bg-green-400 animate-pulse' : 'bg-white/30'}`}></span>
+              <span className="text-sm text-blue-100">{taskRunning ? '运行中' : '已停止'}</span>
+            </div>
+          </div>
           <div className="flex items-center justify-center gap-2 mb-6">
             <span className="text-blue-100 text-sm">循环间隔:</span>
             <input type="number" min={60} step={30} value={features.loopInterval}
@@ -848,7 +831,18 @@ export function HomePage() {
         </div>
 
         <div className="bg-gray-800 rounded-xl p-6 mb-6">
-          <h3 className="text-xl font-bold mb-4">功能设置</h3>
+          <div className="flex items-center gap-3 mb-4">
+            <h3 className="text-xl font-bold">功能设置</h3>
+            {currentAccountId && configNames.length > 0 && (
+              <select
+                value={activeConfigName}
+                onChange={e => handleConfigSwitch(e.target.value)}
+                className="px-2 py-0.5 bg-gray-700 rounded text-xs border border-gray-600 text-gray-300"
+              >
+                {configNames.map(n => <option key={n} value={n}>📐 {n}</option>)}
+              </select>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-4">
             <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer hover:bg-gray-600 ${features.autoExplore ? 'bg-gray-800 opacity-50 pointer-events-none' : 'bg-gray-700'}`}>
               <input type="checkbox" checked={features.helpTeammates} disabled={features.autoExplore}
@@ -856,7 +850,7 @@ export function HomePage() {
                 className="w-5 h-5 text-blue-600" />
               <div>
                 <span className="font-medium">自动帮助盟友</span>
-                <p className="text-xs text-gray-400">检测帮助图标并自动点击帮助</p>
+                <p className="text-xs text-gray-400"></p>
               </div>
             </label>
 
@@ -866,7 +860,7 @@ export function HomePage() {
                 className="w-5 h-5 text-blue-600" />
               <div>
                 <span className="font-medium">自动收集资源</span>
-                <p className="text-xs text-gray-400">自动收集所有农场、矿场产出</p>
+                <p className="text-xs text-gray-400">请先在配置页添加资源建筑坐标</p>
               </div>
             </label>
 
@@ -877,7 +871,7 @@ export function HomePage() {
               <div className="flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium">自动升级建筑</span>
-                  {features.selectedBuildings.map((val, i) => (
+                  {features.selectedBuildings.map((val: string, i: number) => (
                     <select key={i} value={val} disabled={features.autoExplore} onChange={(e) => {
                       const next = [...features.selectedBuildings]; next[i] = e.target.value;
                       const nextCompleted = [...features.completedBuildings]; nextCompleted[i] = false;
@@ -896,7 +890,7 @@ export function HomePage() {
                         e.preventDefault();
                         const { selected, completed } = clearCompleted(features.selectedBuildings, features.completedBuildings);
                         loopCompletedBuildings = completed;
-                        setFeatures(prev => ({ ...prev, selectedBuildings: selected, completedBuildings: completed }));
+                        setFeatures((prev: typeof DEFAULT_FEATURES) => ({ ...prev, selectedBuildings: selected, completedBuildings: completed }));
                       }}
                       className="px-2 py-1 text-xs bg-red-800 hover:bg-red-700 text-red-200 rounded whitespace-nowrap"
                     >
@@ -904,7 +898,7 @@ export function HomePage() {
                     </button>
                   )}
                 </div>
-                <p className="text-xs text-gray-400 mt-1">确保资源足够升级建筑</p>
+                <p className="text-xs text-gray-400 mt-1">请在配置页添加建筑坐标</p>
               </div>
             </label>
 
@@ -921,7 +915,7 @@ export function HomePage() {
               <div className="flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="font-medium">自动研究科技</span>
-                  {features.selectedTechs.map((val, i) => (
+                  {features.selectedTechs.map((val: string, i: number) => (
                     <TechSelect key={i} value={val}
                       onChange={(v) => {
                         const next = [...features.selectedTechs]; next[i] = v;
@@ -939,7 +933,7 @@ export function HomePage() {
                       onClick={() => {
                         const { selected, completed } = clearCompleted(features.selectedTechs, features.completedTechs);
                         loopCompletedTechs = completed;
-                        setFeatures(prev => ({ ...prev, selectedTechs: selected, completedTechs: completed }));
+                        setFeatures((prev: typeof DEFAULT_FEATURES) => ({ ...prev, selectedTechs: selected, completedTechs: completed }));
                       }}
                       className="px-2 py-1 text-xs bg-red-800 hover:bg-red-700 text-red-200 rounded whitespace-nowrap"
                     >
@@ -947,7 +941,7 @@ export function HomePage() {
                     </button>
                   )}
                 </div>
-                <p className="text-xs text-gray-400 mt-1">请确保已标记学院坐标及资源充足</p>
+                <p className="text-xs text-gray-400 mt-1">请先在配置页添加学院坐标</p>
               </div>
             </div>
 
@@ -958,7 +952,7 @@ export function HomePage() {
               <div className="flex-1">
                 <span className="font-medium">城外资源采集</span>
                 <div className="flex gap-1 mt-2">
-                  {features.gatherTasks.map((task, i) => (
+                  {features.gatherTasks.map((task: { type: string; level: number }, i: number) => (
                     <div key={i} className="flex flex-col gap-1">
                       <select value={task.type} disabled={features.autoExplore} onChange={(e) => {
                         const next = [...features.gatherTasks]; next[i] = { ...next[i], type: e.target.value };

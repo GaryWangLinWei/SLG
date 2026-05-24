@@ -109,9 +109,7 @@ function createWindow() {
 }
 
 function createTray() {
-  const iconPath = isDev
-    ? path.join(__dirname, '../assets/icon-tray.png')
-    : path.join(__dirname, '../assets/icon-tray.png');
+  const iconPath = path.join(__dirname, '../assets/icon-tray.png');
 
   const trayIcon = nativeImage.createFromPath(iconPath).resize({ width: 16, height: 16 });
   tray = new Tray(trayIcon);
