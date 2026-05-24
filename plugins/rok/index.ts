@@ -80,6 +80,11 @@ export interface RokConfig {
       train_gongcheng: { x: number; y: number; w: number; h: number };
       research: { x: number; y: number; w: number; h: number };
     };
+    // 建筑队列名称区域（格式：等级8 学院），用于识别哪个建筑正在升级
+    buildNameRows?: {
+      build1: { x: number; y: number; w: number; h: number };
+      build2: { x: number; y: number; w: number; h: number };
+    };
   };
 
   homeFeatures?: HomeFeatures;
@@ -163,7 +168,11 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
       train_bachang: { x: 103, y: 280, w: 267, h: 23 },
       train_gongcheng: { x: 103, y: 444, w: 267, h: 23 },
       research: { x: 103, y: 805, w: 267, h: 23 }
-    }
+    },
+    buildNameRows: {
+      build1: { x: 98, y: 548, w: 266, h: 26 },
+      build2: { x: 98, y: 630, w: 266, h: 26 },
+    },
   },
 
   homeFeatures: DEFAULT_HOME_FEATURES,
@@ -215,11 +224,17 @@ export const RiseOfKingdomsPlugin: Plugin = {
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const buildings = params.targetBuildings.filter(b => b);
 
+        const done = new Set<string>();
         for (let i = 0; i < buildings.length; i++) {
+          if (done.has(buildings[i])) {
+            ctx.log(`--- [${i + 1}/${buildings.length}] ⏭ ${buildings[i]} 与前面同名，跳过`);
+            continue;
+          }
           ctx.log(`--- [${i + 1}/${buildings.length}] ---`);
           const result = await upgradeSingleBuilding(ctx, config, buildings[i]);
           if (result === 'success') {
             ctx.log(`✅ ${buildings[i]} 升级成功，已从队列移除`);
+            done.add(buildings[i]);
           } else if (result === 'busy') {
             ctx.log(`⏳ ${buildings[i]} 队列满，可重试`);
             break;

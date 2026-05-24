@@ -531,13 +531,15 @@ export function HomePage() {
           return [];
         };
 
-        const parseOcrResult = (logs: string[]): { build1: number | null; build2: number | null; train_bingying: number | null; train_majiu: number | null; train_bachang: number | null; train_gongcheng: number | null; research: number | null } => {
+        const parseOcrResult = (logs: string[]): { build1: number | null; build2: number | null; train_bingying: number | null; train_majiu: number | null; train_bachang: number | null; train_gongcheng: number | null; research: number | null; build1Building: string | null; build2Building: string | null } => {
           const line = logs.find((l: string) => l.includes('[OCR-RESULT]'));
-          if (!line) return { build1: null, build2: null, train_bingying: null, train_majiu: null, train_bachang: null, train_gongcheng: null, research: null };
-          const match = line.match(/build1=(-?\d+|null)\s+build2=(-?\d+|null)\s+train_bingying=(-?\d+|null)\s+train_majiu=(-?\d+|null)\s+train_bachang=(-?\d+|null)\s+train_gongcheng=(-?\d+|null)\s+research=(-?\d+|null)/);
-          if (!match) return { build1: null, build2: null, train_bingying: null, train_majiu: null, train_bachang: null, train_gongcheng: null, research: null };
+          const empty = { build1: null, build2: null, train_bingying: null, train_majiu: null, train_bachang: null, train_gongcheng: null, research: null, build1Building: null, build2Building: null };
+          if (!line) return empty;
+          const match = line.match(/build1=(-?\d+|null)\s+build2=(-?\d+|null)\s+train_bingying=(-?\d+|null)\s+train_majiu=(-?\d+|null)\s+train_bachang=(-?\d+|null)\s+train_gongcheng=(-?\d+|null)\s+research=(-?\d+|null)\s+build1Building=(\S+)\s+build2Building=(\S+)/);
+          if (!match) return empty;
           const parse = (s: string) => s === 'null' ? null : parseInt(s, 10);
-          return { build1: parse(match[1]), build2: parse(match[2]), train_bingying: parse(match[3]), train_majiu: parse(match[4]), train_bachang: parse(match[5]), train_gongcheng: parse(match[6]), research: parse(match[7]) };
+          const parseName = (s: string) => s === 'null' ? null : s;
+          return { build1: parse(match[1]), build2: parse(match[2]), train_bingying: parse(match[3]), train_majiu: parse(match[4]), train_bachang: parse(match[5]), train_gongcheng: parse(match[6]), research: parse(match[7]), build1Building: parseName(match[8]), build2Building: parseName(match[9]) };
         };
 
         if (!bottomBarChecked) {
@@ -615,8 +617,14 @@ export function HomePage() {
             const logs = await runTask('upgrade-buildings', { targetBuildings });
             dispatchedAny = true;
             let changed = false;
+            const successCounts: Record<string, number> = {};
+            for (const l of logs) {
+              const m = l.match(/✅ (.+?) 升级成功/);
+              if (m) successCounts[m[1]] = (successCounts[m[1]] || 0) + 1;
+            }
             features.selectedBuildings.forEach((b: string, i: number) => {
-              if (b && !loopCompletedBuildings[i] && logs.some((l: string) => l.includes(`✅ ${b} 升级成功`))) {
+              if (b && !loopCompletedBuildings[i] && (successCounts[b] || 0) > 0) {
+                successCounts[b]--;
                 loopCompletedBuildings[i] = true;
                 changed = true;
               }
@@ -630,14 +638,22 @@ export function HomePage() {
         if (hasResearch && (timers.research === null || timers.research! <= 0)) {
           if (!buildingOptions.includes('学院')) {
             setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记学院位置，跳过研究科技`]);
+          } else if (timers.build1Building === '学院' || timers.build2Building === '学院') {
+            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏗️ 学院正在升级中，跳过研究科技`]);
           } else {
             const techs = features.selectedTechs.filter((t: string, i: number) => t && !loopCompletedTechs[i]);
             if (techs.length > 0) {
               const logs = await runTask('research-tech-queue', { targetTechs: techs, researchBuilding: '学院' });
               dispatchedAny = true;
               let changed = false;
+              const techSuccessCounts: Record<string, number> = {};
+              for (const l of logs) {
+                const m = l.match(/✅ (.+?) 研究成功/);
+                if (m) techSuccessCounts[m[1]] = (techSuccessCounts[m[1]] || 0) + 1;
+              }
               features.selectedTechs.forEach((t: string, i: number) => {
-                if (t && !loopCompletedTechs[i] && logs.some((l: string) => l.includes(`✅ ${t} 研究成功`))) {
+                if (t && !loopCompletedTechs[i] && (techSuccessCounts[t] || 0) > 0) {
+                  techSuccessCounts[t]--;
                   loopCompletedTechs[i] = true;
                   changed = true;
                 }
@@ -657,8 +673,17 @@ export function HomePage() {
             '攻城武器厂': timers.train_gongcheng,
           };
           const tasks = features.trainTasks as Record<string, number>;
+          const upgradingBuildings = new Set([timers.build1Building, timers.build2Building].filter(Boolean));
           const trainQueue = ['兵营', '马厩', '靶场', '攻城武器厂']
-            .filter(b => (tasks[b] ?? 0) > 0 && (trainTimerMap[b] === null || trainTimerMap[b]! <= 0))
+            .filter(b => {
+              if ((tasks[b] ?? 0) <= 0) return false;
+              if (trainTimerMap[b] !== null && trainTimerMap[b]! > 0) return false;
+              if (upgradingBuildings.has(b)) {
+                setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏗️ ${b}正在升级中，跳过训练`]);
+                return false;
+              }
+              return true;
+            })
             .map(b => ({ building: b, tier: tasks[b] }));
           if (trainQueue.length > 0) { await runTask('train-troops', { trainQueue }); dispatchedAny = true; }
         }

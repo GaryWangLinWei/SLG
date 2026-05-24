@@ -80,7 +80,7 @@ export async function trainTroopsSingle(
     trainY = cached.y;
     ctx.log(`使用缓存的训练按钮坐标 (${trainX}, ${trainY})`);
   } else {
-    const popup = await ctx.findImageWithLocation(trainTemplatePath, 0.7, [0.7, 0.8, 0.9, 1.0, 1.1]);
+    const popup = await ctx.findImageWithLocation(trainTemplatePath, 0.75, [0.7, 0.8, 0.9, 1.0, 1.1]);
     if (!popup.found) {
       ctx.log(`❌ 未找到弹出训练按钮 (confidence: ${popup.confidence.toFixed(3)})`);
       return 'no_train_button';

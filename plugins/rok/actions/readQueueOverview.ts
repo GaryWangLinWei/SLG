@@ -1,7 +1,7 @@
 import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
 import * as fs from 'fs/promises';
-import * as path from 'path';
+
 import { ocrService } from '../../../core/ocr/OcrService';
 import { parseCountdown } from '../../../core/ocr/parseCountdown';
 
@@ -13,6 +13,8 @@ export interface QueueTimers {
   train_bachang: number | null;
   train_gongcheng: number | null;
   research: number | null;
+  build1Building?: string | null;
+  build2Building?: string | null;
 }
 
 const TRAIN_KEY_TO_BUILDING: Record<string, string> = {
@@ -80,6 +82,53 @@ export async function readQueueOverview(
     }
   }
 
+  // OCR 建筑队列名称（格式：等级8 学院），识别哪个建筑正在升级
+  if (qo.buildNameRows) {
+    const parseBuildingName = (text: string): string | null => {
+      // OCR 可能在中文间加空格，先合并再匹配
+      const compact = text.replace(/\s+/g, '');
+      // 空闲队列显示 "建造队列N" 表头，无建筑名
+      if (/建造队列/.test(compact) || /空闲/.test(compact)) return null;
+      // 去掉 "等级N" 前缀（同时处理 "等级8" 和 "等级 8" ocr 后加空格的情况）
+      const cleaned = compact.replace(/等级\d+/i, '').replace(/^\d+/, '');
+      if (!cleaned) return null;
+      const knownBuildings = [
+        '攻城武器厂', '采石场', '木材厂', '金矿', '农场',
+        '学院', '兵营', '马厩', '靶场', '斥候营地', '联盟中心',
+        '酒馆', '商店', '仓库', '驿站', '箭塔', '城墙', '城堡',
+      ];
+      for (const b of knownBuildings) {
+        if (cleaned === b) return b;
+      }
+      let best: string | null = null;
+      for (const b of knownBuildings) {
+        if (cleaned.includes(b) && (!best || b.length > best.length)) {
+          best = b;
+        }
+      }
+      return best;
+    };
+
+    for (const key of ['build1', 'build2'] as const) {
+      const region = (qo.buildNameRows as any)[key];
+      if (!region) continue;
+      ctx.log(`[OCR] 读取 ${key} 建筑名 (${region.x},${region.y} ${region.w}x${region.h})`);
+      let regionPath: string | null = null;
+      try {
+        regionPath = await ctx.captureRegion(region.x, region.y, region.w, region.h);
+        const text = await ocrService.readChineseText(regionPath);
+        const name = parseBuildingName(text);
+        ctx.log(`[OCR] ${key} 建筑名 原始="${text}" → ${name ?? '未识别'}`);
+        (result as any)[`${key}Building`] = name;
+      } catch (e: any) {
+        ctx.log(`[OCR] ${key} 建筑名读取失败: ${e.message}`);
+        (result as any)[`${key}Building`] = null;
+      } finally {
+        if (regionPath) await fs.unlink(regionPath).catch(() => {});
+      }
+    }
+  }
+
   // 关闭面板：优先用关闭按钮，否则用返回按钮
   if (qo.closeButton) {
     await ctx.tap(qo.closeButton.x, qo.closeButton.y);
@@ -89,7 +138,8 @@ export async function readQueueOverview(
   await ctx.sleep(0.5);
 
   // 计算下次检测时间（取最近到期的倒计时 × 0.6，上限 30 分钟）
-  const allTimers = Object.values(result).filter((v): v is number => v !== null);
+  const timerKeys: (keyof QueueTimers)[] = ['build1', 'build2', 'train_bingying', 'train_majiu', 'train_bachang', 'train_gongcheng', 'research'];
+  const allTimers = timerKeys.map(k => result[k]).filter((v): v is number => v !== null);
   if (allTimers.length > 0) {
     const minTimer = Math.min(...allTimers);
     const nextCheck = Math.round(Math.min(minTimer * 0.6, 1800));
@@ -99,7 +149,7 @@ export async function readQueueOverview(
   }
 
   // 结构化日志，供前端解析
-  ctx.log(`[OCR-RESULT] build1=${result.build1} build2=${result.build2} train_bingying=${result.train_bingying} train_majiu=${result.train_majiu} train_bachang=${result.train_bachang} train_gongcheng=${result.train_gongcheng} research=${result.research}`);
+  ctx.log(`[OCR-RESULT] build1=${result.build1} build2=${result.build2} train_bingying=${result.train_bingying} train_majiu=${result.train_majiu} train_bachang=${result.train_bachang} train_gongcheng=${result.train_gongcheng} research=${result.research} build1Building=${result.build1Building ?? 'null'} build2Building=${result.build2Building ?? 'null'}`);
 
   return result;
 }
