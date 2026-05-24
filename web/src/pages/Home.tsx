@@ -565,7 +565,7 @@ export function HomePage() {
           setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🔍 探索模式，下次检查 ${exploreNextWake.toFixed(0)} 秒后`]);
           const exploreDragSafety = 5;
           const exploreDragWindow = exploreNextWake - exploreDragSafety;
-          if (exploreDragWindow > 20 && Math.random() < 0.3) {
+          if (exploreDragWindow > 20 && Math.random() < 0.05) {
             const dragDelay = 5 + Math.random() * (exploreDragWindow * 0.7);
             const exploreStartWait = Date.now();
             while (!loopStopped && (Date.now() - exploreStartWait) < dragDelay * 1000) {
@@ -720,7 +720,7 @@ export function HomePage() {
         // 等待期间随机拖拽
         const dragSafetyMargin = 5;
         const dragWindow = nextWake - dragSafetyMargin;
-        if (dragWindow > 300 && Math.random() < 0.5) {
+        if (dragWindow > 300 && Math.random() < 0.3) {
           const dragDelay = 5 + Math.random() * (dragWindow * 0.7);
           const startWait = Date.now();
           while (!loopStopped && (Date.now() - startWait) < dragDelay * 1000) {
