@@ -1,12 +1,12 @@
-import path from 'path';
-import { copyFile, mkdir } from 'fs/promises';
-import sharp from 'sharp';
 import { PluginContext } from '../../../core/plugin';
+import { getTemplatesDir } from '../../../core/resourcePath';
+import * as path from 'path';
+import sharp from 'sharp';
 
 export async function helpTeammates(ctx: PluginContext): Promise<void> {
   ctx.log('=== 检查盟友帮助 ===');
 
-  const templatePath = path.join(__dirname, '../templates', 'helpOther.png');
+  const templatePath = path.join(getTemplatesDir(), 'helpOther.png');
 
   // 帮助按钮中心坐标
   const btnX = 1435;

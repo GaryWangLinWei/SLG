@@ -1,11 +1,12 @@
 import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
 import { resetCityView } from '../utils/location';
+import { getTemplatesDir } from '../../../core/resourcePath';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import sharp from 'sharp';
 
-const TEMPLATE_DIR = path.join(__dirname, '../templates');
+const TEMPLATE_DIR = getTemplatesDir();
 
 export type UpgradeResult = 'success' | 'busy' | 'not_found' | 'no_upgrade_button' | 'lack_resources';
 

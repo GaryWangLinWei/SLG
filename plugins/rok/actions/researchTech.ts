@@ -1,11 +1,12 @@
 import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
 import { resetCityView } from '../utils/location';
+import { getTemplatesDir } from '../../../core/resourcePath';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import sharp from 'sharp';
 
-const TEMPLATE_DIR = path.join(__dirname, '../templates');
+const TEMPLATE_DIR = getTemplatesDir();
 
 // 科技名称到模板文件名的映射
 export const TECH_TEMPLATES: Record<string, string> = {

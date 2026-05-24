@@ -1,6 +1,7 @@
 import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog } from 'electron';
 import * as path from 'path';
 import { setAdbPath } from '../core/device/AdbDevice';
+import { initResourcePaths } from '../core/resourcePath';
 import { autoUpdater } from 'electron-updater';
 
 const isDev = !app.isPackaged;
@@ -32,6 +33,11 @@ async function startServer() {
     setAdbPath(adbPath);
     console.log('ADB path set to:', adbPath);
 
+    // In production, set resource paths for templates & traineddata outside asar
+    if (!isDev) {
+      initResourcePaths(path.join(process.resourcesPath));
+    }
+
     // In production, start the backend server from compiled JS
     if (!isDev) {
       await import('../server/index');
@@ -51,7 +57,7 @@ function createWindow() {
     minWidth: 1000,
     minHeight: 700,
     title: APP_NAME,
-    icon: path.join(__dirname, '../assets/icon.png'),
+    icon: path.join(__dirname, '../icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,

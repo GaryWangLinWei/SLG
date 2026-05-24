@@ -1,11 +1,12 @@
 import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
 import { resetCityView } from '../utils/location';
+import { getTemplatesDir } from '../../../core/resourcePath';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import sharp from 'sharp';
 
-const TEMPLATE_DIR = path.join(__dirname, '../templates');
+const TEMPLATE_DIR = getTemplatesDir();
 
 // 训练按钮模板映射（建筑名 → 模板文件名）
 const TRAIN_TEMPLATES: Record<string, string> = {

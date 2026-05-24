@@ -1,10 +1,9 @@
 import Tesseract from 'tesseract.js';
-import * as path from 'path';
+import { getTraineddataDir } from '../resourcePath';
 
 type OcrWorker = Tesseract.Worker;
 
-// 打包时 traineddata 目录会随 exe 一起分发
-const LANG_PATH = path.join(__dirname, '../../traineddata');
+const LANG_PATH = getTraineddataDir();
 
 class OcrService {
   private worker: OcrWorker | null = null;

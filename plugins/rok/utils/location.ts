@@ -1,9 +1,10 @@
 import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
+import { getTemplatesDir } from '../../../core/resourcePath';
 import * as path from 'path';
 import sharp from 'sharp';
 
-const TEMPLATE_DIR = path.join(__dirname, '../templates');
+const TEMPLATE_DIR = getTemplatesDir();
 
 // 切换按钮区域配置（中心点 + 区域大小）
 const SWITCH_BUTTON_REGION = {

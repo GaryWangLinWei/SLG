@@ -1,10 +1,11 @@
 import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
 import { resetCityView } from '../utils/location';
+import { getTemplatesDir } from '../../../core/resourcePath';
 import * as path from 'path';
 import sharp from 'sharp';
 
-const TEMPLATE_DIR = path.join(__dirname, '../templates');
+const TEMPLATE_DIR = getTemplatesDir();
 
 // 3个斥候的判定坐标
 const SCOUT_POSITIONS = [

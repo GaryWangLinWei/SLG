@@ -12,7 +12,7 @@
     "lint": "eslint src/**/*.ts",
     "electron:dev": "concurrently \"cd web && npm run dev\" \"wait-on http://localhost:5173 && tsc && electron .\"",
     "electron:build": "cd web && npm run build && cd .. && tsc && node -e \"const f=require('fs');f.cpSync('assets','dist/assets',{recursive:true});f.cpSync('plugins/rok/templates','dist/plugins/rok/templates',{recursive:true})\" && electron-builder",
-    "electron:build:win": "cd web && npm run build && cd .. && tsc && node -e \"const f=require('fs');f.cpSync('assets','dist/assets',{recursive:true});f.cpSync('plugins/rok/templates','dist/plugins/rok/templates',{recursive:true});f.cpSync('traineddata','dist/traineddata',{recursive:true})\" && electron-builder --win",
+    "electron:build:win": "cd web && npm run build && cd .. && tsc && node -e \"const f=require('fs');f.cpSync('assets','dist/assets',{recursive:true})\" && electron-builder --win",
     "postinstall": "electron-builder install-app-deps"
   },
   "build": {
@@ -34,6 +34,14 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "plugins/rok/templates",
+        "to": "templates"
+      },
+      {
+        "from": "traineddata",
+        "to": "traineddata"
       }
     ],
     "win": {
@@ -45,7 +53,7 @@
           ]
         }
       ],
-      "icon": "assets/icon.png"
+      "icon": "icon.png"
     },
     "nsis": {
       "oneClick": false,
