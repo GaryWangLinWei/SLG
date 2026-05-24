@@ -172,6 +172,7 @@ ipcMain.handle('get-adb-path', () => {
 // App events
 app.on('ready', async () => {
   app.setName(APP_NAME);
+  app.setAppUserModelId('com.rok.automation');
   await startServer();
   createWindow();
   createTray();

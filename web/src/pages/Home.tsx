@@ -565,7 +565,7 @@ export function HomePage() {
           setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🔍 探索模式，下次检查 ${exploreNextWake.toFixed(0)} 秒后`]);
           const exploreDragSafety = 5;
           const exploreDragWindow = exploreNextWake - exploreDragSafety;
-          if (exploreDragWindow > 15) {
+          if (exploreDragWindow > 20 && Math.random() < 0.3) {
             const dragDelay = 5 + Math.random() * (exploreDragWindow * 0.7);
             const exploreStartWait = Date.now();
             while (!loopStopped && (Date.now() - exploreStartWait) < dragDelay * 1000) {
@@ -720,7 +720,7 @@ export function HomePage() {
         // 等待期间随机拖拽
         const dragSafetyMargin = 5;
         const dragWindow = nextWake - dragSafetyMargin;
-        if (dragWindow > 15) {
+        if (dragWindow > 300 && Math.random() < 0.5) {
           const dragDelay = 5 + Math.random() * (dragWindow * 0.7);
           const startWait = Date.now();
           while (!loopStopped && (Date.now() - startWait) < dragDelay * 1000) {
@@ -914,7 +914,13 @@ export function HomePage() {
 
             <div className={`flex items-center gap-3 p-4 rounded-lg hover:bg-gray-600 ${features.autoExplore ? 'bg-gray-800 opacity-50 pointer-events-none' : 'bg-gray-700'}`}>
               <input type="checkbox" checked={features.autoResearch} disabled={features.autoExplore}
-                onChange={(e) => setFeatures({ ...features, autoResearch: e.target.checked })}
+                onChange={(e) => {
+                  if (e.target.checked && !buildingOptions.includes('学院')) {
+                    alert('请在坐标配置页标记学院位置');
+                    return;
+                  }
+                  setFeatures({ ...features, autoResearch: e.target.checked });
+                }}
                 className="w-5 h-5 text-blue-600 cursor-pointer" />
               <div className="flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -982,7 +988,16 @@ export function HomePage() {
 
             <label className={`flex items-start gap-3 p-4 rounded-lg cursor-pointer hover:bg-gray-600 ${features.autoExplore ? 'bg-gray-800 opacity-50 pointer-events-none' : 'bg-gray-700'}`}>
               <input type="checkbox" checked={features.trainTroops} disabled={features.autoExplore}
-                onChange={(e) => setFeatures({ ...features, trainTroops: e.target.checked })}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    const missing = ['兵营', '马厩', '靶场', '攻城武器厂'].filter(b => !buildingOptions.includes(b));
+                    if (missing.length > 0) {
+                      alert(`请在坐标配置页标记${missing.join('、')}位置`);
+                      return;
+                    }
+                  }
+                  setFeatures({ ...features, trainTroops: e.target.checked });
+                }}
                 className="w-5 h-5 text-blue-600 mt-1" />
               <div className="flex-1">
                 <span className="font-medium">自动训练兵种</span>
@@ -1007,7 +1022,13 @@ export function HomePage() {
 
             <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer hover:bg-gray-700 ${features.autoExplore ? 'bg-purple-700 ring-2 ring-purple-400' : 'bg-gray-700'}`}>
               <input type="checkbox" checked={features.autoExplore}
-                onChange={(e) => setFeatures({ ...features, autoExplore: e.target.checked })}
+                onChange={(e) => {
+                  if (e.target.checked && !buildingOptions.includes('斥候营地')) {
+                    alert('请在坐标配置页标记斥候营地位置');
+                    return;
+                  }
+                  setFeatures({ ...features, autoExplore: e.target.checked });
+                }}
                 className="w-5 h-5 text-purple-500" />
               <div className="flex-1">
                 <div className="flex items-center gap-2">
