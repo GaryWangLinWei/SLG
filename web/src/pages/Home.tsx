@@ -456,7 +456,7 @@ export function HomePage() {
       const collectLoop = (async () => {
         let first = true;
         while (!loopStopped) {
-          if (first) { first = false; await sleep(10); continue; }
+          if (first) { first = false; await sleep(4 * 3600); continue; }
           if (features.collectResources && !features.autoExplore) {
             if (!await acquireLock()) break;
             try {
