@@ -20,6 +20,9 @@ app.use(bodyParser());
 const adminPath = path.join(__dirname, 'admin');
 app.use(serve(adminPath));
 
+// 托管更新包（electron-updater generic provider）
+app.use(serve(path.join(__dirname, 'updates')));
+
 // Routes
 app.use(authRouter.routes()).use(authRouter.allowedMethods());
 app.use(adminRouter.routes()).use(adminRouter.allowedMethods());
