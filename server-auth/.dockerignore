@@ -1,5 +1,5 @@
 node_modules
-npm-debug.log
-data
 .git
-.DS_Store
+.gitignore
+*.md
+.env

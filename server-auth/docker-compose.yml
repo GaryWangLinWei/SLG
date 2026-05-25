@@ -1,0 +1,13 @@
+version: "3.8"
+
+services:
+  slg-auth:
+    build: .
+    container_name: slg-auth
+    ports:
+      - "3456:3456"
+    volumes:
+      - ./data:/app/data
+      - ./updates:/app/updates
+      - ./auth-data:/app/auth-data
+    restart: unless-stopped

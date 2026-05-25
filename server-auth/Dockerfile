@@ -10,17 +10,24 @@ RUN apk add --no-cache python3 make g++
 # 复制 package 文件
 COPY package*.json ./
 
-# 安装所有依赖（包括 devDependencies）
+# 安装所有依赖（包括 devDependencies，用于 tsc 编译）
 RUN npm install
 
 # 复制所有源代码
 COPY . .
 
-# 创建数据目录
-RUN mkdir -p ./data
+# TypeScript 编译为 JS
+RUN npx tsc
+
+# 创建运行时目录 + 复制静态文件
+RUN mkdir -p ./data ./updates
+COPY admin/ ./admin/
+
+# 编译后 __dirname 指向 dist/，通过环境变量指回项目根
+ENV STATIC_ROOT=/app
 
 # 暴露端口
 EXPOSE 3456
 
-# 启动服务 - 跳过类型检查
-CMD ["npx", "ts-node", "--transpile-only", "index.ts"]
+# 启动服务
+CMD ["node", "dist/index.js"]

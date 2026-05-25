@@ -16,12 +16,14 @@ const router = new Router();
 app.use(cors({ origin: CONFIG.CORS_ORIGIN }));
 app.use(bodyParser());
 
+// 静态文件根目录：Docker 中编译后 __dirname 为 dist/，通过环境变量指定项目根
+const staticRoot = process.env.STATIC_ROOT || __dirname;
+
 // Static files for admin panel
-const adminPath = path.join(__dirname, 'admin');
-app.use(serve(adminPath));
+app.use(serve(path.join(staticRoot, 'admin')));
 
 // 托管更新包（electron-updater generic provider）
-app.use(serve(path.join(__dirname, 'updates')));
+app.use(serve(path.join(staticRoot, 'updates')));
 
 // Routes
 app.use(authRouter.routes()).use(authRouter.allowedMethods());
