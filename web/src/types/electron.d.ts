@@ -3,6 +3,9 @@ interface ElectronAPI {
   getAdbPath: () => Promise<string>;
   minimizeWindow: () => void;
   closeApp: () => void;
+  onUpdateStatus: (callback: (data: { status: string; progress?: number; version?: string }) => void) => () => void;
+  installUpdate: () => Promise<void>;
+  checkUpdate: () => Promise<void>;
 }
 
 declare global {
