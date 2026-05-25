@@ -236,6 +236,14 @@ ipcMain.on('close-app', () => {
   handleCloseWindow();
 });
 
+ipcMain.handle('check-update', () => {
+  autoUpdater.checkForUpdatesAndNotify();
+});
+
+ipcMain.handle('install-update', () => {
+  autoUpdater.quitAndInstall();
+});
+
 // Prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock();
 if (!gotTheLock) {
@@ -258,10 +266,47 @@ if (!gotTheLock) {
     createWindow();
     createTray();
 
+    // 自动更新：仅生产环境下生效
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+
+    // 事件转发到渲染进程
+    autoUpdater.on('checking-for-update', () => {
+      mainWindow?.webContents.send('update-status', { status: 'checking' });
+    });
+
+    autoUpdater.on('update-available', (info) => {
+      mainWindow?.webContents.send('update-status', { status: 'available', version: info.version });
+    });
+
+    autoUpdater.on('update-not-available', () => {
+      mainWindow?.webContents.send('update-status', { status: 'idle' });
+    });
+
+    autoUpdater.on('download-progress', (progress) => {
+      mainWindow?.webContents.send('update-status', {
+        status: 'downloading',
+        progress: Math.round(progress.percent),
+      });
+    });
+
+    autoUpdater.on('update-downloaded', (info) => {
+      mainWindow?.webContents.send('update-status', {
+        status: 'downloaded',
+        version: info.version,
+      });
+    });
+
+    autoUpdater.on('error', (_err) => {
+      mainWindow?.webContents.send('update-status', { status: 'idle' });
+    });
+
+    // 启动时检查 + 每 4 小时定时检查（仅生产环境）
     if (!isDev) {
-      try {
+      autoUpdater.checkForUpdatesAndNotify();
+      setInterval(() => {
         autoUpdater.checkForUpdatesAndNotify();
-      } catch { /* update server not configured yet */ }
+      }, 4 * 3600 * 1000);
     }
   });
 
