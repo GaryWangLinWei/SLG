@@ -30,10 +30,10 @@ export function TasksPage() {
   const getStatusColor = (status: Task['status']) => {
     switch (status) {
       case 'completed': return 'bg-green-500';
-      case 'running': return 'bg-blue-500 animate-pulse';
+      case 'running': return 'bg-emerald-500 animate-pulse';
       case 'error': return 'bg-red-500';
-      case 'stopped': return 'bg-yellow-500';
-      default: return 'bg-gray-400';
+      case 'stopped': return 'bg-amber-500';
+      default: return 'bg-slate-400';
     }
   };
 
@@ -67,19 +67,19 @@ export function TasksPage() {
           <h2 className="text-lg font-semibold mb-4">任务列表</h2>
           <div className="space-y-2">
             {tasks.length === 0 ? (
-              <p className="text-gray-400">暂无任务</p>
+              <p className="text-slate-400">暂无任务</p>
             ) : (
               tasks.map(task => (
                 <div key={task.id} onClick={() => setSelectedTask(task)}
-                  className={`p-3 rounded-lg cursor-pointer transition-colors border ${selectedTask?.id === task.id ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-100 hover:bg-gray-50 shadow-sm'}`}>
+                  className={`p-3 rounded-lg cursor-pointer transition-colors border ${selectedTask?.id === task.id ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-slate-100 hover:bg-slate-50 shadow-sm'}`}>
                   <div className="flex items-center gap-2">
                     <span className={`w-2 h-2 rounded-full ${getStatusColor(task.status)}`}></span>
                     <span className="font-medium truncate">{task.actionId}</span>
                   </div>
-                  <p className="text-xs text-gray-400 mt-1">
+                  <p className="text-xs text-slate-400 mt-1">
                     {getAccountName(task.accountId)}
                   </p>
-                  <p className="text-xs text-gray-500">
+                  <p className="text-xs text-slate-500">
                     {task.startTime ? new Date(task.startTime).toLocaleString('zh-CN') : '-'}
                   </p>
                 </div>
@@ -90,11 +90,11 @@ export function TasksPage() {
 
         <div className="lg:col-span-2">
           {selectedTask ? (
-            <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
+            <div className="bg-white rounded-xl shadow-sm p-6 border border-slate-100">
               <div className="flex justify-between items-center mb-4">
                 <div>
                   <h2 className="text-xl font-bold">{selectedTask.actionId}</h2>
-                  <p className="text-sm text-gray-500 mt-1">
+                  <p className="text-sm text-slate-500 mt-1">
                     账号: {getAccountName(selectedTask.accountId)}
                     <span className="mx-2">|</span>
                     插件: {selectedTask.pluginId}
@@ -115,20 +115,20 @@ export function TasksPage() {
 
               <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
                 <div>
-                  <p className="text-gray-500">任务ID</p>
+                  <p className="text-slate-500">任务ID</p>
                   <p className="font-mono text-xs">{selectedTask.id}</p>
                 </div>
                 <div>
-                  <p className="text-gray-500">账号ID</p>
+                  <p className="text-slate-500">账号ID</p>
                   <p className="font-mono text-xs">{selectedTask.accountId}</p>
                 </div>
               </div>
 
               <div>
                 <h3 className="font-semibold mb-2">执行日志</h3>
-                <div className="bg-gray-50 rounded-lg p-4 max-h-96 overflow-y-auto font-mono text-sm border border-gray-100">
+                <div className="bg-slate-50 rounded-lg p-4 max-h-96 overflow-y-auto font-mono text-sm border border-slate-100">
                   {selectedTask.logs.length === 0 ? (
-                    <p className="text-gray-400">暂无日志</p>
+                    <p className="text-slate-400">暂无日志</p>
                   ) : (
                     selectedTask.logs.map((log, i) => (
                       <p key={i} className="py-1">{log}</p>
@@ -145,7 +145,7 @@ export function TasksPage() {
               )}
             </div>
           ) : (
-            <div className="bg-white rounded-xl shadow-sm p-6 text-center text-gray-400 border border-gray-100">
+            <div className="bg-white rounded-xl shadow-sm p-6 text-center text-slate-400 border border-slate-100">
               选择一个任务查看详情
             </div>
           )}

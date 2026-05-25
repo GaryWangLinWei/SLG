@@ -53,7 +53,7 @@ export function AccountsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-blue-50 text-gray-900">
+    <div className="min-h-screen bg-slate-100 text-slate-800">
       <div className="max-w-lg mx-auto p-6">
         <h1 className="text-2xl font-bold mb-6">设备设置</h1>
 
@@ -62,18 +62,18 @@ export function AccountsPage() {
 
         <div className="space-y-4 bg-white rounded-xl shadow-sm p-6">
           <div>
-            <label className="block text-sm text-gray-500 mb-1">ADB 设备地址</label>
+            <label className="block text-sm text-slate-500 mb-1">ADB 设备地址</label>
             <div className="flex gap-2">
               <input
                 value={deviceId}
                 onChange={e => setDeviceId(e.target.value)}
-                className="flex-1 px-3 py-2 bg-gray-50 rounded-lg border border-gray-300 focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none font-mono"
+                className="flex-1 px-3 py-2 bg-slate-50 rounded-lg border border-slate-200 focus:border-emerald-400 focus:ring-1 focus:ring-emerald-400 outline-none font-mono"
                 placeholder="127.0.0.1:7555"
               />
               <button
                 onClick={handleScan}
                 disabled={scanning}
-                className="px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 disabled:opacity-50 text-gray-700"
+                className="px-4 py-2 bg-slate-100 rounded-lg hover:bg-slate-200 disabled:opacity-50 text-slate-700"
               >
                 {scanning ? '扫描中...' : '扫描'}
               </button>
@@ -82,15 +82,15 @@ export function AccountsPage() {
 
           {devices.length > 0 && (
             <div className="space-y-1">
-              <p className="text-xs text-gray-400">扫描到的设备:</p>
+              <p className="text-xs text-slate-400">扫描到的设备:</p>
               {devices.map(d => (
                 <button
                   key={d.deviceId}
                   onClick={() => setDeviceId(d.deviceId)}
                   className={`block w-full text-left px-3 py-2 rounded text-sm ${
                     deviceId === d.deviceId
-                      ? 'bg-blue-50 border border-blue-400 text-blue-700'
-                      : 'bg-gray-50 hover:bg-gray-100 border border-gray-200'
+                      ? 'bg-emerald-50 border border-emerald-400 text-emerald-700'
+                      : 'bg-slate-50 hover:bg-slate-100 border border-gray-200'
                   }`}
                 >
                   {d.deviceId}
@@ -102,7 +102,7 @@ export function AccountsPage() {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="w-full py-2 bg-blue-600 rounded-lg hover:bg-blue-700 font-bold disabled:opacity-50 text-white"
+            className="w-full py-2 bg-emerald-500 rounded-full hover:bg-emerald-600 shadow-lg shadow-emerald-500/30 font-bold disabled:opacity-50 text-white"
           >
             {saving ? '保存中...' : '保存'}
           </button>
