@@ -974,7 +974,7 @@ export function HomePage() {
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   {(['兵营', '马厩', '靶场', '攻城武器厂'] as const).map(building => (
                     <div key={building} className="flex items-center gap-2">
-                      <span className="text-xs text-gray-500 w-16">{building}</span>
+                      <span className="text-xs text-gray-500 w-16">{({ 兵营: '⚔️', 马厩: '🐴', 靶场: '🎯', 攻城武器厂: '⚙️' } as Record<string, string>)[building]} {building}</span>
                       <select value={(features.trainTasks as Record<string, number>)[building] ?? 0} disabled={features.autoExplore} onChange={(e) => {
                         const next = { ...features.trainTasks as Record<string, number>, [building]: Number(e.target.value) };
                         setFeatures({ ...features, trainTasks: next });

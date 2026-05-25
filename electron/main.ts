@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog } from 'electron';
 import * as path from 'path';
+import * as fs from 'fs';
 import { setAdbPath } from '../core/device/AdbDevice';
 import { initResourcePaths } from '../core/resourcePath';
 import { autoUpdater } from 'electron-updater';
@@ -14,6 +15,66 @@ let serverProcess: any = null;
 let isQuiting = false;
 
 const APP_NAME = 'ROK助手';
+
+// Close preference: null = not set yet, 'tray' = minimize to tray, 'quit' = exit
+let closeAction: 'tray' | 'quit' | null = null;
+const closePrefPath = path.join(app.getPath('userData'), 'close-preference.json');
+
+function loadClosePreference(): void {
+  try {
+    if (fs.existsSync(closePrefPath)) {
+      const data = JSON.parse(fs.readFileSync(closePrefPath, 'utf8'));
+      if (data.action === 'tray' || data.action === 'quit') {
+        closeAction = data.action;
+      }
+    }
+  } catch { /* ignore */ }
+}
+
+function saveClosePreference(action: 'tray' | 'quit'): void {
+  try {
+    fs.writeFileSync(closePrefPath, JSON.stringify({ action }), 'utf8');
+    closeAction = action;
+  } catch { /* ignore */ }
+}
+
+async function handleCloseWindow(): Promise<void> {
+  if (isQuiting || closeAction === 'quit') {
+    isQuiting = true;
+    app.quit();
+    return;
+  }
+
+  if (closeAction === 'tray') {
+    mainWindow?.hide();
+    return;
+  }
+
+  // First time close — ask
+  const { response, checkboxChecked } = await dialog.showMessageBox(mainWindow!, {
+    type: 'question',
+    title: '关闭窗口',
+    message: '关闭窗口时你希望怎么做？',
+    detail: '选择"最小化到托盘"后，程序将在后台继续运行。\n你随时可以通过系统托盘图标恢复窗口。',
+    buttons: ['最小化到托盘', '退出程序', '取消'],
+    defaultId: 0,
+    cancelId: 2,
+    checkboxLabel: '记住我的选择，不再询问',
+    checkboxChecked: false,
+  });
+
+  if (response === 0) {
+    // 最小化到托盘
+    if (checkboxChecked) saveClosePreference('tray');
+    mainWindow?.hide();
+  } else if (response === 1) {
+    // 退出
+    if (checkboxChecked) saveClosePreference('quit');
+    isQuiting = true;
+    app.quit();
+  }
+  // response === 2 → 取消，什么都不做
+}
 
 // Fix for __dirname in Electron with TypeScript
 const getResourcePath = (resourceName: string) => {
@@ -94,13 +155,12 @@ function createWindow() {
     mainWindow?.show();
   });
 
-  // Handle window close
+  // Handle window close — delegate to close dialog logic
   mainWindow.on('close', (event) => {
-    if (!isQuiting) {
+    if (!isQuiting && closeAction !== 'quit') {
       event.preventDefault();
-      mainWindow?.hide();
+      handleCloseWindow();
     }
-    return false;
   });
 
   mainWindow.on('closed', () => {
@@ -168,41 +228,12 @@ ipcMain.handle('get-adb-path', () => {
   return path.join(process.resourcesPath, 'adb/adb.exe');
 });
 
-ipcMain.on('minimize-to-tray', () => {
-  mainWindow?.hide();
+ipcMain.on('minimize-window', () => {
+  mainWindow?.minimize();
 });
 
 ipcMain.on('close-app', () => {
-  isQuiting = true;
-  app.quit();
-});
-
-// App events
-app.on('ready', async () => {
-  app.setName(APP_NAME);
-  app.setAppUserModelId('com.rok.automation');
-  await startServer();
-  createWindow();
-  createTray();
-
-  // Auto-update check (silent, no notification on failure)
-  if (!isDev) {
-    try {
-      autoUpdater.checkForUpdatesAndNotify();
-    } catch { /* update server not configured yet */ }
-  }
-});
-
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
-
-app.on('activate', () => {
-  if (mainWindow === null) {
-    createWindow();
-  }
+  handleCloseWindow();
 });
 
 // Prevent multiple instances
@@ -211,10 +242,38 @@ if (!gotTheLock) {
   app.quit();
 } else {
   app.on('second-instance', () => {
-    // Someone tried to run a second instance, we should focus our window.
     if (mainWindow) {
+      mainWindow.show();
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.focus();
+    }
+  });
+
+  // App events — only registered for the primary instance
+  app.on('ready', async () => {
+    app.setName(APP_NAME);
+    app.setAppUserModelId('com.rok.automation');
+    loadClosePreference();
+    await startServer();
+    createWindow();
+    createTray();
+
+    if (!isDev) {
+      try {
+        autoUpdater.checkForUpdatesAndNotify();
+      } catch { /* update server not configured yet */ }
+    }
+  });
+
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
+  });
+
+  app.on('activate', () => {
+    if (mainWindow === null) {
+      createWindow();
     }
   });
 }

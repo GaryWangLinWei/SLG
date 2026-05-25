@@ -3,7 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   getAdbPath: () => ipcRenderer.invoke('get-adb-path'),
-  minimizeToTray: () => ipcRenderer.send('minimize-to-tray'),
+  minimizeWindow: () => ipcRenderer.send('minimize-window'),
   closeApp: () => ipcRenderer.send('close-app')
 });
 
@@ -12,7 +12,7 @@ declare global {
     electronAPI: {
       getAppVersion: () => Promise<string>;
       getAdbPath: () => Promise<string>;
-      minimizeToTray: () => void;
+      minimizeWindow: () => void;
       closeApp: () => void;
     };
   }

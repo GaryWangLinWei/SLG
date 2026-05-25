@@ -145,7 +145,7 @@ function NavBar() {
         {isElectron && (
           <>
             <button
-              onClick={() => window.electronAPI!.minimizeToTray()}
+              onClick={() => window.electronAPI!.minimizeWindow()}
               className="text-lg text-gray-400 hover:text-blue-600 w-7 h-7 rounded hover:bg-gray-100 flex items-center justify-center leading-none"
               style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
               title="最小化到系统托盘"
