@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { HashRouter as Router, Routes, Route, Link } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
 import { HomePage } from './pages/Home';
 
 import { PluginsPage } from './pages/Plugins';
@@ -31,7 +31,7 @@ function RemainingTime({ expiresAt }: { expiresAt: number }) {
   if (h > 0 || d > 0) parts.push(`${h}小时`);
   parts.push(`${m}分钟`);
 
-  return <span className="text-sm text-gray-400">剩余: {parts.join('')}</span>;
+  return <span className="text-sm text-gray-500">剩余: {parts.join('')}</span>;
 }
 
 function RenewButton() {
@@ -73,14 +73,14 @@ function RenewButton() {
           onChange={e => setCode(e.target.value)}
           placeholder="输入激活码"
           disabled={mode === 'loading'}
-          className="px-2 py-0.5 text-sm bg-gray-700 border border-gray-600 rounded text-white w-32 focus:outline-none focus:border-blue-500"
+          className="px-2 py-0.5 text-sm bg-white border border-gray-300 rounded text-gray-900 w-32 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
         />
         <button type="submit" disabled={mode === 'loading'}
-          className="text-sm text-blue-400 hover:text-blue-300 px-1 py-0.5 rounded hover:bg-gray-700 disabled:opacity-50">
+          className="text-sm text-blue-600 hover:text-blue-500 px-1 py-0.5 rounded hover:bg-gray-100 disabled:opacity-50">
           {mode === 'loading' ? '...' : '确认'}
         </button>
         <button type="button" onClick={() => { setMode('idle'); setCode(''); }}
-          className="text-sm text-gray-400 hover:text-red-400 px-1 py-0.5 rounded hover:bg-gray-700">
+          className="text-sm text-gray-500 hover:text-red-500 px-1 py-0.5 rounded hover:bg-gray-100">
           取消
         </button>
       </form>
@@ -92,7 +92,7 @@ function RenewButton() {
       <span className="flex items-center gap-1" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
         <span className={`text-sm ${msgOk ? 'text-green-400' : 'text-red-400'}`}>{msg}</span>
         <button onClick={() => { setMode('idle'); setCode(''); }}
-          className="text-sm text-gray-400 hover:text-blue-400 px-1 py-0.5 rounded hover:bg-gray-700">
+          className="text-sm text-gray-500 hover:text-blue-600 px-1 py-0.5 rounded hover:bg-gray-100">
           关闭
         </button>
       </span>
@@ -102,7 +102,7 @@ function RenewButton() {
   return (
     <button
       onClick={() => setMode('input')}
-      className="text-sm text-blue-400 hover:text-blue-300 px-2 py-1 rounded hover:bg-gray-700"
+      className="text-sm text-blue-600 hover:text-blue-500 px-2 py-1 rounded hover:bg-gray-100"
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
     >
       续费
@@ -113,15 +113,23 @@ function RenewButton() {
 function NavBar() {
   const { status } = useLicense();
   const isElectron = typeof window !== 'undefined' && 'electronAPI' in window;
+  const location = useLocation();
+
+  const linkClass = (path: string) =>
+    `px-3 py-1.5 rounded text-sm transition-colors ${
+      location.pathname === path
+        ? 'bg-blue-100 text-blue-700 font-medium'
+        : 'text-gray-600 hover:text-blue-600 hover:bg-blue-50'
+    }`;
 
   return (
-    <nav className="bg-gray-800 p-4 border-b border-gray-700 shrink-0" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+    <nav className="bg-white p-4 border-b border-gray-200 shadow-sm shrink-0" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
       <div className="flex gap-4 items-center">
-        <Link to="/" className="text-xl font-bold text-blue-400" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>ROK助手</Link>
-        <Link to="/" className="hover:text-blue-400" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>首页</Link>
-        <Link to="/config" className="hover:text-blue-400" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>坐标配置</Link>
+        <Link to="/" className="text-xl font-bold text-blue-600" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>ROK助手</Link>
+        <Link to="/" className={linkClass('/')} style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>首页</Link>
+        <Link to="/config" className={linkClass('/config')} style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>坐标配置</Link>
 
-        <Link to="/accounts" className="hover:text-blue-400" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>模拟器配置</Link>
+        <Link to="/accounts" className={linkClass('/accounts')} style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>模拟器配置</Link>
 
         <div className="flex-1" />
 
@@ -138,7 +146,7 @@ function NavBar() {
           <>
             <button
               onClick={() => window.electronAPI!.minimizeToTray()}
-              className="text-lg text-gray-400 hover:text-blue-400 w-7 h-7 rounded hover:bg-gray-700 flex items-center justify-center leading-none"
+              className="text-lg text-gray-400 hover:text-blue-600 w-7 h-7 rounded hover:bg-gray-100 flex items-center justify-center leading-none"
               style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
               title="最小化到系统托盘"
             >
@@ -146,7 +154,7 @@ function NavBar() {
             </button>
             <button
               onClick={() => window.electronAPI!.closeApp()}
-              className="text-lg text-gray-400 hover:text-red-400 w-7 h-7 rounded hover:bg-gray-700 flex items-center justify-center leading-none"
+              className="text-lg text-gray-400 hover:text-red-500 w-7 h-7 rounded hover:bg-gray-100 flex items-center justify-center leading-none"
               style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
               title="退出"
             >
@@ -170,7 +178,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-gray-900 text-white flex items-center justify-center">
+        <div className="min-h-screen bg-blue-50 text-gray-900 flex items-center justify-center">
           <div className="bg-red-900 p-8 rounded-lg max-w-lg">
             <h1 className="text-xl font-bold mb-4">React 渲染错误</h1>
             <pre className="text-sm whitespace-pre-wrap">{this.state.error?.message}</pre>
@@ -188,10 +196,10 @@ function LicenseGate({ children }: { children: React.ReactNode }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
+      <div className="min-h-screen bg-blue-50 flex items-center justify-center">
         <div className="text-center">
           <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-          <p className="text-slate-400">加载中...</p>
+          <p className="text-gray-500">加载中...</p>
         </div>
       </div>
     );
@@ -208,7 +216,7 @@ function AppContent() {
   return (
     <LicenseGate>
       <AccountProvider>
-        <div className="h-screen bg-gray-900 text-white flex flex-col">
+        <div className="h-screen bg-blue-50 text-gray-900 flex flex-col">
           <NavBar />
           <div className="flex-1 overflow-y-auto">
             <Routes>

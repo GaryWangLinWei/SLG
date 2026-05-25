@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api/client';
 import { useAccount } from '../contexts/AccountContext';
 
@@ -28,6 +28,15 @@ export function ConfigPage() {
   const [configName, setConfigName] = useState('默认配置');
   const [configNames, setConfigNames] = useState<string[]>([]);
   const [activeConfigName, setActiveConfigName] = useState('');
+  const [createMode, setCreateMode] = useState(false);
+  const [newProfileName, setNewProfileName] = useState('');
+  const [renameMode, setRenameMode] = useState(false);
+  const [renameTarget, setRenameTarget] = useState('');
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [clearConfirm, setClearConfirm] = useState(false);
+  const [overwriteTarget, setOverwriteTarget] = useState<string | null>(null);
 
   const checkStatus = useCallback(async () => {
     if (!currentAccountId) return;
@@ -84,6 +93,17 @@ export function ConfigPage() {
 
   useEffect(() => { checkStatus(); loadConfig(); loadProfiles(); }, [checkStatus, loadConfig, loadProfiles]);
 
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [dropdownOpen]);
+
   const handleConnect = async () => {
     if (!currentAccountId) return;
     setLoading(true);
@@ -135,17 +155,17 @@ export function ConfigPage() {
     } catch { setMessage('保存失败'); }
   };
 
-  const addBuilding = (buildingType: string) => {
+  const addBuilding = (buildingType: string, forceOverwrite?: boolean) => {
     if (!pendingCoord || !buildingType) return;
 
     const existing = buildingPositions.find(b => b.name === buildingType);
 
+    if (existing && !forceOverwrite) {
+      setOverwriteTarget(buildingType);
+      return;
+    }
+
     if (existing) {
-      if (!window.confirm(`「${buildingType}」已添加，是否用新坐标覆盖？`)) {
-        setPendingCoord(null);
-        setSelectedBuildingType('');
-        return;
-      }
       const newPositions = buildingPositions.map(b => b.name === buildingType
         ? { ...b, x: pendingCoord.x, y: pendingCoord.y }
         : b
@@ -159,6 +179,7 @@ export function ConfigPage() {
     }
     setPendingCoord(null);
     setSelectedBuildingType('');
+    setOverwriteTarget(null);
   };
 
   const removeBuilding = (index: number) => {
@@ -169,49 +190,52 @@ export function ConfigPage() {
 
   const clearAllBuildings = async () => {
     if (buildingPositions.length === 0) return;
-    if (window.confirm(`确定清空所有 ${buildingPositions.length} 个建筑位置？此操作不可撤销。`)) {
-      setBuildingPositions([]);
-      autoSave([]);
-    }
+    setBuildingPositions([]);
+    autoSave([]);
+    setClearConfirm(false);
   };
 
   const handleCreateProfile = async () => {
-    const name = window.prompt('请输入新配置名称：');
-    if (!name || !name.trim()) return;
+    const name = newProfileName.trim();
+    if (!name) return;
     if (!currentAccountId) return;
     try {
-      await api.config.createProfile(currentAccountId, name.trim());
-      setMessage(`配置「${name.trim()}」已创建`);
-      await api.config.switchProfile(currentAccountId, name.trim());
-      setConfigName(name.trim());
-      setActiveConfigName(name.trim());
+      await api.config.createProfile(currentAccountId, name);
+      setMessage(`配置「${name}」已创建`);
+      await api.config.switchProfile(currentAccountId, name);
+      setConfigName(name);
+      setActiveConfigName(name);
       setBuildingPositions([]);
       await loadProfiles();
+      setCreateMode(false);
+      setNewProfileName('');
     } catch (e: any) {
       setMessage(e.message || '创建失败');
     }
   };
 
   const handleRenameProfile = async () => {
-    const newName = window.prompt(`重命名「${configName}」为：`);
-    if (!newName || !newName.trim()) return;
+    const newName = renameTarget.trim();
+    if (!newName) return;
     if (!currentAccountId) return;
     try {
-      await api.config.renameProfile(currentAccountId, configName, newName.trim());
-      setMessage(`已重命名为「${newName.trim()}」`);
-      setConfigName(newName.trim());
+      await api.config.renameProfile(currentAccountId, configName, newName);
+      setMessage(`已重命名为「${newName}」`);
+      setConfigName(newName);
       await loadProfiles();
+      setRenameMode(false);
+      setRenameTarget('');
     } catch (e: any) {
       setMessage(e.message || '重命名失败');
     }
   };
 
-  const handleDeleteProfile = async () => {
-    if (!window.confirm(`确定删除配置「${configName}」？此操作不可恢复。`)) return;
+  const handleDeleteProfile = async (name: string) => {
     if (!currentAccountId) return;
     try {
-      await api.config.deleteProfile(currentAccountId, configName);
-      setMessage(`配置「${configName}」已删除`);
+      await api.config.deleteProfile(currentAccountId, name);
+      setMessage(`配置「${name}」已删除`);
+      setDeleteTarget(null);
       await loadProfiles();
       await loadConfig();
     } catch (e: any) {
@@ -222,9 +246,9 @@ export function ConfigPage() {
 
   if (!currentAccountId) {
     return (
-      <div className="text-center py-20 text-gray-400">
+      <div className="text-center py-20 text-gray-500">
         <p className="text-lg mb-4">请先选择或创建一个账号</p>
-        <a href="/accounts" className="px-6 py-3 bg-blue-600 rounded-lg hover:bg-blue-500 inline-block">
+        <a href="/accounts" className="px-6 py-3 bg-blue-600 rounded-lg hover:bg-blue-600 inline-block">
           前往账号管理
         </a>
       </div>
@@ -234,73 +258,146 @@ export function ConfigPage() {
   return (
     <div className="px-[80px] pt-4 pb-10">
       <h1 className="text-2xl font-bold mb-2">坐标配置</h1>
-      <p className="text-sm text-gray-400 mb-6">截图后点击画面标注建筑坐标，保存到本地配置文件</p>
+      <p className="text-sm text-gray-500 mb-6">截图后点击画面标注建筑坐标，保存到本地配置文件</p>
 
       {/* 配置管理栏 */}
-      <div className="flex items-center gap-3 mb-4 bg-gray-800 rounded-lg p-3">
-        <span className="text-sm text-gray-400">配置：</span>
-        <select
-          value={configName}
-          onChange={e => switchConfig(e.target.value)}
-          className="px-3 py-1.5 bg-gray-700 rounded text-sm border border-gray-600 min-w-[140px]"
-        >
-          {configNames.map(name => (
-            <option key={name} value={name}>{name}{name === activeConfigName ? ' (当前)' : ''}</option>
-          ))}
-        </select>
-        <button
-          onClick={handleCreateProfile}
-          disabled={configNames.length >= 5}
-          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 rounded text-sm disabled:opacity-30 disabled:cursor-not-allowed"
-        >新建</button>
-        <button
-          onClick={handleRenameProfile}
-          className="px-3 py-1.5 bg-gray-600 hover:bg-gray-500 rounded text-sm"
-        >重命名</button>
-        <button
-          onClick={handleDeleteProfile}
-          disabled={configNames.length <= 1}
-          className="px-3 py-1.5 bg-red-700 hover:bg-red-600 rounded text-sm disabled:opacity-30 disabled:cursor-not-allowed"
-        >删除</button>
-        <span className="text-xs text-gray-500 ml-auto">{configNames.length}/5</span>
+      <div className="flex items-center gap-2 mb-4 bg-white rounded-lg shadow-sm p-3 flex-wrap">
+        <span className="text-sm text-gray-500">配置：</span>
+
+        {/* Custom dropdown */}
+        <div className="relative" ref={dropdownRef}>
+          <button
+            onClick={() => setDropdownOpen(!dropdownOpen)}
+            className="px-3 py-1.5 bg-white rounded text-sm border border-gray-300 min-w-[160px] flex items-center justify-between hover:border-gray-300"
+          >
+            <span>{configName}</span>
+            <span className="text-gray-400 ml-2">▼</span>
+          </button>
+          {dropdownOpen && (
+            <div className="absolute z-20 mt-1 bg-white border border-gray-300 rounded shadow-lg min-w-[200px] overflow-hidden">
+              {configNames.map(name => (
+                <div key={name} className="flex items-center hover:bg-blue-50 group">
+                  <button
+                    onClick={() => { switchConfig(name); setDropdownOpen(false); }}
+                    className="flex-1 text-left px-3 py-2 text-sm hover:text-gray-900"
+                  >
+                    {name}{name === activeConfigName ? ' (当前)' : ''}
+                  </button>
+                  {configNames.length > 1 && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDeleteTarget(name); setDropdownOpen(false); }}
+                      className="px-2 py-1 text-red-600 hover:text-red-500 hover:bg-red-100 rounded text-sm opacity-70 group-hover:opacity-100"
+                      title={`删除「${name}」`}
+                    >✕</button>
+                  )}
+                </div>
+              ))}
+              {configNames.length < 5 && (
+                <button
+                  onClick={() => { setCreateMode(true); setNewProfileName(''); setDropdownOpen(false); }}
+                  className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 border-t border-gray-300"
+                >
+                  + 新建配置
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Rename button */}
+        {renameMode ? (
+          <form onSubmit={e => { e.preventDefault(); handleRenameProfile(); }}
+            className="flex items-center gap-1">
+            <input
+              autoFocus
+              value={renameTarget}
+              onChange={e => setRenameTarget(e.target.value)}
+              placeholder="新名称"
+              className="px-2 py-1 bg-gray-50 border border-gray-300 rounded text-sm text-gray-900 w-28 focus:outline-none focus:border-blue-500"
+            />
+            <button type="submit" className="text-sm text-blue-600 hover:text-blue-500 px-1">确认</button>
+            <button type="button" onClick={() => { setRenameMode(false); setRenameTarget(''); }}
+              className="text-sm text-gray-500 hover:text-red-600 px-1">取消</button>
+          </form>
+        ) : (
+          <button
+            onClick={() => { setRenameMode(true); setRenameTarget(configName); }}
+            className="px-2 py-1.5 text-sm text-gray-500 hover:text-gray-900 hover:bg-blue-50 rounded"
+            title="重命名"
+          >✎</button>
+        )}
+
+        {/* Delete confirmation */}
+        {deleteTarget && (
+          <span className="flex items-center gap-1 text-sm">
+            <span className="text-red-600">确定删除「{deleteTarget}」？</span>
+            <button onClick={() => handleDeleteProfile(deleteTarget)}
+              className="text-red-600 hover:text-red-500 px-1 font-bold">确认</button>
+            <button onClick={() => setDeleteTarget(null)}
+              className="text-gray-500 hover:text-gray-900 px-1">取消</button>
+          </span>
+        )}
+
+        <span className="text-xs text-gray-400 ml-auto">{configNames.length}/5</span>
       </div>
 
-      {message && <div className="mb-4 p-3 bg-blue-900 text-blue-200 rounded text-sm">{message}</div>}
+      {/* Create inline input */}
+      {createMode && (
+        <div className="flex items-center gap-2 mb-4 bg-white rounded-lg shadow-sm p-3">
+          <span className="text-sm text-gray-500">新建配置：</span>
+          <form onSubmit={e => { e.preventDefault(); handleCreateProfile(); }}
+            className="flex items-center gap-2">
+            <input
+              autoFocus
+              value={newProfileName}
+              onChange={e => setNewProfileName(e.target.value)}
+              placeholder="输入配置名称"
+              className="px-3 py-1.5 bg-gray-50 border border-gray-300 rounded text-sm text-gray-900 w-48 focus:outline-none focus:border-blue-500"
+            />
+            <button type="submit" disabled={!newProfileName.trim()}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-600 rounded text-sm disabled:opacity-30">确认创建</button>
+            <button type="button" onClick={() => { setCreateMode(false); setNewProfileName(''); }}
+              className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded text-sm">取消</button>
+          </form>
+        </div>
+      )}
+
+      {message && <div className="mb-4 p-3 bg-blue-100 text-blue-800 rounded text-sm">{message}</div>}
 
       <div className="flex gap-4 mb-6 flex-wrap items-center">
         {!connected ? (
           <button onClick={handleConnect} disabled={loading}
-            className="px-6 py-2 bg-green-600 hover:bg-green-700 rounded disabled:opacity-50">连接设备</button>
+            className="px-6 py-2 bg-green-500 hover:bg-green-600 rounded disabled:opacity-50 text-white">连接设备</button>
         ) : (
           <button onClick={handleScreenshot} disabled={loading}
-            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50">刷新截图</button>
+            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50 text-white">刷新截图</button>
         )}
-        <div className="flex items-center gap-2 bg-gray-700 rounded-lg p-1">
+        <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
           <button onClick={() => setMode('annotate')}
-            className={`px-4 py-1 rounded ${mode === 'annotate' ? 'bg-blue-600' : ''}`}>标注模式</button>
+            className={`px-4 py-1 rounded ${mode === 'annotate' ? 'bg-blue-600 text-white' : ''}`}>标注模式</button>
           <button onClick={() => setMode('tap')}
-            className={`px-4 py-1 rounded ${mode === 'tap' ? 'bg-blue-600' : ''}`}>点击模式</button>
+            className={`px-4 py-1 rounded ${mode === 'tap' ? 'bg-blue-600 text-white' : ''}`}>点击模式</button>
         </div>
         <div className="flex-1" />
       </div>
 
       <div className="flex gap-6">
         <div className="flex-1 min-w-0">
-          <div className="bg-gray-800 rounded-lg p-4">
+          <div className="bg-white rounded-lg shadow-sm p-4">
             <div className="flex items-center gap-2 mb-2">
               <span className={`w-3 h-3 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`}></span>
               <span className="text-sm">{connected ? '已连接' : '未连接'}</span>
             </div>
             {screenshot ? (
               <div className="relative">
-                <p className="text-xs text-gray-500 mb-2">
+                <p className="text-xs text-gray-400 mb-2">
                   {mode === 'annotate' ? '点击截图标注坐标' : '点击截图发送点击指令'}
                   {pendingCoord && ' — 已标记坐标，选择建筑类型后确认'}
                 </p>
-                <img src={screenshot} alt="截图" className="w-full border border-gray-600 rounded cursor-crosshair" onClick={handleImageClick} />
-                {pendingCoord && (
+                <img src={screenshot} alt="截图" className="w-full border border-gray-300 rounded cursor-crosshair" onClick={handleImageClick} />
+                {pendingCoord && !overwriteTarget && (
                   <div
-                    className="absolute z-10 bg-gray-800 border border-gray-600 rounded-lg p-2 shadow-lg"
+                    className="absolute z-10 bg-white border border-gray-300 rounded-lg p-2 shadow-lg"
                     style={{ left: pendingCoord.domX + 8, top: pendingCoord.domY - 8 }}
                   >
                     <select
@@ -312,7 +409,7 @@ export function ConfigPage() {
                           addBuilding(type);
                         }
                       }}
-                      className="px-3 py-2 bg-gray-900 rounded text-sm border border-gray-600"
+                      className="px-3 py-2 bg-blue-50 rounded text-sm border border-gray-300"
                       autoFocus
                     >
                       <option value="">选择建筑类型...</option>
@@ -320,39 +417,63 @@ export function ConfigPage() {
                     </select>
                     <button
                       onClick={() => setPendingCoord(null)}
-                      className="ml-1 px-2 py-2 text-xs text-gray-400 hover:text-white"
+                      className="ml-1 px-2 py-2 text-xs text-gray-500 hover:text-gray-900"
                     >×</button>
+                  </div>
+                )}
+                {pendingCoord && overwriteTarget && (
+                  <div
+                    className="absolute z-10 bg-white border border-gray-300 rounded-lg p-2 shadow-lg"
+                    style={{ left: pendingCoord.domX + 8, top: pendingCoord.domY - 8 }}
+                  >
+                    <span className="text-sm text-yellow-700">「{overwriteTarget}」已存在，覆盖？</span>
+                    <div className="flex gap-1 mt-1">
+                      <button onClick={() => addBuilding(overwriteTarget, true)}
+                        className="px-2 py-1 bg-yellow-500 hover:bg-yellow-600 rounded text-xs">覆盖</button>
+                      <button onClick={() => { setPendingCoord(null); setSelectedBuildingType(''); setOverwriteTarget(null); }}
+                        className="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs">取消</button>
+                    </div>
                   </div>
                 )}
               </div>
             ) : (
-              <p className="text-gray-500 text-center py-20">点击"刷新截图"查看设备画面</p>
+              <p className="text-gray-400 text-center py-20">点击"刷新截图"查看设备画面</p>
             )}
           </div>
         </div>
 
         <div className="w-96 flex-shrink-0">
-          <div className="bg-gray-800 rounded-lg p-4">
+          <div className="bg-white rounded-lg shadow-sm p-4">
             <h3 className="font-bold mb-3">建筑位置</h3>
             {buildingPositions.length === 0 ? (
-              <p className="text-gray-500 text-sm">在截图上点击标注建筑坐标</p>
+              <p className="text-gray-400 text-sm">在截图上点击标注建筑坐标</p>
             ) : (
               <>
                 <div className="space-y-2 max-h-96 overflow-y-auto">
                   {buildingPositions.map((b, i) => (
-                    <div key={i} className="flex items-center gap-2 bg-gray-700 rounded p-2">
+                    <div key={i} className="flex items-center gap-2 bg-gray-50 rounded p-2">
                       <span className="text-sm flex-1">{b.name}</span>
-                      <span className="text-xs text-gray-400">({b.x}, {b.y})</span>
-                      <button onClick={() => removeBuilding(i)} className="text-red-400 hover:text-red-300 text-xs px-2">×</button>
+                      <span className="text-xs text-gray-500">({b.x}, {b.y})</span>
+                      <button onClick={() => removeBuilding(i)} className="text-red-600 hover:text-red-500 text-xs px-2">×</button>
                     </div>
                   ))}
                 </div>
                 {buildingPositions.length > 0 && (
                   <div className="mt-3 text-right">
-                    <button
-                      onClick={clearAllBuildings}
-                      className="px-3 py-1.5 bg-red-700 hover:bg-red-600 rounded text-xs"
-                    >清空全部</button>
+                    {clearConfirm ? (
+                      <span className="flex items-center gap-2 justify-end text-sm">
+                        <span className="text-red-600">清空全部？不可撤销</span>
+                        <button onClick={clearAllBuildings}
+                          className="text-red-600 hover:text-red-500 font-bold">确认</button>
+                        <button onClick={() => setClearConfirm(false)}
+                          className="text-gray-500 hover:text-gray-900">取消</button>
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => setClearConfirm(true)}
+                        className="px-3 py-1.5 bg-red-100 hover:bg-red-200 rounded text-xs"
+                      >清空全部</button>
+                    )}
                   </div>
                 )}
               </>

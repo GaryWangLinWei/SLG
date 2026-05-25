@@ -71,18 +71,18 @@ function TechSelect({ value, onChange, excludeValues, economicTechs, militaryTec
     <div ref={ref} className="relative">
       <button
         onClick={() => { setOpen(!open); setActiveTab(null); }}
-        className={`px-2 py-1 bg-gray-800 rounded text-sm border w-24 text-left truncate flex items-center justify-between ${completed ? 'text-green-400 border-green-500' : 'border-gray-600'}`}
+        className={`px-2 py-1 bg-gray-50 rounded text-sm border w-24 text-left truncate flex items-center justify-between ${completed ? 'text-green-600 border-green-500' : 'border-gray-300'}`}
       >
-        <span className="truncate">{completed && value ? `✅ ${value}` : (value || <span className="text-gray-500">-</span>)}</span>
+        <span className="truncate">{completed && value ? `✅ ${value}` : (value || <span className="text-gray-400">-</span>)}</span>
         {value && (
-          <span className="ml-1 text-gray-500 hover:text-gray-300 flex-shrink-0" onClick={(e) => { e.stopPropagation(); onChange(''); }}>×</span>
+          <span className="ml-1 text-gray-400 hover:text-gray-700 flex-shrink-0" onClick={(e) => { e.stopPropagation(); onChange(''); }}>×</span>
         )}
       </button>
       {open && (
-        <div className="absolute z-20 mt-1 w-48 bg-gray-800 border border-gray-600 rounded shadow-lg max-h-80 overflow-y-auto">
+        <div className="absolute z-20 mt-1 w-48 bg-white border border-gray-300 rounded shadow-lg max-h-80 overflow-y-auto">
           <button
             onClick={() => setActiveTab(activeTab === 'economic' ? null : 'economic')}
-            className="w-full text-left px-3 py-1.5 text-xs font-bold text-gray-300 hover:bg-gray-700 border-b border-gray-700 sticky top-0 bg-gray-800"
+            className="w-full text-left px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-blue-50 border-b border-gray-200 sticky top-0 bg-white"
           >
             {activeTab === 'economic' ? '▼' : '▶'} 经济科技
           </button>
@@ -90,12 +90,12 @@ function TechSelect({ value, onChange, excludeValues, economicTechs, militaryTec
             <button
               key={name}
               onClick={() => { onChange(name); setOpen(false); setActiveTab(null); }}
-              className={`w-full text-left px-5 py-1 text-sm hover:bg-gray-700 ${name === value ? 'text-blue-400' : ''}`}
+              className={`w-full text-left px-5 py-1 text-sm hover:bg-blue-50 ${name === value ? 'text-blue-600' : ''}`}
             >{name}</button>
           ))}
           <button
             onClick={() => setActiveTab(activeTab === 'military' ? null : 'military')}
-            className="w-full text-left px-3 py-1.5 text-xs font-bold text-gray-300 hover:bg-gray-700 border-b border-gray-700 sticky top-0 bg-gray-800"
+            className="w-full text-left px-3 py-1.5 text-xs font-bold text-gray-700 hover:bg-blue-50 border-b border-gray-200 sticky top-0 bg-white"
           >
             {activeTab === 'military' ? '▼' : '▶'} 军事科技
           </button>
@@ -103,7 +103,7 @@ function TechSelect({ value, onChange, excludeValues, economicTechs, militaryTec
             <button
               key={name}
               onClick={() => { onChange(name); setOpen(false); setActiveTab(null); }}
-              className={`w-full text-left px-5 py-1 text-sm hover:bg-gray-700 ${name === value ? 'text-blue-400' : ''}`}
+              className={`w-full text-left px-5 py-1 text-sm hover:bg-blue-50 ${name === value ? 'text-blue-600' : ''}`}
             >{name}</button>
           ))}
         </div>
@@ -768,8 +768,8 @@ export function HomePage() {
   if (!currentAccountId) {
     return (
       <div className="max-w-4xl mx-auto p-6 text-center py-20">
-        <p className="text-xl text-gray-400 mb-4">请先创建账号</p>
-        <p className="text-sm text-gray-500 mb-6">需要绑定一个模拟器实例才能开始使用</p>
+        <p className="text-xl text-gray-500 mb-4">请先创建账号</p>
+        <p className="text-sm text-gray-400 mb-6">需要绑定一个模拟器实例才能开始使用</p>
         <a href="/accounts" className="px-6 py-3 bg-blue-600 rounded-lg hover:bg-blue-500 inline-block">
           前往账号管理
         </a>
@@ -778,34 +778,34 @@ export function HomePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
+    <div className="min-h-screen bg-blue-50 text-gray-900">
       <div className="max-w-4xl mx-auto p-6">
-        <div className="bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl p-8 mb-8 text-center shadow-2xl">
-          <h2 className="text-3xl font-bold mb-2">一键全能模式</h2>
-          <p className="text-blue-100 mb-4">城外采集定时循环</p>
+        <div className="bg-white rounded-2xl p-8 mb-8 text-center shadow-sm border border-gray-100">
+          <h2 className="text-3xl font-bold mb-1 text-gray-900">一键全能模式</h2>
+          <p className="text-gray-500 mb-6">城外采集定时循环</p>
           <div className="flex items-center justify-center gap-4 mb-4">
             <div className="flex items-center gap-2">
-              <span className={`w-2.5 h-2.5 rounded-full ${deviceConnected ? 'bg-green-400' : 'bg-red-400'}`}></span>
-              <span className="text-sm text-blue-100">{deviceConnected ? '设备已连接' : '未连接设备'}</span>
+              <span className={`w-2.5 h-2.5 rounded-full ${deviceConnected ? 'bg-green-500' : 'bg-red-400'}`}></span>
+              <span className="text-sm text-gray-600">{deviceConnected ? '设备已连接' : '未连接设备'}</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className={`w-2.5 h-2.5 rounded-full ${taskRunning ? 'bg-green-400 animate-pulse' : 'bg-white/30'}`}></span>
-              <span className="text-sm text-blue-100">{taskRunning ? '运行中' : '已停止'}</span>
+              <span className={`w-2.5 h-2.5 rounded-full ${taskRunning ? 'bg-green-500 animate-pulse' : 'bg-gray-300'}`}></span>
+              <span className="text-sm text-gray-600">{taskRunning ? '运行中' : '已停止'}</span>
             </div>
           </div>
           <div className="flex items-center justify-center gap-2 mb-6">
-            <span className="text-blue-100 text-sm">循环间隔:</span>
+            <span className="text-gray-600 text-sm">循环间隔:</span>
             <input type="number" min={60} step={30} value={features.loopInterval}
               onChange={(e) => setFeatures({ ...features, loopInterval: Math.max(60, Number(e.target.value)) })}
-              className="w-20 px-2 py-1 bg-white/20 rounded text-white text-sm text-center" />
-            <span className="text-blue-100 text-sm">秒</span>
+              className="w-20 px-2 py-1 bg-gray-100 border border-gray-200 rounded text-gray-900 text-sm text-center focus:outline-none focus:border-blue-400" />
+            <span className="text-gray-600 text-sm">秒</span>
           </div>
 
           {!deviceConnected ? (
             <button
               onClick={handleConnectDevice}
               disabled={deviceLoading}
-              className="px-12 py-4 bg-white text-blue-600 font-bold text-xl rounded-xl hover:bg-gray-100 transition-all disabled:opacity-50 shadow-lg"
+              className="px-12 py-4 bg-blue-600 text-white font-bold text-xl rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 shadow-sm"
             >
               {deviceLoading ? '连接中...' : '第一步：连接设备'}
             </button>
@@ -814,14 +814,14 @@ export function HomePage() {
               {!taskRunning ? (
                 <button
                   onClick={handleStartAll}
-                  className="px-16 py-5 bg-green-500 text-white font-bold text-2xl rounded-xl hover:bg-green-400 transition-all shadow-lg hover:scale-105"
+                  className="px-16 py-5 bg-green-500 text-white font-bold text-2xl rounded-xl hover:bg-green-600 transition-all shadow-sm hover:scale-105"
                 >
                   开始运行
                 </button>
               ) : (
                 <button
                   onClick={handleStop}
-                  className="px-16 py-5 bg-red-500 text-white font-bold text-2xl rounded-xl hover:bg-red-400 transition-all shadow-lg"
+                  className="px-16 py-5 bg-red-500 text-white font-bold text-2xl rounded-xl hover:bg-red-600 transition-all shadow-sm"
                 >
                   停止运行
                 </button>
@@ -830,41 +830,21 @@ export function HomePage() {
           )}
         </div>
 
-        <div className="bg-gray-800 rounded-xl p-6 mb-6">
+        <div className="bg-white shadow-sm rounded-xl p-6 mb-6">
           <div className="flex items-center gap-3 mb-4">
             <h3 className="text-xl font-bold">功能设置</h3>
             {currentAccountId && configNames.length > 0 && (
               <select
                 value={activeConfigName}
                 onChange={e => handleConfigSwitch(e.target.value)}
-                className="px-2 py-0.5 bg-gray-700 rounded text-xs border border-gray-600 text-gray-300"
+                className="px-2 py-0.5 bg-gray-50 rounded text-xs border border-gray-300 text-gray-700"
               >
                 {configNames.map(n => <option key={n} value={n}>📐 {n}</option>)}
               </select>
             )}
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer hover:bg-gray-600 ${features.autoExplore ? 'bg-gray-800 opacity-50 pointer-events-none' : 'bg-gray-700'}`}>
-              <input type="checkbox" checked={features.helpTeammates} disabled={features.autoExplore}
-                onChange={(e) => setFeatures({ ...features, helpTeammates: e.target.checked })}
-                className="w-5 h-5 text-blue-600" />
-              <div>
-                <span className="font-medium">自动帮助盟友</span>
-                <p className="text-xs text-gray-400"></p>
-              </div>
-            </label>
-
-            <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer hover:bg-gray-600 ${features.autoExplore ? 'bg-gray-800 opacity-50 pointer-events-none' : 'bg-gray-700'}`}>
-              <input type="checkbox" checked={features.collectResources} disabled={features.autoExplore}
-                onChange={(e) => setFeatures({ ...features, collectResources: e.target.checked })}
-                className="w-5 h-5 text-blue-600" />
-              <div>
-                <span className="font-medium">自动收集资源</span>
-                <p className="text-xs text-gray-400">请先在配置页添加资源建筑坐标</p>
-              </div>
-            </label>
-
-            <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer hover:bg-gray-600 ${features.autoExplore ? 'bg-gray-800 opacity-50 pointer-events-none' : 'bg-gray-700'}`}>
+            <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer hover:bg-blue-50 ${features.autoExplore ? 'bg-gray-100 opacity-50 pointer-events-none' : 'bg-gray-50'}`}>
               <input type="checkbox" checked={features.upgradeBuildings} disabled={features.autoExplore}
                 onChange={(e) => setFeatures({ ...features, upgradeBuildings: e.target.checked })}
                 className="w-5 h-5 text-blue-600" />
@@ -877,7 +857,7 @@ export function HomePage() {
                       const nextCompleted = [...features.completedBuildings]; nextCompleted[i] = false;
                       setFeatures({ ...features, selectedBuildings: next, completedBuildings: nextCompleted });
                     }}
-                    className={`px-2 py-1 bg-gray-800 rounded text-sm border w-20 ${features.completedBuildings[i] ? 'text-green-400 border-green-500' : 'border-gray-600'}`}>
+                    className={`px-2 py-1 bg-gray-50 rounded text-sm border w-20 ${features.completedBuildings[i] ? 'text-green-600 border-green-500' : 'border-gray-300'}`}>
                       <option value="">-</option>
                       {buildingOptions.map(name => (
                         <option key={name} value={name}>{name}</option>
@@ -892,17 +872,17 @@ export function HomePage() {
                         loopCompletedBuildings = completed;
                         setFeatures((prev: typeof DEFAULT_FEATURES) => ({ ...prev, selectedBuildings: selected, completedBuildings: completed }));
                       }}
-                      className="px-2 py-1 text-xs bg-red-800 hover:bg-red-700 text-red-200 rounded whitespace-nowrap"
+                      className="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded whitespace-nowrap"
                     >
                       清除已完成
                     </button>
                   )}
                 </div>
-                <p className="text-xs text-gray-400 mt-1">请在配置页添加建筑坐标</p>
+                <p className="text-xs text-gray-500 mt-1">请在配置页添加建筑坐标</p>
               </div>
             </label>
 
-            <div className={`flex items-center gap-3 p-4 rounded-lg hover:bg-gray-600 ${features.autoExplore ? 'bg-gray-800 opacity-50 pointer-events-none' : 'bg-gray-700'}`}>
+            <div className={`flex items-center gap-3 p-4 rounded-lg hover:bg-blue-50 ${features.autoExplore ? 'bg-gray-100 opacity-50 pointer-events-none' : 'bg-gray-50'}`}>
               <input type="checkbox" checked={features.autoResearch} disabled={features.autoExplore}
                 onChange={(e) => {
                   if (e.target.checked && !buildingOptions.includes('学院')) {
@@ -935,17 +915,17 @@ export function HomePage() {
                         loopCompletedTechs = completed;
                         setFeatures((prev: typeof DEFAULT_FEATURES) => ({ ...prev, selectedTechs: selected, completedTechs: completed }));
                       }}
-                      className="px-2 py-1 text-xs bg-red-800 hover:bg-red-700 text-red-200 rounded whitespace-nowrap"
+                      className="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 text-red-700 rounded whitespace-nowrap"
                     >
                       清除已完成
                     </button>
                   )}
                 </div>
-                <p className="text-xs text-gray-400 mt-1">请先在配置页添加学院坐标</p>
+                <p className="text-xs text-gray-500 mt-1">请先在配置页添加学院坐标</p>
               </div>
             </div>
 
-            <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer hover:bg-gray-600 ${features.autoExplore ? 'bg-gray-800 opacity-50 pointer-events-none' : 'bg-gray-700'}`}>
+            <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer hover:bg-blue-50 ${features.autoExplore ? 'bg-gray-100 opacity-50 pointer-events-none' : 'bg-gray-50'}`}>
               <input type="checkbox" checked={features.gatherResources} disabled={features.autoExplore}
                 onChange={(e) => setFeatures({ ...features, gatherResources: e.target.checked })}
                 className="w-5 h-5 text-blue-600" />
@@ -958,7 +938,7 @@ export function HomePage() {
                         const next = [...features.gatherTasks]; next[i] = { ...next[i], type: e.target.value };
                         setFeatures({ ...features, gatherTasks: next });
                       }}
-                      className="px-1 py-1 bg-gray-800 rounded text-xs border border-gray-600 w-16">
+                      className="px-1 py-1 bg-gray-50 rounded text-xs border border-gray-300 w-16">
                         <option value="">-</option>
                         {RESOURCE_TYPES.map(t => (<option key={t} value={t}>{t}</option>))}
                       </select>
@@ -966,17 +946,17 @@ export function HomePage() {
                         const next = [...features.gatherTasks]; next[i] = { ...next[i], level: Number(e.target.value) };
                         setFeatures({ ...features, gatherTasks: next });
                       }}
-                      className="px-1 py-1 bg-gray-800 rounded text-xs border border-gray-600 w-16">
+                      className="px-1 py-1 bg-gray-50 rounded text-xs border border-gray-300 w-16">
                         {RESOURCE_LEVELS.map(l => (<option key={l} value={l}>Lv.{l}</option>))}
                       </select>
                     </div>
                   ))}
                 </div>
-                <p className="text-xs text-gray-400 mt-1">5个队伍按顺序派出采集</p>
+                <p className="text-xs text-gray-500 mt-1">5个队伍按顺序派出采集</p>
               </div>
             </label>
 
-            <label className={`flex items-start gap-3 p-4 rounded-lg cursor-pointer hover:bg-gray-600 ${features.autoExplore ? 'bg-gray-800 opacity-50 pointer-events-none' : 'bg-gray-700'}`}>
+            <label className={`flex items-start gap-3 p-4 rounded-lg cursor-pointer hover:bg-blue-50 ${features.autoExplore ? 'bg-gray-100 opacity-50 pointer-events-none' : 'bg-gray-50'}`}>
               <input type="checkbox" checked={features.trainTroops} disabled={features.autoExplore}
                 onChange={(e) => {
                   if (e.target.checked) {
@@ -994,23 +974,43 @@ export function HomePage() {
                 <div className="grid grid-cols-2 gap-2 mt-2">
                   {(['兵营', '马厩', '靶场', '攻城武器厂'] as const).map(building => (
                     <div key={building} className="flex items-center gap-2">
-                      <span className="text-xs text-gray-400 w-16">{building}</span>
+                      <span className="text-xs text-gray-500 w-16">{building}</span>
                       <select value={(features.trainTasks as Record<string, number>)[building] ?? 0} disabled={features.autoExplore} onChange={(e) => {
                         const next = { ...features.trainTasks as Record<string, number>, [building]: Number(e.target.value) };
                         setFeatures({ ...features, trainTasks: next });
                       }}
-                      className="px-1 py-1 bg-gray-800 rounded text-xs border border-gray-600 w-16">
+                      className="px-1 py-1 bg-gray-50 rounded text-xs border border-gray-300 w-16">
                         <option value={0}>-</option>
                         {TRAIN_TIERS.map(t => (<option key={t} value={t}>T{t}</option>))}
                       </select>
                     </div>
                   ))}
                 </div>
-                <p className="text-xs text-gray-400 mt-1">需标记对应建筑坐标</p>
+                <p className="text-xs text-gray-500 mt-1">需标记对应建筑坐标</p>
               </div>
             </label>
 
-            <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer hover:bg-gray-700 ${features.autoExplore ? 'bg-purple-700 ring-2 ring-purple-400' : 'bg-gray-700'}`}>
+            <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer hover:bg-blue-50 ${features.autoExplore ? 'bg-gray-100 opacity-50 pointer-events-none' : 'bg-gray-50'}`}>
+              <input type="checkbox" checked={features.helpTeammates} disabled={features.autoExplore}
+                onChange={(e) => setFeatures({ ...features, helpTeammates: e.target.checked })}
+                className="w-5 h-5 text-blue-600" />
+              <div>
+                <span className="font-medium">自动帮助盟友</span>
+                <p className="text-xs text-gray-500"></p>
+              </div>
+            </label>
+
+            <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer hover:bg-blue-50 ${features.autoExplore ? 'bg-gray-100 opacity-50 pointer-events-none' : 'bg-gray-50'}`}>
+              <input type="checkbox" checked={features.collectResources} disabled={features.autoExplore}
+                onChange={(e) => setFeatures({ ...features, collectResources: e.target.checked })}
+                className="w-5 h-5 text-blue-600" />
+              <div>
+                <span className="font-medium">自动收集资源</span>
+                <p className="text-xs text-gray-500">请先在配置页添加资源建筑坐标</p>
+              </div>
+            </label>
+
+            <label className={`flex items-center gap-3 p-4 rounded-lg cursor-pointer hover:bg-blue-50 ${features.autoExplore ? 'bg-purple-500 ring-2 ring-purple-500' : 'bg-gray-50'}`}>
               <input type="checkbox" checked={features.autoExplore}
                 onChange={(e) => {
                   if (e.target.checked && !buildingOptions.includes('斥候营地')) {
@@ -1023,36 +1023,58 @@ export function HomePage() {
               <div className="flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-medium">自动探索</span>
-                  {features.autoExplore && <span className="text-xs px-1.5 py-0.5 bg-purple-500 text-white rounded">独立模式</span>}
-                  <span className="text-xs text-gray-400">派出</span>
+                  {features.autoExplore && <span className="text-xs px-1.5 py-0.5 bg-purple-500 text-gray-900 rounded">独立模式</span>}
+                  <span className="text-xs text-gray-500">派出</span>
                   <select value={features.exploreCount} onChange={(e) => {
                     setFeatures({ ...features, exploreCount: Number(e.target.value) });
                   }}
-                  className="px-1 py-1 bg-gray-800 rounded text-xs border border-gray-600 w-12">
+                  className="px-1 py-1 bg-gray-50 rounded text-xs border border-gray-300 w-12">
                     {[1, 2, 3].map(n => (<option key={n} value={n}>{n}</option>))}
                   </select>
-                  <span className="text-xs text-gray-400">个斥候</span>
+                  <span className="text-xs text-gray-500">个斥候</span>
                 </div>
-                <p className="text-xs text-gray-400 mt-1">需标记斥候营地坐标</p>
+                <p className="text-xs text-gray-500 mt-1">需标记斥候营地坐标</p>
                 {features.autoExplore && (
-                  <p className="text-xs text-yellow-400 mt-1">⚠ 探索模式已开启，其他功能已暂停</p>
+                  <p className="text-xs text-yellow-600 mt-1">⚠ 探索模式已开启，其他功能已暂停</p>
                 )}
               </div>
             </label>
+
+            <div className="flex items-center gap-3 p-4 rounded-lg bg-blue-50 border border-dashed border-gray-300 opacity-60">
+              <input type="checkbox" disabled className="w-5 h-5" />
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-gray-500">自动攻打城寨</span>
+                  <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">敬请期待</span>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">自动加入或集结野蛮人城寨</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-3 p-4 rounded-lg bg-blue-50 border border-dashed border-gray-300 opacity-60">
+              <input type="checkbox" disabled className="w-5 h-5" />
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-medium text-gray-500">智慧采集宝石</span>
+                  <span className="text-xs px-1.5 py-0.5 bg-gray-100 text-gray-500 rounded">敬请期待</span>
+                </div>
+                <p className="text-xs text-gray-400 mt-1">智能识别并采集高价值宝石矿</p>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div className="bg-gray-800 rounded-xl p-6">
+        <div className="bg-white shadow-sm rounded-xl p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-xl font-bold">运行日志</h3>
-            <Link to="/tasks" className="text-xs text-gray-600 hover:text-gray-400">调试</Link>
+            <Link to="/tasks" className="text-xs text-gray-600 hover:text-gray-500">调试</Link>
           </div>
-          <div className="bg-gray-900 rounded-lg p-4 h-48 overflow-y-auto font-mono text-sm">
+          <div className="bg-gray-50 rounded-lg p-4 h-48 overflow-y-auto font-mono text-sm">
             {logs.length === 0 ? (
-              <p className="text-gray-500">等待开始运行...</p>
+              <p className="text-gray-400">等待开始运行...</p>
             ) : (
               logs.map((log, i) => (
-                <div key={i} className="py-1 border-b border-gray-800">{log}</div>
+                <div key={i} className="py-1 border-b border-gray-200">{log}</div>
               ))
             )}
           </div>

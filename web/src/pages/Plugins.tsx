@@ -63,28 +63,28 @@ export function PluginsPage() {
 
       <div className="space-y-6">
         {plugins.map(plugin => (
-          <div key={plugin.id} className="bg-gray-800 rounded-lg p-6">
+          <div key={plugin.id} className="bg-white rounded-xl shadow-sm p-6 border border-gray-100">
             <div className="flex justify-between items-start mb-4">
               <div>
                 <h2 className="text-xl font-bold">{plugin.name}</h2>
-                <p className="text-sm text-gray-400">v{plugin.version}</p>
-                {plugin.author && <p className="text-xs text-gray-500">作者: {plugin.author}</p>}
-                <p className="mt-2 text-gray-300">{plugin.description}</p>
+                <p className="text-sm text-gray-500">v{plugin.version}</p>
+                {plugin.author && <p className="text-xs text-gray-400">作者: {plugin.author}</p>}
+                <p className="mt-2 text-gray-700">{plugin.description}</p>
               </div>
             </div>
 
             <h3 className="text-lg font-semibold mb-3">可用操作</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {plugin.actions.map(action => (
-                <div key={action.id} className="bg-gray-700 p-4 rounded flex justify-between items-center">
+                <div key={action.id} className="bg-gray-50 p-4 rounded-lg flex justify-between items-center border border-gray-100">
                   <div>
                     <p className="font-medium">{action.name}</p>
-                    <p className="text-sm text-gray-400">{action.description}</p>
+                    <p className="text-sm text-gray-500">{action.description}</p>
                   </div>
                   <button
                     onClick={() => handleRunAction(plugin.id, action.id)}
                     disabled={runningAction === `${plugin.id}-${action.id}`}
-                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm disabled:opacity-50"
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm disabled:opacity-50 text-white"
                   >
                     {runningAction === `${plugin.id}-${action.id}` ? '运行中...' : '运行'}
                   </button>

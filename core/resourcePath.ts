@@ -10,7 +10,7 @@ export function initResourcePaths(resourcesPath: string): void {
 
 export function getTemplatesDir(): string {
   if (templatesDir) return templatesDir;
-  return path.join(__dirname, '../../plugins/rok/templates');
+  return path.join(__dirname, '../plugins/rok/templates');
 }
 
 export function getTraineddataDir(): string {
