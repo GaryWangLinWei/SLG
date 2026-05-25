@@ -6,7 +6,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   minimizeWindow: () => ipcRenderer.send('minimize-window'),
   closeApp: () => ipcRenderer.send('close-app'),
   onUpdateStatus: (callback: (data: { status: string; progress?: number; version?: string }) => void) => {
-    ipcRenderer.on('update-status', (_event, data) => callback(data));
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('update-status', handler);
+    return () => { ipcRenderer.removeListener('update-status', handler); };
   },
   installUpdate: () => ipcRenderer.invoke('install-update'),
   checkUpdate: () => ipcRenderer.invoke('check-update'),
@@ -19,9 +21,9 @@ declare global {
       getAdbPath: () => Promise<string>;
       minimizeWindow: () => void;
       closeApp: () => void;
-      onUpdateStatus: (callback: (data: { status: string; progress?: number; version?: string }) => void) => void;
-      installUpdate: () => void;
-      checkUpdate: () => void;
+      onUpdateStatus: (callback: (data: { status: string; progress?: number; version?: string }) => void) => () => void;
+      installUpdate: () => Promise<void>;
+      checkUpdate: () => Promise<void>;
     };
   }
 }
