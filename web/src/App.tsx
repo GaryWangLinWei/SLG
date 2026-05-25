@@ -228,13 +228,14 @@ function AppContent() {
   useEffect(() => {
     const isElectron = typeof window !== 'undefined' && 'electronAPI' in window;
     if (!isElectron) return;
-    window.electronAPI!.onUpdateStatus((data: any) => {
+    const unsubscribe = window.electronAPI!.onUpdateStatus((data) => {
       setUpdateStatus({
         status: data.status,
         progress: data.progress,
         version: data.version,
       });
     });
+    return () => { unsubscribe(); };
   }, []);
 
   return (
@@ -256,7 +257,7 @@ function AppContent() {
                 v{updateStatus.version} 已就绪，重启后生效
               </span>
               <button
-                onClick={() => window.electronAPI!.installUpdate()}
+                onClick={() => window.electronAPI?.installUpdate()}
                 className="px-4 py-1 bg-emerald-500 text-white rounded-full text-sm font-medium hover:bg-emerald-600 transition-colors"
               >
                 重启安装
