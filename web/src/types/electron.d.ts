@@ -1,7 +1,7 @@
 interface ElectronAPI {
   getAppVersion: () => Promise<string>;
   getAdbPath: () => Promise<string>;
-  minimizeToTray: () => void;
+  minimizeWindow: () => void;
   closeApp: () => void;
 }
 
