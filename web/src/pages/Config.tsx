@@ -246,9 +246,9 @@ export function ConfigPage() {
 
   if (!currentAccountId) {
     return (
-      <div className="text-center py-20 text-gray-500">
+      <div className="text-center py-20 text-slate-500">
         <p className="text-lg mb-4">请先选择或创建一个账号</p>
-        <a href="/accounts" className="px-6 py-3 bg-blue-600 rounded-lg hover:bg-blue-600 inline-block">
+        <a href="/accounts" className="px-6 py-3 bg-emerald-500 rounded-lg hover:bg-emerald-500 inline-block">
           前往账号管理
         </a>
       </div>
@@ -258,28 +258,28 @@ export function ConfigPage() {
   return (
     <div className="px-[80px] pt-4 pb-10">
       <h1 className="text-2xl font-bold mb-2">坐标配置</h1>
-      <p className="text-sm text-gray-500 mb-6">截图后点击画面标注建筑坐标，保存到本地配置文件</p>
+      <p className="text-sm text-slate-500 mb-6">截图后点击画面标注建筑坐标，保存到本地配置文件</p>
 
       {/* 配置管理栏 */}
       <div className="flex items-center gap-2 mb-4 bg-white rounded-lg shadow-sm p-3 flex-wrap">
-        <span className="text-sm text-gray-500">配置：</span>
+        <span className="text-sm text-slate-500">配置：</span>
 
         {/* Custom dropdown */}
         <div className="relative" ref={dropdownRef}>
           <button
             onClick={() => setDropdownOpen(!dropdownOpen)}
-            className="px-3 py-1.5 bg-white rounded text-sm border border-gray-300 min-w-[160px] flex items-center justify-between hover:border-gray-300"
+            className="px-3 py-1.5 bg-white rounded text-sm border border-slate-200 min-w-[160px] flex items-center justify-between hover:border-slate-200"
           >
             <span>{configName}</span>
-            <span className="text-gray-400 ml-2">▼</span>
+            <span className="text-slate-400 ml-2">▼</span>
           </button>
           {dropdownOpen && (
-            <div className="absolute z-20 mt-1 bg-white border border-gray-300 rounded shadow-lg min-w-[200px] overflow-hidden">
+            <div className="absolute z-20 mt-1 bg-white border border-slate-200 rounded shadow-lg min-w-[200px] overflow-hidden">
               {configNames.map(name => (
-                <div key={name} className="flex items-center hover:bg-blue-50 group">
+                <div key={name} className="flex items-center hover:bg-slate-50 group">
                   <button
                     onClick={() => { switchConfig(name); setDropdownOpen(false); }}
-                    className="flex-1 text-left px-3 py-2 text-sm hover:text-gray-900"
+                    className="flex-1 text-left px-3 py-2 text-sm hover:text-slate-800"
                   >
                     {name}{name === activeConfigName ? ' (当前)' : ''}
                   </button>
@@ -295,7 +295,7 @@ export function ConfigPage() {
               {configNames.length < 5 && (
                 <button
                   onClick={() => { setCreateMode(true); setNewProfileName(''); setDropdownOpen(false); }}
-                  className="w-full text-left px-3 py-2 text-sm text-blue-600 hover:bg-blue-50 border-t border-gray-300"
+                  className="w-full text-left px-3 py-2 text-sm text-emerald-600 hover:bg-slate-50 border-t border-slate-200"
                 >
                   + 新建配置
                 </button>
@@ -313,16 +313,16 @@ export function ConfigPage() {
               value={renameTarget}
               onChange={e => setRenameTarget(e.target.value)}
               placeholder="新名称"
-              className="px-2 py-1 bg-gray-50 border border-gray-300 rounded text-sm text-gray-900 w-28 focus:outline-none focus:border-blue-500"
+              className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-sm text-slate-800 w-28 focus:outline-none focus:border-emerald-400"
             />
-            <button type="submit" className="text-sm text-blue-600 hover:text-blue-500 px-1">确认</button>
+            <button type="submit" className="text-sm text-emerald-600 hover:text-emerald-500 px-1">确认</button>
             <button type="button" onClick={() => { setRenameMode(false); setRenameTarget(''); }}
-              className="text-sm text-gray-500 hover:text-red-600 px-1">取消</button>
+              className="text-sm text-slate-500 hover:text-red-600 px-1">取消</button>
           </form>
         ) : (
           <button
             onClick={() => { setRenameMode(true); setRenameTarget(configName); }}
-            className="px-2 py-1.5 text-sm text-gray-500 hover:text-gray-900 hover:bg-blue-50 rounded"
+            className="px-2 py-1.5 text-sm text-slate-500 hover:text-slate-800 hover:bg-slate-50 rounded"
             title="重命名"
           >✎</button>
         )}
@@ -334,17 +334,17 @@ export function ConfigPage() {
             <button onClick={() => handleDeleteProfile(deleteTarget)}
               className="text-red-600 hover:text-red-500 px-1 font-bold">确认</button>
             <button onClick={() => setDeleteTarget(null)}
-              className="text-gray-500 hover:text-gray-900 px-1">取消</button>
+              className="text-slate-500 hover:text-slate-800 px-1">取消</button>
           </span>
         )}
 
-        <span className="text-xs text-gray-400 ml-auto">{configNames.length}/5</span>
+        <span className="text-xs text-slate-400 ml-auto">{configNames.length}/5</span>
       </div>
 
       {/* Create inline input */}
       {createMode && (
         <div className="flex items-center gap-2 mb-4 bg-white rounded-lg shadow-sm p-3">
-          <span className="text-sm text-gray-500">新建配置：</span>
+          <span className="text-sm text-slate-500">新建配置：</span>
           <form onSubmit={e => { e.preventDefault(); handleCreateProfile(); }}
             className="flex items-center gap-2">
             <input
@@ -352,31 +352,31 @@ export function ConfigPage() {
               value={newProfileName}
               onChange={e => setNewProfileName(e.target.value)}
               placeholder="输入配置名称"
-              className="px-3 py-1.5 bg-gray-50 border border-gray-300 rounded text-sm text-gray-900 w-48 focus:outline-none focus:border-blue-500"
+              className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded text-sm text-slate-800 w-48 focus:outline-none focus:border-emerald-400"
             />
             <button type="submit" disabled={!newProfileName.trim()}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-600 rounded text-sm disabled:opacity-30">确认创建</button>
+              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-500 rounded text-sm disabled:opacity-30">确认创建</button>
             <button type="button" onClick={() => { setCreateMode(false); setNewProfileName(''); }}
-              className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 rounded text-sm">取消</button>
+              className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded text-sm">取消</button>
           </form>
         </div>
       )}
 
-      {message && <div className="mb-4 p-3 bg-blue-100 text-blue-800 rounded text-sm">{message}</div>}
+      {message && <div className="mb-4 p-3 bg-emerald-100 text-emerald-700 rounded text-sm">{message}</div>}
 
       <div className="flex gap-4 mb-6 flex-wrap items-center">
         {!connected ? (
           <button onClick={handleConnect} disabled={loading}
-            className="px-6 py-2 bg-green-500 hover:bg-green-600 rounded disabled:opacity-50 text-white">连接设备</button>
+            className="px-6 py-2 bg-emerald-500 hover:bg-emerald-600 rounded disabled:opacity-50 text-white">连接设备</button>
         ) : (
           <button onClick={handleScreenshot} disabled={loading}
-            className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50 text-white">刷新截图</button>
+            className="px-6 py-2 bg-emerald-500 hover:bg-emerald-600 rounded disabled:opacity-50 text-white">刷新截图</button>
         )}
-        <div className="flex items-center gap-2 bg-gray-100 rounded-lg p-1">
+        <div className="flex items-center gap-2 bg-slate-100 rounded-lg p-1">
           <button onClick={() => setMode('annotate')}
-            className={`px-4 py-1 rounded ${mode === 'annotate' ? 'bg-blue-600 text-white' : ''}`}>标注模式</button>
+            className={`px-4 py-1 rounded ${mode === 'annotate' ? 'bg-emerald-500 text-white' : ''}`}>标注模式</button>
           <button onClick={() => setMode('tap')}
-            className={`px-4 py-1 rounded ${mode === 'tap' ? 'bg-blue-600 text-white' : ''}`}>点击模式</button>
+            className={`px-4 py-1 rounded ${mode === 'tap' ? 'bg-emerald-500 text-white' : ''}`}>点击模式</button>
         </div>
         <div className="flex-1" />
       </div>
@@ -385,19 +385,19 @@ export function ConfigPage() {
         <div className="flex-1 min-w-0">
           <div className="bg-white rounded-lg shadow-sm p-4">
             <div className="flex items-center gap-2 mb-2">
-              <span className={`w-3 h-3 rounded-full ${connected ? 'bg-green-500' : 'bg-red-500'}`}></span>
+              <span className={`w-3 h-3 rounded-full ${connected ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
               <span className="text-sm">{connected ? '已连接' : '未连接'}</span>
             </div>
             {screenshot ? (
               <div className="relative">
-                <p className="text-xs text-gray-400 mb-2">
+                <p className="text-xs text-slate-400 mb-2">
                   {mode === 'annotate' ? '点击截图标注坐标' : '点击截图发送点击指令'}
                   {pendingCoord && ' — 已标记坐标，选择建筑类型后确认'}
                 </p>
-                <img src={screenshot} alt="截图" className="w-full border border-gray-300 rounded cursor-crosshair" onClick={handleImageClick} />
+                <img src={screenshot} alt="截图" className="w-full border border-slate-200 rounded cursor-crosshair" onClick={handleImageClick} />
                 {pendingCoord && !overwriteTarget && (
                   <div
-                    className="absolute z-10 bg-white border border-gray-300 rounded-lg p-2 shadow-lg"
+                    className="absolute z-10 bg-white border border-slate-200 rounded-lg p-2 shadow-lg"
                     style={{ left: pendingCoord.domX + 8, top: pendingCoord.domY - 8 }}
                   >
                     <select
@@ -409,7 +409,7 @@ export function ConfigPage() {
                           addBuilding(type);
                         }
                       }}
-                      className="px-3 py-2 bg-blue-50 rounded text-sm border border-gray-300"
+                      className="px-3 py-2 bg-emerald-50 rounded text-sm border border-slate-200"
                       autoFocus
                     >
                       <option value="">选择建筑类型...</option>
@@ -417,27 +417,27 @@ export function ConfigPage() {
                     </select>
                     <button
                       onClick={() => setPendingCoord(null)}
-                      className="ml-1 px-2 py-2 text-xs text-gray-500 hover:text-gray-900"
+                      className="ml-1 px-2 py-2 text-xs text-slate-500 hover:text-slate-800"
                     >×</button>
                   </div>
                 )}
                 {pendingCoord && overwriteTarget && (
                   <div
-                    className="absolute z-10 bg-white border border-gray-300 rounded-lg p-2 shadow-lg"
+                    className="absolute z-10 bg-white border border-slate-200 rounded-lg p-2 shadow-lg"
                     style={{ left: pendingCoord.domX + 8, top: pendingCoord.domY - 8 }}
                   >
-                    <span className="text-sm text-yellow-700">「{overwriteTarget}」已存在，覆盖？</span>
+                    <span className="text-sm text-amber-700">「{overwriteTarget}」已存在，覆盖？</span>
                     <div className="flex gap-1 mt-1">
                       <button onClick={() => addBuilding(overwriteTarget, true)}
-                        className="px-2 py-1 bg-yellow-500 hover:bg-yellow-600 rounded text-xs">覆盖</button>
+                        className="px-2 py-1 bg-amber-500 hover:bg-amber-600 rounded text-xs">覆盖</button>
                       <button onClick={() => { setPendingCoord(null); setSelectedBuildingType(''); setOverwriteTarget(null); }}
-                        className="px-2 py-1 bg-gray-100 hover:bg-gray-200 rounded text-xs">取消</button>
+                        className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-xs">取消</button>
                     </div>
                   </div>
                 )}
               </div>
             ) : (
-              <p className="text-gray-400 text-center py-20">点击"刷新截图"查看设备画面</p>
+              <p className="text-slate-400 text-center py-20">点击"刷新截图"查看设备画面</p>
             )}
           </div>
         </div>
@@ -446,14 +446,14 @@ export function ConfigPage() {
           <div className="bg-white rounded-lg shadow-sm p-4">
             <h3 className="font-bold mb-3">建筑位置</h3>
             {buildingPositions.length === 0 ? (
-              <p className="text-gray-400 text-sm">在截图上点击标注建筑坐标</p>
+              <p className="text-slate-400 text-sm">在截图上点击标注建筑坐标</p>
             ) : (
               <>
                 <div className="space-y-2 max-h-96 overflow-y-auto">
                   {buildingPositions.map((b, i) => (
-                    <div key={i} className="flex items-center gap-2 bg-gray-50 rounded p-2">
+                    <div key={i} className="flex items-center gap-2 bg-slate-50 rounded p-2">
                       <span className="text-sm flex-1">{b.name}</span>
-                      <span className="text-xs text-gray-500">({b.x}, {b.y})</span>
+                      <span className="text-xs text-slate-500">({b.x}, {b.y})</span>
                       <button onClick={() => removeBuilding(i)} className="text-red-600 hover:text-red-500 text-xs px-2">×</button>
                     </div>
                   ))}
@@ -466,12 +466,12 @@ export function ConfigPage() {
                         <button onClick={clearAllBuildings}
                           className="text-red-600 hover:text-red-500 font-bold">确认</button>
                         <button onClick={() => setClearConfirm(false)}
-                          className="text-gray-500 hover:text-gray-900">取消</button>
+                          className="text-slate-500 hover:text-slate-800">取消</button>
                       </span>
                     ) : (
                       <button
                         onClick={() => setClearConfirm(true)}
-                        className="px-3 py-1.5 bg-red-100 hover:bg-red-200 rounded text-xs"
+                        className="px-3 py-1.5 bg-red-100 hover:bg-red-100 rounded text-xs"
                       >清空全部</button>
                     )}
                   </div>
