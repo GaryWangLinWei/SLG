@@ -62,9 +62,8 @@
       "createStartMenuShortcut": true
     },
     "publish": {
-      "provider": "github",
-      "owner": "your-github-user",
-      "repo": "your-repo-name"
+      "provider": "generic",
+      "url": "http://localhost:3456/updates"
     }
   },
   "keywords": [
