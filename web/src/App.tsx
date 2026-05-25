@@ -219,11 +219,50 @@ function LicenseGate({ children }: { children: React.ReactNode }) {
 }
 
 function AppContent() {
+  const [updateStatus, setUpdateStatus] = useState<{
+    status: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded';
+    progress?: number;
+    version?: string;
+  }>({ status: 'idle' });
+
+  useEffect(() => {
+    const isElectron = typeof window !== 'undefined' && 'electronAPI' in window;
+    if (!isElectron) return;
+    window.electronAPI!.onUpdateStatus((data: any) => {
+      setUpdateStatus({
+        status: data.status,
+        progress: data.progress,
+        version: data.version,
+      });
+    });
+  }, []);
+
   return (
     <LicenseGate>
       <AccountProvider>
         <div className="h-screen bg-slate-100 text-slate-800 flex flex-col">
           <NavBar />
+          {updateStatus.status === 'downloading' && (
+            <div className="bg-slate-900 h-1 relative">
+              <div
+                className="h-full bg-emerald-500 transition-all duration-300"
+                style={{ width: `${updateStatus.progress || 0}%` }}
+              />
+            </div>
+          )}
+          {updateStatus.status === 'downloaded' && (
+            <div className="bg-emerald-50 border-b border-emerald-300 px-6 py-2 flex items-center justify-between">
+              <span className="text-sm text-emerald-700">
+                v{updateStatus.version} 已就绪，重启后生效
+              </span>
+              <button
+                onClick={() => window.electronAPI!.installUpdate()}
+                className="px-4 py-1 bg-emerald-500 text-white rounded-full text-sm font-medium hover:bg-emerald-600 transition-colors"
+              >
+                重启安装
+              </button>
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto">
             <Routes>
               <Route path="/" element={<HomePage />} />
