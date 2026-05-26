@@ -80,10 +80,16 @@
             <textarea id="newCodesText" readonly></textarea>
             <button id="copyBtn" class="btn btn-secondary" style="margin-top: 10px;">复制全部</button>
           </div>
+          <div class="toolbar">
+            <button id="selectAllBtn" class="btn btn-sm btn-secondary">全选 unused</button>
+            <button id="deselectAllBtn" class="btn btn-sm btn-secondary">取消全选</button>
+            <button id="exportBtn" class="btn btn-sm" style="background:#22c55e;color:#fff;">导出 CSV</button>
+          </div>
           <div class="table-container">
             <table>
               <thead>
                 <tr>
+                  <th style="width:40px;"><input type="checkbox" id="selectAllCheckbox"></th>
                   <th>激活码</th>
                   <th>有效期</th>
                   <th>状态</th>

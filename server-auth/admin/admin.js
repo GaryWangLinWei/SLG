@@ -46,15 +46,21 @@ async function loadStats() {
   }
 }
 
+function renderStatus(status) {
+  const map = { unused: '未使用', used: '已使用', revoked: '已吊销', exported: '已导出' };
+  return map[status] || status;
+}
+
 async function loadCodes() {
   try {
     const data = await apiRequest('/api/admin/codes');
     const tbody = document.getElementById('codesTable');
     tbody.innerHTML = data.codes.map(code => `
       <tr>
+        <td>${code.status === 'unused' ? `<input type="checkbox" class="code-checkbox" data-id="${code.id}" data-code="${code.code}">` : ''}</td>
         <td><code>${code.code}</code></td>
         <td>${code.duration_days}天</td>
-        <td><span class="status status-${code.status}">${code.status === 'unused' ? '未使用' : code.status === 'used' ? '已使用' : '已吊销'}</span></td>
+        <td><span class="status status-${code.status}">${renderStatus(code.status)}</span></td>
         <td>${formatDate(code.created_at)}</td>
         <td>
           ${code.status !== 'revoked' ? `<button class="btn btn-danger revoke-btn" data-id="${code.id}">吊销</button>` : '-'}
@@ -62,7 +68,7 @@ async function loadCodes() {
       </tr>
     `).join('');
 
-    // Add revoke handlers
+    // Keep the existing revoke-btn event listener code below this line unchanged
     document.querySelectorAll('.revoke-btn').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         const id = e.target.dataset.id;
@@ -198,6 +204,53 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
 adminKeyInput.addEventListener('keypress', (e) => {
   if (e.key === 'Enter') {
     loginBtn.click();
+  }
+});
+
+// 全选 checkbox
+document.getElementById('selectAllCheckbox').addEventListener('change', function () {
+  document.querySelectorAll('.code-checkbox').forEach(cb => { cb.checked = this.checked; });
+});
+
+document.getElementById('selectAllBtn').addEventListener('click', () => {
+  document.querySelectorAll('.code-checkbox').forEach(cb => { cb.checked = true; });
+  document.getElementById('selectAllCheckbox').checked = true;
+});
+
+document.getElementById('deselectAllBtn').addEventListener('click', () => {
+  document.querySelectorAll('.code-checkbox').forEach(cb => { cb.checked = false; });
+  document.getElementById('selectAllCheckbox').checked = false;
+});
+
+// 导出 CSV
+document.getElementById('exportBtn').addEventListener('click', async () => {
+  const checked = document.querySelectorAll('.code-checkbox:checked');
+  const ids = Array.from(checked).map(cb => parseInt(cb.dataset.id));
+
+  try {
+    const response = await fetch(`/api/admin/codes/export`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Admin-Key': adminKey },
+      body: JSON.stringify(ids.length > 0 ? { ids } : {})
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      throw new Error(err.error || '导出失败');
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'activation-codes.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+
+    loadCodes();
+    loadStats();
+  } catch (e) {
+    alert('导出失败: ' + e.message);
   }
 });
 
