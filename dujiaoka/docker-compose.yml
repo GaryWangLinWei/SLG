@@ -1,0 +1,26 @@
+version: "3.8"
+
+services:
+  dujiaoka:
+    image: dujiaoka/dujiaoka:latest
+    container_name: dujiaoka
+    ports:
+      - "80:80"
+    volumes:
+      - ./storage:/app/storage
+      - ./.env:/app/.env
+    depends_on:
+      - dujiaoka-db
+    restart: unless-stopped
+
+  dujiaoka-db:
+    image: mysql:8.0
+    container_name: dujiaoka-db
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpass}
+      MYSQL_DATABASE: dujiaoka
+      MYSQL_USER: dujiaoka
+      MYSQL_PASSWORD: ${DB_PASSWORD:-dujiaoka}
+    volumes:
+      - ./mysql:/var/lib/mysql
+    restart: unless-stopped
