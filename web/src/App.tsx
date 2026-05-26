@@ -126,7 +126,7 @@ function NavBar() {
     <nav className="bg-white px-6 py-0 h-14 border-b border-slate-200 shadow-sm shrink-0 flex items-center" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
       <div className="flex gap-4 items-center w-full">
         <Link to="/" className="flex items-center gap-2.5 font-bold text-base text-slate-800" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
-          <span className="w-8 h-8 rounded-[10px] flex items-center justify-center overflow-hidden"><img src="/icon.png" alt="ROK助手" className="w-full h-full object-cover rounded-[10px]" /></span>
+          <span className="w-8 h-8 rounded-[10px] flex items-center justify-center overflow-hidden"><img src="./icon.png" alt="ROK助手" className="w-full h-full object-cover rounded-[10px]" /></span>
           ROK助手
         </Link>
         <Link to="/" className={linkClass('/')} style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>首页</Link>

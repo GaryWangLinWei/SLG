@@ -1,0 +1,95 @@
+<h2>整体设计方案</h2>
+<p class="subtitle">基于参考 HTML 风格，覆盖所有页面的绿色主题 redesign</p>
+
+<div class="section">
+  <h3>🎨 全局设计令牌（Design Tokens）</h3>
+  <table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <thead><tr style="background:#F1F5F9;"><th style="padding:8px 12px;text-align:left;">用途</th><th style="padding:8px 12px;text-align:left;">现状（蓝色主题）</th><th style="padding:8px 12px;text-align:left;">新（绿色主题）</th></tr></thead>
+    <tbody>
+      <tr><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;">主色调</td><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;"><code>blue-600 #2563EB</code></td><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;"><code>emerald-500 #10B981</code></td></tr>
+      <tr><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;">主色浅底</td><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;"><code>blue-100 #DBEAFE</code></td><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;"><code>emerald-100 #D1FAE5</code></td></tr>
+      <tr><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;">页面底色</td><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;"><code>bg-blue-50 #EFF6FF</code></td><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;"><code>bg-slate-100 #F1F5F9</code></td></tr>
+      <tr><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;">卡片边框</td><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;"><code>border-gray-100/200</code></td><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;"><code>border-slate-100 #F1F5F9</code></td></tr>
+      <tr><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;">文字主色</td><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;"><code>text-gray-900</code></td><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;"><code>text-slate-800 #1E293B</code></td></tr>
+      <tr><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;">文字次要</td><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;"><code>text-gray-500/600</code></td><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;"><code>text-slate-500 #64748B</code></td></tr>
+      <tr><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;">文字弱化</td><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;"><code>text-gray-400</code></td><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;"><code>text-slate-400 #94A3B8</code></td></tr>
+      <tr><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;">按钮形状</td><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;"><code>rounded-xl</code></td><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;"><code>rounded-full</code> (pill)</td></tr>
+      <tr><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;">开关组件</td><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;">原生 checkbox</td><td style="padding:8px 12px;border-bottom:1px solid #E2E8F0;">自定义 Toggle pill 开关</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="section">
+  <h3>📄 各页面改动</h3>
+
+  <div class="mockup" style="margin-bottom:16px;">
+    <div class="mockup-header">App.tsx — 导航栏</div>
+    <div class="mockup-body" style="background:#F1F5F9;padding:16px;border-radius:12px;">
+      <div style="background:white;border-bottom:1px solid #E2E8F0;padding:12px 24px;display:flex;align-items:center;justify-content:space-between;box-shadow:0 1px 2px rgba(0,0,0,0.03);border-radius:0;">
+        <div style="display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;color:#1E293B;">
+          <div style="width:32px;height:32px;background:linear-gradient(135deg,#10B981,#34D399);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;">⚔️</div>
+          ROK助手
+        </div>
+        <div style="display:flex;gap:4px;">
+          <button style="padding:8px 16px;border-radius:8px;font-size:14px;color:#10B981;background:#D1FAE5;border:none;font-weight:500;">首页</button>
+          <button style="padding:8px 16px;border-radius:8px;font-size:14px;color:#64748B;background:transparent;border:none;">坐标配置</button>
+          <button style="padding:8px 16px;border-radius:8px;font-size:14px;color:#64748B;background:transparent;border:none;">模拟器配置</button>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span style="background:#D1FAE5;color:#10B981;padding:4px 10px;border-radius:100px;font-size:12px;font-weight:600;">● 已激活</span>
+          <button style="width:32px;height:32px;border-radius:8px;border:1px solid #E2E8F0;background:white;color:#64748B;">−</button>
+          <button style="width:32px;height:32px;border-radius:8px;border:1px solid #E2E8F0;background:white;color:#64748B;">✕</button>
+        </div>
+      </div>
+      <p style="font-size:11px;color:#94A3B8;margin-top:6px;">Nav tab active: emerald-100 底色 + emerald-500 文字 | Brand 加渐变 logo 方块</p>
+    </div>
+  </div>
+
+  <div class="mockup" style="margin-bottom:16px;">
+    <div class="mockup-header">Home.tsx — 状态栏 + 功能设置</div>
+    <div class="mockup-body" style="background:#F1F5F9;padding:16px;border-radius:12px;">
+      <div style="background:linear-gradient(135deg,#ECFDF5,#D1FAE5);border:1px solid #A7F3D0;border-radius:12px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:40px;height:40px;background:#10B981;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;color:white;">🎮</div>
+          <div><h3 style="font-size:15px;font-weight:600;color:#1E293B;margin:0;">准备就绪</h3><p style="font-size:13px;color:#64748B;margin:2px 0 0;">设备已连接 · 循环间隔 120秒</p></div>
+        </div>
+        <button style="background:linear-gradient(135deg,#10B981,#34D399);color:white;border:none;padding:12px 32px;border-radius:100px;font-size:15px;font-weight:600;box-shadow:0 4px 14px rgba(16,185,129,0.35);">▶ 开始运行</button>
+      </div>
+      <div style="background:white;border-radius:12px;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);border:1px solid #F1F5F9;padding:20px 24px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;">
+          <div style="font-size:16px;font-weight:700;color:#1E293B;display:flex;align-items:center;gap:8px;">
+            <span style="width:28px;height:28px;background:#D1FAE5;border-radius:8px;display:flex;align-items:center;justify-content:center;">⚙️</span>功能设置
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div style="border:1.5px solid #10B981;border-radius:8px;padding:16px;background:#FAFDFB;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+              <div style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;">🏗️ 自动升级建筑</div>
+              <div style="width:40px;height:22px;background:#10B981;border-radius:22px;position:relative;"><div style="width:18px;height:18px;background:white;border-radius:50%;position:absolute;right:2px;top:2px;box-shadow:0 1px 3px rgba(0,0,0,0.15);"></div></div>
+            </div>
+            <div style="font-size:11px;color:#94A3B8;margin-top:4px;">请在坐标配置页添加建筑坐标</div>
+          </div>
+          <div style="border:1.5px solid #E2E8F0;border-radius:8px;padding:16px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
+              <div style="display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600;color:#94A3B8;">🔬 自动研究科技 <span style="font-size:11px;background:#E2E8F0;color:#94A3B8;padding:2px 8px;border-radius:100px;">敬请期待</span></div>
+              <div style="width:40px;height:22px;background:#E2E8F0;border-radius:22px;position:relative;"><div style="width:18px;height:18px;background:white;border-radius:50%;position:absolute;left:2px;top:2px;box-shadow:0 1px 3px rgba(0,0,0,0.15);"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>📋 涉及文件清单</h3>
+  <table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <tr><td style="padding:6px 12px;"><code>web/src/App.tsx</code></td><td style="padding:6px 12px;">NavBar 配色 + 渐变 logo + active tab 色</td></tr>
+    <tr><td style="padding:6px 12px;"><code>web/src/pages/Home.tsx</code></td><td style="padding:6px 12px;">状态栏重构 + 功能卡片 + toggle 开关 + 日志面板</td></tr>
+    <tr><td style="padding:6px 12px;"><code>web/src/pages/Config.tsx</code></td><td style="padding:6px 12px;">绿色主题 + 自定义下拉/开关</td></tr>
+    <tr><td style="padding:6px 12px;"><code>web/src/pages/Accounts.tsx</code></td><td style="padding:6px 12px;">绿色主题</td></tr>
+    <tr><td style="padding:6px 12px;"><code>web/src/pages/Activation.tsx</code></td><td style="padding:6px 12px;">绿色主题</td></tr>
+    <tr><td style="padding:6px 12px;"><code>web/src/pages/Tasks.tsx</code></td><td style="padding:6px 12px;">绿色主题</td></tr>
+    <tr><td style="padding:6px 12px;"><code>web/src/pages/Plugins.tsx</code></td><td style="padding:6px 12px;">绿色主题</td></tr>
+  </table>
+</div>

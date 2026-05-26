@@ -1,0 +1,60 @@
+<h2>首页顶部状态栏 — 两种方案对比</h2>
+<p class="subtitle">当前方案 vs 参考方案，选一个方向</p>
+
+<div class="options">
+  <div class="option" data-choice="current" onclick="toggleSelect(this)">
+    <div class="letter">A</div>
+    <div class="content">
+      <h3>保持当前布局，只换配色</h3>
+      <p>白色卡片 + 居中排版 + 设备状态点 + 开始按钮。把蓝色改成绿色系，按钮改成 pill 形状。结构不变。</p>
+    </div>
+  </div>
+  <div class="option" data-choice="reference" onclick="toggleSelect(this)">
+    <div class="letter">B</div>
+    <div class="content">
+      <h3>换成参考方案的绿色横条</h3>
+      <p>绿色渐变背景 + 左侧状态图标/文字 + 右侧运行按钮。类似参考 HTML 的 status-bar 风格。</p>
+    </div>
+  </div>
+</div>
+
+<div class="split">
+  <div class="mockup">
+    <div class="mockup-header">方案 A：保持当前布局 + 换绿色</div>
+    <div class="mockup-body" style="background:#F1F5F9;padding:24px;border-radius:12px;">
+      <div style="background:white;border-radius:16px;padding:32px;text-align:center;box-shadow:0 4px 6px -1px rgba(0,0,0,0.05);border:1px solid #F1F5F9;">
+        <h2 style="font-size:24px;font-weight:700;color:#1E293B;margin-bottom:4px;">一键全能模式</h2>
+        <p style="color:#64748B;margin-bottom:24px;font-size:14px;">城外采集定时循环</p>
+        <div style="display:flex;justify-content:center;gap:24px;margin-bottom:24px;">
+          <div style="display:flex;align-items:center;gap:8px;"><span style="width:10px;height:10px;border-radius:50%;background:#10B981;"></span><span style="font-size:14px;color:#475569;">设备已连接</span></div>
+          <div style="display:flex;align-items:center;gap:8px;"><span style="width:10px;height:10px;border-radius:50%;background:#10B981;animation:pulse 2s infinite;"></span><span style="font-size:14px;color:#475569;">运行中</span></div>
+        </div>
+        <div style="display:flex;justify-content:center;gap:8px;margin-bottom:24px;">
+          <span style="color:#64748B;font-size:14px;">循环间隔:</span>
+          <input value="120" style="width:60px;padding:4px 8px;background:#F1F5F9;border:1px solid #E2E8F0;border-radius:6px;text-align:center;font-size:14px;color:#1E293B;">
+          <span style="color:#64748B;font-size:14px;">秒</span>
+        </div>
+        <button style="padding:20px 64px;background:linear-gradient(135deg,#10B981,#34D399);color:white;font-weight:700;font-size:24px;border-radius:100px;border:none;box-shadow:0 4px 14px rgba(16,185,129,0.35);cursor:pointer;">开始运行</button>
+      </div>
+    </div>
+  </div>
+  <div class="mockup">
+    <div class="mockup-header">方案 B：参考方案绿色横条</div>
+    <div class="mockup-body" style="background:#F1F5F9;padding:24px;border-radius:12px;">
+      <div style="background:linear-gradient(135deg,#ECFDF5,#D1FAE5);border:1px solid #A7F3D0;border-radius:12px;padding:16px 20px;display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div style="width:40px;height:40px;background:#10B981;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:20px;color:white;box-shadow:0 4px 12px rgba(16,185,129,0.3);">🎮</div>
+          <div>
+            <h3 style="font-size:15px;font-weight:600;color:#1E293B;margin:0;">准备就绪</h3>
+            <p style="font-size:13px;color:#64748B;margin:2px 0 0 0;">所有配置已加载，随时可以开始运行</p>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;">
+          <span style="display:flex;align-items:center;gap:4px;font-size:13px;color:#64748B;">循环间隔: 120秒</span>
+          <button style="background:linear-gradient(135deg,#10B981,#34D399);color:white;border:none;padding:12px 32px;border-radius:100px;font-size:15px;font-weight:600;cursor:pointer;box-shadow:0 4px 14px rgba(16,185,129,0.35);display:flex;align-items:center;gap:6px;"><span>▶</span> 开始运行</button>
+        </div>
+      </div>
+      <p style="font-size:11px;color:#94A3B8;margin-top:8px;text-align:center;">状态栏替代当前的"一键全能模式"卡片，设备状态 + 运行按钮合并在一行</p>
+    </div>
+  </div>
+</div>

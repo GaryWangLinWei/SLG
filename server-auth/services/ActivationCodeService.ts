@@ -148,6 +148,7 @@ export function getStats(): {
   unused: number;
   used: number;
   revoked: number;
+  exported: number;
 } {
   const db = getDb();
   const row = db.prepare(`
@@ -155,7 +156,8 @@ export function getStats(): {
       COUNT(*) as total,
       SUM(CASE WHEN status = 'unused' THEN 1 ELSE 0 END) as unused,
       SUM(CASE WHEN status = 'used' THEN 1 ELSE 0 END) as used,
-      SUM(CASE WHEN status = 'revoked' THEN 1 ELSE 0 END) as revoked
+      SUM(CASE WHEN status = 'revoked' THEN 1 ELSE 0 END) as revoked,
+      SUM(CASE WHEN status = 'exported' THEN 1 ELSE 0 END) as exported
     FROM activation_codes
   `).get() as any;
 
@@ -163,7 +165,8 @@ export function getStats(): {
     total: row.total || 0,
     unused: row.unused || 0,
     used: row.used || 0,
-    revoked: row.revoked || 0
+    revoked: row.revoked || 0,
+    exported: row.exported || 0
   };
 }
 
@@ -188,6 +191,7 @@ export function previewCode(code: string) {
 
 // 获取指定 ID 的激活码
 export function getCodesByIds(ids: number[]): ActivationCode[] {
+  if (ids.length === 0) return [];
   const db = getDb();
   const placeholders = ids.map(() => '?').join(',');
   return db.prepare(`SELECT * FROM activation_codes WHERE id IN (${placeholders})`).all(...ids) as ActivationCode[];
