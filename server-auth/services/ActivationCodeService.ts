@@ -5,7 +5,7 @@ export interface ActivationCode {
   id: number;
   code: string;
   duration_days: number;
-  status: 'unused' | 'used' | 'revoked';
+  status: 'unused' | 'used' | 'revoked' | 'exported';
   created_at: number;
   used_at?: number;
   expires_at?: number;
@@ -52,8 +52,12 @@ export function getCode(code: string): ActivationCode | null {
   return db.prepare('SELECT * FROM activation_codes WHERE code = ?').get(code) as ActivationCode | null;
 }
 
-export function getAllCodes(limit: number = 100, offset: number = 0): ActivationCode[] {
+export function getAllCodes(limit: number = 100, offset: number = 0, status?: string): ActivationCode[] {
   const db = getDb();
+  if (status) {
+    return db.prepare('SELECT * FROM activation_codes WHERE status = ? ORDER BY created_at DESC LIMIT ? OFFSET ?')
+      .all(status, limit, offset) as ActivationCode[];
+  }
   return db.prepare('SELECT * FROM activation_codes ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limit, offset) as ActivationCode[];
 }
 
@@ -180,4 +184,39 @@ export function previewCode(code: string) {
     success: true,
     durationDays: activationCode.duration_days || 30,
   };
+}
+
+// 获取指定 ID 的激活码
+export function getCodesByIds(ids: number[]): ActivationCode[] {
+  const db = getDb();
+  const placeholders = ids.map(() => '?').join(',');
+  return db.prepare(`SELECT * FROM activation_codes WHERE id IN (${placeholders})`).all(...ids) as ActivationCode[];
+}
+
+// 导出激活码为 CSV（独角数卡兼容格式）
+export function exportCodes(ids?: number[]): string {
+  const db = getDb();
+  let rows: ActivationCode[];
+
+  if (ids && ids.length > 0) {
+    rows = getCodesByIds(ids).filter(c => c.status === 'unused');
+  } else {
+    rows = db.prepare("SELECT * FROM activation_codes WHERE status = 'unused' ORDER BY created_at DESC").all() as ActivationCode[];
+  }
+
+  // 标记为 exported
+  const update = db.prepare('UPDATE activation_codes SET status = ? WHERE id = ?');
+  const transaction = db.transaction(() => {
+    for (const row of rows) {
+      update.run('exported', row.id);
+    }
+  });
+  transaction();
+
+  // 生成 CSV（独角数卡格式：code,status）
+  const csvLines = ['code,status'];
+  for (const row of rows) {
+    csvLines.push(`${row.code},unused`);
+  }
+  return csvLines.join('\n');
 }
