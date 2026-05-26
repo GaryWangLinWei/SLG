@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   dujiaoka:
     image: dujiaoka/dujiaoka:latest
@@ -17,10 +15,10 @@ services:
     image: mysql:8.0
     container_name: dujiaoka-db
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpass}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:?err}
       MYSQL_DATABASE: dujiaoka
       MYSQL_USER: dujiaoka
-      MYSQL_PASSWORD: ${DB_PASSWORD:-dujiaoka}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?err}
     volumes:
       - ./mysql:/var/lib/mysql
     restart: unless-stopped
