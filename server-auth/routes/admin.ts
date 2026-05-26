@@ -1,6 +1,6 @@
 import Router from 'koa-router';
 import { CONFIG } from '../config';
-import { generateCodes, getAllCodes, revokeCode, getStats, previewCode } from '../services/ActivationCodeService';
+import { generateCodes, getAllCodes, revokeCode, getStats, previewCode, exportCodes } from '../services/ActivationCodeService';
 import { getActiveDevices } from '../services/HeartbeatService';
 
 const router = new Router({ prefix: '/api/admin' });
@@ -26,10 +26,11 @@ router.get('/stats', async (ctx) => {
 router.get('/codes', async (ctx) => {
   const limit = parseInt(ctx.query.limit as string) || 100;
   const offset = parseInt(ctx.query.offset as string) || 0;
+  const status = ctx.query.status as string | undefined;
 
   ctx.body = {
     success: true,
-    codes: getAllCodes(limit, offset)
+    codes: getAllCodes(limit, offset, status)
   };
 });
 
@@ -48,6 +49,17 @@ router.post('/codes/generate', async (ctx) => {
     count: codes.length,
     codes
   };
+});
+
+// 导出激活码为 CSV（独角数卡兼容格式）
+router.post('/codes/export', async (ctx) => {
+  const { ids } = ctx.request.body as { ids?: number[] };
+
+  const csv = exportCodes(ids);
+
+  ctx.set('Content-Type', 'text/csv; charset=utf-8');
+  ctx.set('Content-Disposition', 'attachment; filename="activation-codes.csv"');
+  ctx.body = '﻿' + csv; // UTF-8 BOM，确保 Excel 正确识别中文
 });
 
 // 预览激活码信息（不消耗，用于续费前确认）
