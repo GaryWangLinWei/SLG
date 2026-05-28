@@ -182,27 +182,42 @@ export class Vision {
     const results: ImageMatchResult[] = [];
     let currentScreenshot = screenshotPath;
 
+    const templateMeta = await sharp(templatePath).metadata();
+    const tWidth = templateMeta.width!;
+    const tHeight = templateMeta.height!;
+
     while (true) {
       const result = await this.findImage(currentScreenshot, templatePath, threshold);
       if (!result.found) break;
 
       results.push(result);
 
-      // Black out the found area to avoid duplicate matches
+      // Black out found area with margin to prevent re-matching the same spot
+      const screenshotBuffer = await fs.readFile(currentScreenshot);
+      const margin = 10;
+      const maskLeft = Math.max(0, result.rect.x - margin);
+      const maskTop = Math.max(0, result.rect.y - margin);
+      const maskW = result.rect.width + margin * 2;
+      const maskH = result.rect.height + margin * 2;
+
+      const blackOverlay = Buffer.alloc(maskW * maskH * 3, 0);
+      const overlay = await sharp(blackOverlay, {
+        raw: { width: maskW, height: maskH, channels: 3 }
+      }).png().toBuffer();
+
       const outputPath = path.join(TEMP_DIR, `masked_${Date.now()}.png`);
-      await sharp(await fs.readFile(currentScreenshot))
-        .flatten()
-        .extend({
-          top: 0,
-          bottom: 0,
-          left: 0,
-          right: 0,
-          background: { r: 0, g: 0, b: 0 }
-        })
+      await sharp(screenshotBuffer)
+        .composite([{ input: overlay, top: maskTop, left: maskLeft }])
         .toFile(outputPath);
 
-      // For simplicity, just do a single pass
-      break;
+      if (currentScreenshot !== screenshotPath) {
+        await fs.unlink(currentScreenshot).catch(() => {});
+      }
+      currentScreenshot = outputPath;
+    }
+
+    if (currentScreenshot !== screenshotPath) {
+      await fs.unlink(currentScreenshot).catch(() => {});
     }
 
     return results;
