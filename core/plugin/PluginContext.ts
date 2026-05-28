@@ -28,11 +28,19 @@ export class PluginContext {
     this.checkCancellation();
     this.logOutput(`[TAP] (${x}, ${y})`);
     await this.device.tap(x, y);
+    // 10% 概率追加微停顿，模拟操作犹豫
+    if (Math.random() < 0.10) {
+      await this.device.sleep(0.2 + Math.random() * 0.3); // 0.2-0.5s
+    }
   }
 
-  async sleep(seconds: number): Promise<void> {
+  async sleep(seconds: number, maxSeconds?: number): Promise<void> {
     this.checkCancellation();
-    await this.device.sleep(seconds);
+    await this.device.sleep(seconds, maxSeconds);
+    // 5% 概率追加微停顿，模拟注意力分散
+    if (Math.random() < 0.05) {
+      await this.device.sleep(0.3 + Math.random() * 0.5); // 0.3-0.8s
+    }
     this.checkCancellation();
   }
 
