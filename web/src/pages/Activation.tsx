@@ -6,6 +6,7 @@ export default function ActivationPage() {
   const [code, setCode] = useState('');
   const [success, setSuccess] = useState(false);
   const [showExpired, setShowExpired] = useState(!!expiredMessage);
+  const isElectron = typeof window !== 'undefined' && 'electronAPI' in window;
 
   useEffect(() => {
     if (expiredMessage) {
@@ -34,7 +35,19 @@ export default function ActivationPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-slate-100 flex items-center justify-center p-4">
       <div className="max-w-md w-full">
-        <div className="bg-white rounded-2xl shadow-xl p-8 border border-slate-100">
+        <div className="bg-white rounded-2xl shadow-xl p-8 border border-slate-100 relative">
+          {isElectron && (
+            <button
+              onClick={() => window.electronAPI!.closeApp()}
+              className="absolute top-3 right-3 w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 transition-colors"
+              title="退出"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+
           <div className="text-center mb-8">
             <div className="w-16 h-16 bg-gradient-to-br from-emerald-500 to-emerald-400 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-lg">
               <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -89,6 +102,14 @@ export default function ActivationPage() {
             >
               {loading ? '激活中...' : '激活'}
             </button>
+
+            <p className="mt-4 text-center text-xs text-slate-400">
+              还没有激活码？
+              <a href="https://d.871faka.com/3v07Q" target="_blank" rel="noopener noreferrer"
+                className="text-emerald-600 hover:text-emerald-500 ml-1">
+                在线购买
+              </a>
+            </p>
           </form>
 
           <div className="mt-6 pt-6 border-t border-slate-100">
