@@ -222,7 +222,7 @@ document.getElementById('deselectAllBtn').addEventListener('click', () => {
   document.getElementById('selectAllCheckbox').checked = false;
 });
 
-// 导出 CSV
+// 导出 TXT
 document.getElementById('exportBtn').addEventListener('click', async () => {
   const checked = document.querySelectorAll('.code-checkbox:checked');
   const ids = Array.from(checked).map(cb => parseInt(cb.dataset.id));

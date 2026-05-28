@@ -63,7 +63,7 @@
     },
     "publish": {
       "provider": "generic",
-      "url": "http://localhost:3456/updates"
+      "url": "http://106.15.11.158:3456/updates"
     }
   },
   "keywords": [

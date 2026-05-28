@@ -10,17 +10,17 @@
   },
   "dependencies": {
     "@koa/cors": "^5.0.0",
+    "better-sqlite3": "^9.4.3",
     "jsonwebtoken": "^9.0.2",
     "koa": "^2.15.3",
     "koa-bodyparser": "^4.4.1",
     "koa-router": "^12.0.1",
     "koa-static": "^5.0.0",
-    "better-sqlite3": "^9.4.3",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.9",
-    "@types/jsonwebtoken": "^9.0.6",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/koa": "^2.15.0",
     "@types/koa-bodyparser": "^4.3.12",
     "@types/koa-router": "^7.4.8",
@@ -28,6 +28,6 @@
     "@types/node": "^20.11.0",
     "@types/uuid": "^9.0.8",
     "ts-node": "^10.9.2",
-    "typescript": "^5.4.0"
+    "typescript": "^5.9.3"
   }
 }

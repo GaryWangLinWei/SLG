@@ -3,7 +3,7 @@ import { loadLicense, loadLicenseSync, saveLicense, clearLicense } from './Licen
 import { generateFingerprint, verifyFingerprint, verifyFingerprintSync } from './DeviceFingerprint';
 
 // Auth server config - can be overridden by env
-const AUTH_SERVER_URL = process.env.AUTH_SERVER_URL || 'http://localhost:3456';
+const AUTH_SERVER_URL = process.env.AUTH_SERVER_URL || 'http://106.15.11.158:3456';
 
 class LicenseService {
   private heartbeatTimer: NodeJS.Timeout | null = null;

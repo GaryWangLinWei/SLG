@@ -3,6 +3,7 @@ import Router from 'koa-router';
 import bodyParser from 'koa-bodyparser';
 import cors from '@koa/cors';
 import serve from 'koa-static';
+import mount from 'koa-mount';
 import path from 'path';
 import { CONFIG } from './config';
 import authRouter from './routes/auth';
@@ -22,8 +23,8 @@ const staticRoot = process.env.STATIC_ROOT || __dirname;
 // Static files for admin panel
 app.use(serve(path.join(staticRoot, 'admin')));
 
-// 托管更新包（electron-updater generic provider）
-app.use(serve(path.join(staticRoot, 'updates')));
+// 托管更新包（electron-updater generic provider），挂载在 /updates 路径下
+app.use(mount('/updates', serve(path.join(staticRoot, 'updates'))));
 
 // Routes
 app.use(authRouter.routes()).use(authRouter.allowedMethods());
