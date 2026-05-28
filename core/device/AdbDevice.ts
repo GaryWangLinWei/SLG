@@ -25,7 +25,7 @@ export interface RandomizationConfig {
 
 const DEFAULT_RAND_CONFIG: RandomizationConfig = {
   enabled: true,
-  tapOffset: 5,
+  tapOffset: 7,
   sleepJitter: 0.15,
 };
 
@@ -189,9 +189,18 @@ export class AdbDevice implements Device {
   async tap(x: number, y: number): Promise<void> {
     const tx = this.jitterCoord(x);
     const ty = this.jitterCoord(y);
-    await this.execAdb(
-      `"${getAdbPath()}" -s ${this.deviceId} shell input tap ${tx} ${ty}`, `点击 (${x},${y})→(${tx},${ty})`
-    );
+    if (this.randConfig.enabled) {
+      const pressDuration = 50 + Math.floor(Math.random() * 101); // 50-150ms
+      await this.execAdb(
+        `"${getAdbPath()}" -s ${this.deviceId} shell input swipe ${tx} ${ty} ${tx} ${ty} ${pressDuration}`,
+        `按压 (${x},${y})→(${tx},${ty}) dur=${pressDuration}`
+      );
+    } else {
+      await this.execAdb(
+        `"${getAdbPath()}" -s ${this.deviceId} shell input tap ${tx} ${ty}`,
+        `点击 (${x},${y})→(${tx},${ty})`
+      );
+    }
   }
 
   async tapPoint(point: Point): Promise<void> {

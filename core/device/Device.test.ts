@@ -33,8 +33,9 @@ describe('AdbDevice Randomization', () => {
     for (let i = 0; i < 10; i++) {
       await device.tap(100, 200);
       const call = execSpy.mock.calls[execSpy.mock.calls.length - 1][0] as string;
-      // Extract x y from "shell input tap X Y"
-      coords.push(call.split('tap ')[1] || '');
+      // Extract x y from "shell input tap X Y" or "shell input swipe X Y X Y dur"
+      const match = call.match(/(?:tap|swipe)\s+(\d+)\s+(\d+)/);
+      coords.push(match ? `${match[1]},${match[2]}` : '');
     }
     // Should not all be the same
     const unique = new Set(coords);
