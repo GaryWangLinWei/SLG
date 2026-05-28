@@ -74,4 +74,41 @@ describe('AdbDevice Randomization', () => {
     device.setRandomizationEnabled(true);
     expect((device as any).randConfig.enabled).toBe(true);
   });
+
+  it('should use swipe for tap when randomization enabled', async () => {
+    device.setRandomizationEnabled(true);
+    const execSpy = jest.spyOn(device as any, 'execAdb');
+    await device.tap(100, 200);
+    const cmd = execSpy.mock.calls[0][0] as string;
+    expect(cmd).toContain('swipe');
+    expect(cmd).not.toContain('tap');
+    execSpy.mockRestore();
+  });
+
+  it('should use tap command when randomization disabled', async () => {
+    device.setRandomizationEnabled(false);
+    const execSpy = jest.spyOn(device as any, 'execAdb');
+    await device.tap(100, 200);
+    const cmd = execSpy.mock.calls[0][0] as string;
+    expect(cmd).toContain('tap');
+    expect(cmd).not.toContain('swipe');
+    execSpy.mockRestore();
+  });
+
+  it('should sleep within range when maxSeconds is provided', async () => {
+    device.setRandomizationConfig({ sleepJitter: 0 });
+    const start = Date.now();
+    await device.sleep(0.1, 0.3); // 100-300ms
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeGreaterThanOrEqual(95);
+    expect(elapsed).toBeLessThan(500); // generous upper bound for CI
+  });
+
+  it('should sleep at least min when maxSeconds is provided', async () => {
+    device.setRandomizationConfig({ sleepJitter: 0 });
+    const start = Date.now();
+    await device.sleep(0.05, 0.2); // expect at least 50ms
+    const elapsed = Date.now() - start;
+    expect(elapsed).toBeGreaterThanOrEqual(48);
+  });
 });
