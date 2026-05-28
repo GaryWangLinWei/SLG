@@ -84,6 +84,47 @@ export class PluginContext {
   }
 
   /**
+   * Find all occurrences of a template image on screen.
+   * If searchRegion is provided, only searches within that area
+   * and adjusts returned coordinates to absolute screen positions.
+   */
+  async findAllImages(
+    templatePath: string,
+    threshold: number = 0.85,
+    searchRegion?: { x: number; y: number; width: number; height: number }
+  ): Promise<Array<{ x: number; y: number; confidence: number }>> {
+    this.checkCancellation();
+    const screenshotBuffer = await this.device.screenshot();
+    let tempPath = path.join(os.tmpdir(), `screenshot-${Date.now()}.png`);
+
+    try {
+      if (searchRegion) {
+        await sharp(screenshotBuffer)
+          .extract({ left: searchRegion.x, top: searchRegion.y, width: searchRegion.width, height: searchRegion.height })
+          .toFile(tempPath);
+      } else {
+        await fs.writeFile(tempPath, screenshotBuffer);
+      }
+
+      const results = await this.vision.findAllImages(tempPath, templatePath, threshold);
+
+      const offsetX = searchRegion?.x ?? 0;
+      const offsetY = searchRegion?.y ?? 0;
+
+      return results.map(r => {
+        const tapLoc = this.vision.getTapLocation(r);
+        return {
+          x: tapLoc.x + offsetX,
+          y: tapLoc.y + offsetY,
+          confidence: r.confidence
+        };
+      });
+    } finally {
+      await fs.unlink(tempPath).catch(() => {});
+    }
+  }
+
+  /**
    * Find image and tap on its center. Returns true if found and tapped.
    */
   async tapImage(templatePath: string, threshold: number = 0.85, scales?: number[]): Promise<boolean> {
