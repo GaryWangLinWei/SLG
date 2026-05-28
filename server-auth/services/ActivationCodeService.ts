@@ -197,7 +197,7 @@ export function getCodesByIds(ids: number[]): ActivationCode[] {
   return db.prepare(`SELECT * FROM activation_codes WHERE id IN (${placeholders})`).all(...ids) as ActivationCode[];
 }
 
-// 导出激活码为 CSV（独角数卡兼容格式）
+// 导出激活码为 TXT，每行一个激活码
 export function exportCodes(ids?: number[]): string {
   const db = getDb();
   let rows: ActivationCode[];
@@ -217,10 +217,6 @@ export function exportCodes(ids?: number[]): string {
   });
   transaction();
 
-  // 生成 CSV（独角数卡格式：code,status）
-  const csvLines = ['code,status'];
-  for (const row of rows) {
-    csvLines.push(`${row.code},unused`);
-  }
-  return csvLines.join('\n');
+  // 生成 TXT，每行一个激活码
+  return rows.map(r => r.code).join('\n');
 }

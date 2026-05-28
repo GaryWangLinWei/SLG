@@ -51,15 +51,15 @@ router.post('/codes/generate', async (ctx) => {
   };
 });
 
-// 导出激活码为 CSV（独角数卡兼容格式）
+// 导出激活码为 TXT，每行一个激活码
 router.post('/codes/export', async (ctx) => {
   const { ids } = ctx.request.body as { ids?: number[] };
 
-  const csv = exportCodes(ids);
+  const txt = exportCodes(ids);
 
-  ctx.set('Content-Type', 'text/csv; charset=utf-8');
-  ctx.set('Content-Disposition', 'attachment; filename="activation-codes.csv"');
-  ctx.body = '﻿' + csv; // UTF-8 BOM，确保 Excel 正确识别中文
+  ctx.set('Content-Type', 'text/plain; charset=utf-8');
+  ctx.set('Content-Disposition', 'attachment; filename="activation-codes.txt"');
+  ctx.body = txt;
 });
 
 // 预览激活码信息（不消耗，用于续费前确认）
