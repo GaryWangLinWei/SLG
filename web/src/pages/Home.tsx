@@ -413,8 +413,9 @@ export function HomePage() {
               } catch {} finally { releaseLock(); }
             }
           }
+          const jitteredInterval = features.loopInterval * (0.85 + Math.random() * 0.3);
           const startWait = Date.now();
-          while (!loopStopped && (Date.now() - startWait) < features.loopInterval * 1000) {
+          while (!loopStopped && (Date.now() - startWait) < jitteredInterval * 1000) {
             await sleep(1);
           }
         }
@@ -448,7 +449,11 @@ export function HomePage() {
               }
             } catch {} finally { releaseLock(); }
           }
-          await sleep(60);
+          const helpInterval = 60 * (0.85 + Math.random() * 0.3); // 51-69s
+          const startWait = Date.now();
+          while (!loopStopped && (Date.now() - startWait) < helpInterval * 1000) {
+            await sleep(1);
+          }
         }
       })();
 
@@ -480,7 +485,11 @@ export function HomePage() {
               }
             } catch {} finally { releaseLock(); }
           }
-          await sleep(4 * 3600);
+          const collectInterval = 4 * 3600 * (0.85 + Math.random() * 0.3); // 3.4-4.6h
+          const startWait = Date.now();
+          while (!loopStopped && (Date.now() - startWait) < collectInterval * 1000) {
+            await sleep(1);
+          }
         }
       })();
 
@@ -721,7 +730,7 @@ export function HomePage() {
         // 等待期间随机拖拽
         const dragSafetyMargin = 5;
         const dragWindow = nextWake - dragSafetyMargin;
-        if (dragWindow > 300 && Math.random() < 0.3) {
+        if (dragWindow > 120 && Math.random() < 0.4) {
           const dragDelay = 5 + Math.random() * (dragWindow * 0.7);
           const startWait = Date.now();
           while (!loopStopped && (Date.now() - startWait) < dragDelay * 1000) {
