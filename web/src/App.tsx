@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { HashRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { HomePage } from './pages/Home';
 
 import { PluginsPage } from './pages/Plugins';
@@ -7,6 +7,7 @@ import { TasksPage } from './pages/Tasks';
 import { ConfigPage } from './pages/Config';
 import { AccountsPage } from './pages/Accounts';
 import ActivationPage from './pages/Activation';
+import TutorialPage from './pages/Tutorial';
 import { AccountProvider } from './contexts/AccountContext';
 import { LicenseProvider, useLicense } from './contexts/LicenseContext';
 
@@ -138,6 +139,8 @@ function NavBar() {
 
         <Link to="/accounts" className={linkClass('/accounts')} style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>模拟器配置</Link>
 
+        <Link to="/help" className={linkClass('/help')} style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>帮助</Link>
+
         <div className="flex-1" />
 
         {/* License status */}
@@ -203,6 +206,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
 
 function LicenseGate({ children }: { children: React.ReactNode }) {
   const { status, loading } = useLicense();
+  const location = useLocation();
 
   if (loading) {
     return (
@@ -217,6 +221,10 @@ function LicenseGate({ children }: { children: React.ReactNode }) {
 
   if (!status?.activated || status.isExpired || status.isOffline) {
     return <ActivationPage />;
+  }
+
+  if (location.pathname !== '/help' && !localStorage.getItem('tutorial-seen')) {
+    return <Navigate to="/help" replace />;
   }
 
   return <>{children}</>;
@@ -276,6 +284,7 @@ function AppContent() {
               <Route path="/plugins" element={<PluginsPage />} />
               <Route path="/tasks" element={<TasksPage />} />
               <Route path="/accounts" element={<AccountsPage />} />
+              <Route path="/help" element={<TutorialPage />} />
             </Routes>
           </div>
         </div>
