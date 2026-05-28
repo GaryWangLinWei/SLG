@@ -215,10 +215,30 @@ export class AdbDevice implements Device {
     const jitteredDuration = Math.round(this.randConfig.enabled
       ? duration * (0.8 + Math.random() * 0.4)
       : duration);
-    await this.execAdb(
-      `"${getAdbPath()}" -s ${this.deviceId} shell input swipe ${sx1} ${sy1} ${sx2} ${sy2} ${jitteredDuration}`,
-      `滑动 (${x1},${y1})→(${x2},${y2})→(${sx1},${sy1})→(${sx2},${sy2}) dur=${jitteredDuration}`
-    );
+
+    if (!this.randConfig.enabled) {
+      await this.execAdb(
+        `"${getAdbPath()}" -s ${this.deviceId} shell input swipe ${sx1} ${sy1} ${sx2} ${sy2} ${jitteredDuration}`,
+        `滑动 (${x1},${y1})→(${x2},${y2}) dur=${jitteredDuration}`
+      );
+      return;
+    }
+
+    const segments = 3 + Math.floor(Math.random() * 3); // 3-5
+    const segDuration = Math.round(jitteredDuration / segments);
+    let cx = sx1, cy = sy1;
+
+    for (let i = 1; i <= segments; i++) {
+      const t = i / segments;
+      const nx = Math.round(sx1 + (sx2 - sx1) * t);
+      const ny = Math.round(sy1 + (sy2 - sy1) * t + (Math.random() * 2 - 1) * 7);
+      await this.execAdb(
+        `"${getAdbPath()}" -s ${this.deviceId} shell input swipe ${cx} ${cy} ${nx} ${ny} ${segDuration}`,
+        `曲线滑动段${i}/${segments} (${cx},${cy})→(${nx},${ny}) dur=${segDuration}`
+      );
+      cx = nx;
+      cy = ny;
+    }
   }
 
   async inputText(text: string): Promise<void> {
