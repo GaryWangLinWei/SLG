@@ -227,8 +227,14 @@ export class AdbDevice implements Device {
     );
   }
 
-  async sleep(seconds: number): Promise<void> {
-    const actual = this.jitter(seconds);
+  async sleep(seconds: number, maxSeconds?: number): Promise<void> {
+    let base: number;
+    if (maxSeconds !== undefined && maxSeconds > seconds) {
+      base = seconds + Math.random() * (maxSeconds - seconds);
+    } else {
+      base = seconds;
+    }
+    const actual = this.jitter(base);
     return new Promise(resolve => setTimeout(resolve, actual * 1000));
   }
 }
