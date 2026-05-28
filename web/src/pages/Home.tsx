@@ -611,7 +611,7 @@ export function HomePage() {
 
           while (!loopStopped && features.autoWorldChat) {
             const chatInterval = features.worldChatInterval || 300;
-            const nextWake = chatInterval * (0.85 + Math.random() * 0.3);
+            const nextWake = Math.max(15, chatInterval * (0.85 + Math.random() * 0.3));
             const chatStartWait = Date.now();
             setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📢 喊话模式，下次发送 ${nextWake.toFixed(0)} 秒后`]);
 
@@ -1159,7 +1159,7 @@ export function HomePage() {
                     value={features.worldChatInterval}
                     onChange={(e) => setFeatures({ ...features, worldChatInterval: Number(e.target.value) })}
                     disabled={features.autoWorldChat}
-                    min={60}
+                    min={15}
                     className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 focus:outline-none focus:border-purple-500 disabled:opacity-50"
                   />
                 </div>
