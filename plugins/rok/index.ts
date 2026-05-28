@@ -86,6 +86,9 @@ export interface RokConfig {
       build1: { x: number; y: number; w: number; h: number };
       build2: { x: number; y: number; w: number; h: number };
     };
+    // 队列设置面板
+    settingsButton?: { x: number; y: number };
+    queueCheckboxes?: Array<{ x: number; y: number }>;
   };
 
   // ========== 世界喊话 ==========
@@ -181,6 +184,12 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
       build1: { x: 98, y: 548, w: 266, h: 26 },
       build2: { x: 98, y: 630, w: 266, h: 26 },
     },
+    settingsButton: { x: 356, y: 157 },
+    queueCheckboxes: [
+      { x: 465, y: 212 },  // 部队训练
+      { x: 465, y: 366 },  // 建造队列
+      { x: 465, y: 443 },  // 科技研究
+    ],
   },
 
   // ========== 世界喊话 ==========
