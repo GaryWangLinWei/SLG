@@ -8,6 +8,7 @@ import { explore } from './actions/explore';
 import { idleDrag } from './actions/idleDrag';
 import { helpTeammates } from './actions/helpTeammates';
 import { readQueueOverview } from './actions/readQueueOverview';
+import { sendWorldChat, sendWorldChatFirstRun } from './actions/sendWorldChat';
 import { ensureInCity, ensureBottomBarCollapsed } from './utils/location';
 
 // 万国觉醒 - 配置项
@@ -85,6 +86,13 @@ export interface RokConfig {
       build1: { x: number; y: number; w: number; h: number };
       build2: { x: number; y: number; w: number; h: number };
     };
+  };
+
+  // ========== 世界喊话 ==========
+  worldChat: {
+    chatButton: { x: number; y: number };
+    inputBox: { x: number; y: number };
+    sendButton: { x: number; y: number };
   };
 
   homeFeatures?: HomeFeatures;
@@ -173,6 +181,13 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
       build1: { x: 98, y: 548, w: 266, h: 26 },
       build2: { x: 98, y: 630, w: 266, h: 26 },
     },
+  },
+
+  // ========== 世界喊话 ==========
+  worldChat: {
+    chatButton: { x: 418, y: 845 },
+    inputBox: { x: 601, y: 837 },
+    sendButton: { x: 1518, y: 848 },
   },
 
   homeFeatures: DEFAULT_HOME_FEATURES,
@@ -415,6 +430,19 @@ export const RiseOfKingdomsPlugin: Plugin = {
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const outcome = await explore(ctx, config, params.scoutBuilding, params.maxScouts);
         ctx.log(`派出斥候: ${outcome.dispatched} 个 (${outcome.result})`);
+      }
+    },
+    {
+      id: 'send-world-chat',
+      name: '发送世界喊话',
+      description: '在世界频道发送用户预设的消息',
+      run: async (ctx, params: { message: string; isFirst?: boolean }) => {
+        const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
+        if (params.isFirst) {
+          await sendWorldChatFirstRun(ctx, config, params.message);
+        } else {
+          await sendWorldChat(ctx, config, params.message);
+        }
       }
     },
     {

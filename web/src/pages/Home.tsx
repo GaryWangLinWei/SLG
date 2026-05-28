@@ -596,6 +596,54 @@ export function HomePage() {
           continue;
         }
 
+        // 喊话模式：与其他任务互斥，只执行世界喊话
+        if (features.autoWorldChat) {
+          if (!features.worldChatMessage?.trim()) {
+            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未填写喊话内容，跳过`]);
+            loopStopped = true;
+            break;
+          }
+          if (await acquireLock()) {
+            try { await runTask('send-world-chat', { message: features.worldChatMessage, isFirst: true }); }
+            finally { releaseLock(); }
+          }
+          if (loopStopped) break;
+
+          while (!loopStopped && features.autoWorldChat) {
+            const chatInterval = features.worldChatInterval || 300;
+            const nextWake = chatInterval * (0.85 + Math.random() * 0.3);
+            const chatStartWait = Date.now();
+            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📢 喊话模式，下次发送 ${nextWake.toFixed(0)} 秒后`]);
+
+            const dragSafety = 5;
+            const dragWindow = nextWake - dragSafety;
+            if (dragWindow > 20 && Math.random() < 0.05) {
+              const dragDelay = 5 + Math.random() * (dragWindow * 0.7);
+              while (!loopStopped && (Date.now() - chatStartWait) < dragDelay * 1000) {
+                await sleep(1);
+              }
+              if (!loopStopped) {
+                if (await acquireLock()) {
+                  try { await runTask('idle-drag'); } catch {} finally { releaseLock(); }
+                }
+              }
+              while (!loopStopped && (Date.now() - chatStartWait) < nextWake * 1000) {
+                await sleep(1);
+              }
+            } else {
+              await sleep(nextWake);
+            }
+            if (loopStopped) break;
+
+            if (await acquireLock()) {
+              try { await runTask('send-world-chat', { message: features.worldChatMessage, isFirst: false }); }
+              finally { releaseLock(); }
+            }
+          }
+          if (loopStopped) break;
+          continue;
+        }
+
         let latestTimers: ReturnType<typeof parseOcrResult>;
         let dispatchedAny = false;
 
@@ -852,11 +900,11 @@ export function HomePage() {
           <div className="grid grid-cols-2 gap-4">
 
             {/* 自动升级建筑 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${features.autoExplore ? 'bg-slate-100 border-slate-200 opacity-70' : features.upgradeBuildings ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.upgradeBuildings ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center text-base">🏗️</span>自动升级建筑</span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.upgradeBuildings} disabled={features.autoExplore}
+                  <input type="checkbox" checked={features.upgradeBuildings} disabled={features.autoExplore || features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, upgradeBuildings: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.upgradeBuildings ? 'bg-emerald-500' : 'bg-slate-200'}`} />
@@ -865,7 +913,7 @@ export function HomePage() {
               </div>
               <div className="flex items-center gap-2 flex-wrap mt-2">
                 {features.selectedBuildings.map((val: string, i: number) => (
-                  <select key={i} value={val} disabled={features.autoExplore} onChange={(e) => {
+                  <select key={i} value={val} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
                     const next = [...features.selectedBuildings]; next[i] = e.target.value;
                     const nextCompleted = [...features.completedBuildings]; nextCompleted[i] = false;
                     setFeatures({ ...features, selectedBuildings: next, completedBuildings: nextCompleted });
@@ -895,11 +943,11 @@ export function HomePage() {
             </div>
 
             {/* 自动研究科技 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${features.autoExplore ? 'bg-slate-100 border-slate-200 opacity-70' : features.autoResearch ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.autoResearch ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center text-base">🔬</span>自动研究科技</span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.autoResearch} disabled={features.autoExplore}
+                  <input type="checkbox" checked={features.autoResearch} disabled={features.autoExplore || features.autoWorldChat}
                     onChange={(e) => {
                       if (e.target.checked && !buildingOptions.includes('学院')) {
                         alert('请在坐标配置页标记学院位置');
@@ -943,11 +991,11 @@ export function HomePage() {
             </div>
 
             {/* 城外资源采集 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${features.autoExplore ? 'bg-slate-100 border-slate-200 opacity-70' : features.gatherResources ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.gatherResources ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center text-base">🌾</span>城外资源采集</span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.gatherResources} disabled={features.autoExplore}
+                  <input type="checkbox" checked={features.gatherResources} disabled={features.autoExplore || features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, gatherResources: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.gatherResources ? 'bg-emerald-500' : 'bg-slate-200'}`} />
@@ -957,7 +1005,7 @@ export function HomePage() {
               <div className="grid grid-cols-5 gap-1 mt-2">
                 {features.gatherTasks.map((task: { type: string; level: number }, i: number) => (
                   <div key={i} className="flex flex-col gap-1">
-                    <select value={task.type} disabled={features.autoExplore} onChange={(e) => {
+                    <select value={task.type} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
                       const next = [...features.gatherTasks]; next[i] = { ...next[i], type: e.target.value };
                       setFeatures({ ...features, gatherTasks: next });
                     }}
@@ -965,7 +1013,7 @@ export function HomePage() {
                       <option value="">-</option>
                       {RESOURCE_TYPES.map(t => (<option key={t} value={t}>{t}</option>))}
                     </select>
-                    <select value={task.level} disabled={features.autoExplore} onChange={(e) => {
+                    <select value={task.level} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
                       const next = [...features.gatherTasks]; next[i] = { ...next[i], level: Number(e.target.value) };
                       setFeatures({ ...features, gatherTasks: next });
                     }}
@@ -979,11 +1027,11 @@ export function HomePage() {
             </div>
 
             {/* 自动训练兵种 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${features.autoExplore ? 'bg-slate-100 border-slate-200 opacity-70' : features.trainTroops ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.trainTroops ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center text-base">⚔️</span>自动训练兵种</span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.trainTroops} disabled={features.autoExplore}
+                  <input type="checkbox" checked={features.trainTroops} disabled={features.autoExplore || features.autoWorldChat}
                     onChange={(e) => {
                       if (e.target.checked) {
                         const missing = ['兵营', '马厩', '靶场', '攻城武器厂'].filter(b => !buildingOptions.includes(b));
@@ -1003,7 +1051,7 @@ export function HomePage() {
                 {(['兵营', '马厩', '靶场', '攻城武器厂'] as const).map(building => (
                   <div key={building} className="flex items-center gap-2">
                     <span className="text-xs text-slate-500 w-16">{({ 兵营: '⚔️', 马厩: '🐴', 靶场: '🎯', 攻城武器厂: '⚙️' } as Record<string, string>)[building]} {building}</span>
-                    <select value={(features.trainTasks as Record<string, number>)[building] ?? 0} disabled={features.autoExplore} onChange={(e) => {
+                    <select value={(features.trainTasks as Record<string, number>)[building] ?? 0} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
                       const next = { ...features.trainTasks as Record<string, number>, [building]: Number(e.target.value) };
                       setFeatures({ ...features, trainTasks: next });
                     }}
@@ -1018,10 +1066,10 @@ export function HomePage() {
             </div>
 
             {/* 自动帮助盟友 */}
-            <div className={`flex items-center justify-between p-4 rounded-lg transition-colors border ${features.autoExplore ? 'bg-slate-100 border-slate-200 opacity-70' : features.helpTeammates ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex items-center justify-between p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.helpTeammates ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center text-base">🤝</span>自动帮助盟友</span>
               <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                <input type="checkbox" checked={features.helpTeammates} disabled={features.autoExplore}
+                <input type="checkbox" checked={features.helpTeammates} disabled={features.autoExplore || features.autoWorldChat}
                   onChange={(e) => setFeatures({ ...features, helpTeammates: e.target.checked })}
                   className="sr-only" />
                 <span className={`absolute inset-0 rounded-full transition-colors ${features.helpTeammates ? 'bg-emerald-500' : 'bg-slate-200'}`} />
@@ -1030,11 +1078,11 @@ export function HomePage() {
             </div>
 
             {/* 自动收集资源 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${features.autoExplore ? 'bg-slate-100 border-slate-200 opacity-70' : features.collectResources ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.collectResources ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center text-base">📦</span>自动收集资源</span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.collectResources} disabled={features.autoExplore}
+                  <input type="checkbox" checked={features.collectResources} disabled={features.autoExplore || features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, collectResources: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.collectResources ? 'bg-emerald-500' : 'bg-slate-200'}`} />
@@ -1076,6 +1124,48 @@ export function HomePage() {
               <p className="text-xs text-slate-400 mt-1.5">需标记斥候营地坐标</p>
               {features.autoExplore && (
                 <p className="text-xs text-amber-600 mt-1">⚠ 探索模式已开启，其他功能已暂停</p>
+              )}
+            </div>
+
+            {/* 自动喊话 */}
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${features.autoWorldChat ? 'border-purple-500 bg-purple-50' : 'border-slate-200 hover:border-slate-300'}`}>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center text-base">📢</span>自动喊话</span>
+                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+                  <input type="checkbox" checked={features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, autoWorldChat: e.target.checked })}
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.autoWorldChat ? 'bg-purple-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoWorldChat ? 'translate-x-[18px]' : ''}`} />
+                </label>
+              </div>
+              <div className="flex flex-col gap-2 mt-2">
+                {features.autoWorldChat && <span className="text-xs px-1.5 py-0.5 bg-purple-500 text-white rounded-full font-medium w-fit">独立模式</span>}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400 whitespace-nowrap">消息内容</span>
+                  <input
+                    type="text"
+                    value={features.worldChatMessage}
+                    onChange={(e) => setFeatures({ ...features, worldChatMessage: e.target.value })}
+                    placeholder="输入喊话内容..."
+                    disabled={features.autoWorldChat}
+                    className="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 focus:outline-none focus:border-purple-500 disabled:opacity-50"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400 whitespace-nowrap">间隔（秒）</span>
+                  <input
+                    type="number"
+                    value={features.worldChatInterval}
+                    onChange={(e) => setFeatures({ ...features, worldChatInterval: Number(e.target.value) })}
+                    disabled={features.autoWorldChat}
+                    min={60}
+                    className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 focus:outline-none focus:border-purple-500 disabled:opacity-50"
+                  />
+                </div>
+              </div>
+              {features.autoWorldChat && (
+                <p className="text-xs text-amber-600 mt-1">⚠ 喊话模式已开启，其他功能已暂停</p>
               )}
             </div>
 
