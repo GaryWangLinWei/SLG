@@ -138,6 +138,20 @@ function NavBar() {
 
         <Link to="/accounts" className={linkClass('/accounts')} style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>模拟器配置</Link>
 
+        <button
+          onClick={() => {
+            if (isElectron && window.electronAPI?.openExternal) {
+              window.electronAPI.openExternal('http://106.15.11.158:3456/help');
+            } else {
+              window.open('http://106.15.11.158:3456/help', '_blank');
+            }
+          }}
+          className="text-sm text-slate-500 hover:text-emerald-600 px-3 py-1.5 rounded hover:bg-slate-100"
+          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        >
+          帮助
+        </button>
+
         <div className="flex-1" />
 
         {/* License status */}

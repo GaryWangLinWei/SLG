@@ -26,6 +26,9 @@ app.use(serve(path.join(staticRoot, 'admin')));
 // 托管更新包（electron-updater generic provider），挂载在 /updates 路径下
 app.use(mount('/updates', serve(path.join(staticRoot, 'updates'))));
 
+// 托管帮助/教学页面
+app.use(mount('/help', serve(path.join(staticRoot, 'help'))));
+
 // Routes
 app.use(authRouter.routes()).use(authRouter.allowedMethods());
 app.use(adminRouter.routes()).use(adminRouter.allowedMethods());

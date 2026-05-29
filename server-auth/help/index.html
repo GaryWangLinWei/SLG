@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ROK 助手使用教程</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: "Microsoft YaHei", "PingFang SC", "Helvetica Neue", Arial, sans-serif;
+      background: linear-gradient(135deg, #fff9e6 0%, #fff0cc 100%);
+      min-height: 100vh;
+      padding-bottom: 60px;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 0 20px;
+    }
+
+    /* 头部 */
+    header {
+      text-align: center;
+      padding: 50px 20px 30px;
+    }
+    header h1 {
+      display: inline-block;
+      font-size: 42px;
+      font-weight: 900;
+      color: #fff;
+      background: linear-gradient(90deg, #ff9a3c, #ff6b35);
+      padding: 12px 40px;
+      border-radius: 50px;
+      box-shadow: 0 8px 24px rgba(255,107,53,0.35);
+      letter-spacing: 2px;
+      text-shadow: 2px 2px 0 rgba(0,0,0,0.1);
+    }
+    header p {
+      margin-top: 16px;
+      font-size: 18px;
+      color: #b85c00;
+      font-weight: 500;
+    }
+
+    /* 视频区 */
+    .video-section {
+      background: #fff;
+      border-radius: 24px;
+      padding: 24px;
+      margin: 20px auto 40px;
+      max-width: 960px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.08);
+    }
+    .video-section h2 {
+      font-size: 22px;
+      color: #ff6b35;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .video-section h2::before {
+      content: "▶";
+      font-size: 20px;
+    }
+    .video-wrapper {
+      position: relative;
+      padding-bottom: 56.25%;
+      height: 0;
+      border-radius: 16px;
+      overflow: hidden;
+      background: #000;
+    }
+    .video-wrapper iframe {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      border: none;
+    }
+
+    /* 章节 */
+    .chapter {
+      background: #fff;
+      border-radius: 28px;
+      padding: 32px;
+      margin-bottom: 32px;
+      box-shadow: 0 12px 48px rgba(0,0,0,0.08);
+    }
+    .chapter-header {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 28px;
+    }
+    .chapter-icon {
+      width: 52px; height: 52px;
+      border-radius: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 26px;
+      flex-shrink: 0;
+    }
+    .chapter-title {
+      font-size: 28px;
+      font-weight: 800;
+      color: #333;
+    }
+
+    /* 子标题 */
+    .sub-section {
+      margin-bottom: 28px;
+    }
+    .sub-section:last-child { margin-bottom: 0; }
+    .sub-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #555;
+      margin-bottom: 18px;
+      padding-left: 12px;
+      border-left: 4px solid;
+      border-radius: 2px;
+    }
+
+    /* 截图网格 */
+    .screenshot-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 20px;
+    }
+    .screenshot-card {
+      background: #fafafa;
+      border-radius: 20px;
+      overflow: hidden;
+      cursor: pointer;
+      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      position: relative;
+      border: 2px solid transparent;
+    }
+    .screenshot-card:hover {
+      transform: translateY(-6px) scale(1.02);
+      box-shadow: 0 16px 40px rgba(0,0,0,0.12);
+    }
+    .screenshot-card .img-wrap {
+      position: relative;
+      padding-bottom: 60%;
+      overflow: hidden;
+      background: #eee;
+    }
+    .screenshot-card img {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .screenshot-card .caption {
+      padding: 14px 16px;
+      font-size: 15px;
+      font-weight: 600;
+      color: #444;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .step-num {
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 800;
+      color: #fff;
+      flex-shrink: 0;
+    }
+
+    /* 主题色 */
+    .theme-orange .chapter-icon { background: linear-gradient(135deg, #ff9a3c, #ff6b35); }
+    .theme-orange .sub-title { border-color: #ff6b35; }
+    .theme-orange .screenshot-card:hover { border-color: #ff6b35; }
+    .theme-orange .step-num { background: linear-gradient(135deg, #ff9a3c, #ff6b35); }
+
+    .theme-blue .chapter-icon { background: linear-gradient(135deg, #4facfe, #00f2fe); }
+    .theme-blue .sub-title { border-color: #4facfe; }
+    .theme-blue .screenshot-card:hover { border-color: #4facfe; }
+    .theme-blue .step-num { background: linear-gradient(135deg, #4facfe, #00f2fe); }
+
+    /* Lightbox */
+    .lightbox {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.88);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      padding: 40px;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    .lightbox.active {
+      display: flex;
+      opacity: 1;
+    }
+    .lightbox img {
+      max-width: 100%;
+      max-height: 90vh;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    }
+    .lightbox .close-btn {
+      position: absolute;
+      top: 20px; right: 30px;
+      font-size: 40px;
+      color: #fff;
+      cursor: pointer;
+      opacity: 0.8;
+      transition: opacity 0.2s;
+      user-select: none;
+    }
+    .lightbox .close-btn:hover { opacity: 1; }
+
+    /* 页脚 */
+    footer {
+      text-align: center;
+      padding: 30px;
+      color: #999;
+      font-size: 14px;
+    }
+
+    /* 响应式 */
+    @media (max-width: 640px) {
+      header h1 { font-size: 28px; padding: 10px 28px; }
+      .chapter { padding: 20px; }
+      .chapter-title { font-size: 22px; }
+      .screenshot-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>ROK 助手使用教程</h1>
+    <p>跟着步骤走，轻松完成模拟器与助手配置</p>
+  </header>
+
+  <div class="container">
+    <!-- 视频 -->
+    <div class="video-section">
+      <h2>视频教程</h2>
+      <div class="video-wrapper">
+        <iframe
+          src="https://player.bilibili.com/player.html?bvid=BV1SFVa6zExA&page=1&high_quality=1&danmaku=0"
+          allowfullscreen
+          scrolling="no"
+          frameborder="0">
+        </iframe>
+      </div>
+    </div>
+
+    <!-- 一、模拟器设置 -->
+    <div class="chapter theme-orange">
+      <div class="chapter-header">
+        <div class="chapter-icon">📱</div>
+        <div class="chapter-title">一、模拟器设置</div>
+      </div>
+
+      <div class="sub-section">
+        <div class="sub-title">1）打开 USB 调试</div>
+        <div class="screenshot-grid" id="usbdebug-grid"></div>
+      </div>
+
+      <div class="sub-section">
+        <div class="sub-title">2）修改分辨率</div>
+        <div class="screenshot-grid" id="resolution-grid"></div>
+      </div>
+    </div>
+
+    <!-- 二、ROK助手设置 -->
+    <div class="chapter theme-blue">
+      <div class="chapter-header">
+        <div class="chapter-icon">⚙️</div>
+        <div class="chapter-title">二、ROK 助手设置</div>
+      </div>
+      <div class="screenshot-grid" id="rok-grid"></div>
+    </div>
+  </div>
+
+  <footer>ROK 助手 · 让挂机更简单</footer>
+
+  <!-- Lightbox -->
+  <div class="lightbox" id="lightbox" onclick="closeLightbox()">
+    <div class="close-btn">&times;</div>
+    <img id="lightbox-img" src="" alt="">
+  </div>
+
+  <script>
+    // 数据配置
+    const screenshots = {
+      usbdebug: [
+        { src: 'images/usbdebug/打开USB调试1.png', caption: '打开模拟器设置' },
+        { src: 'images/usbdebug/打开USB调试2.png', caption: '进入关于手机' },
+        { src: 'images/usbdebug/打开USB调试3.png', caption: '连续点击版本号' },
+        { src: 'images/usbdebug/打开USB调试4.png', caption: '开启开发者模式' },
+        { src: 'images/usbdebug/打开USB调试5.png', caption: '找到 USB 调试选项' },
+        { src: 'images/usbdebug/打开USB调试6.png', caption: '确认打开 USB 调试' },
+      ],
+      resolution: [
+        { src: 'images/resolution/修改分辨率1.png', caption: '进入分辨率设置' },
+        { src: 'images/resolution/修改分辨率2.png', caption: '选择推荐分辨率' },
+      ],
+      rok: [
+        { src: 'images/rok/ROK助手配置1.png', caption: '模拟器配置' },
+        { src: 'images/rok/ROK助手配置2.png', caption: '重置游戏视角' },
+        { src: 'images/rok/ROK助手配置3.png', caption: '进入标注模式' },
+        { src: 'images/rok/ROK助手配置4.png', caption: '建筑坐标标注' },
+        { src: 'images/rok/ROK助手配置5.png', caption: '开始自动运行' },
+      ]
+    };
+
+    // 全局步骤计数器
+    let globalStep = 0;
+
+    function renderGrid(containerId, items) {
+      const container = document.getElementById(containerId);
+      items.forEach(item => {
+        globalStep++;
+        const card = document.createElement('div');
+        card.className = 'screenshot-card';
+        card.onclick = () => openLightbox(item.src);
+        card.innerHTML = `
+          <div class="img-wrap">
+            <img src="${item.src}" alt="${item.caption}" loading="lazy">
+          </div>
+          <div class="caption">
+            <span class="step-num">${globalStep}</span>
+            ${item.caption}
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    renderGrid('usbdebug-grid', screenshots.usbdebug);
+    renderGrid('resolution-grid', screenshots.resolution);
+    renderGrid('rok-grid', screenshots.rok);
+
+    // Lightbox
+    function openLightbox(src) {
+      document.getElementById('lightbox-img').src = src;
+      document.getElementById('lightbox').classList.add('active');
+      document.body.style.overflow = 'hidden';
+    }
+    function closeLightbox() {
+      document.getElementById('lightbox').classList.remove('active');
+      document.body.style.overflow = '';
+    }
+    document.addEventListener('keydown', e => {
+      if (e.key === 'Escape') closeLightbox();
+    });
+  </script>
+</body>
+</html>

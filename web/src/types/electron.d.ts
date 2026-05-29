@@ -6,6 +6,7 @@ interface ElectronAPI {
   onUpdateStatus: (callback: (data: { status: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded'; progress?: number; version?: string }) => void) => () => void;
   installUpdate: () => Promise<void>;
   checkUpdate: () => Promise<void>;
+  openExternal: (url: string) => Promise<void>;
 }
 
 declare global {

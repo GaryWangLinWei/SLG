@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog } from 'electron';
+import { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, dialog, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { setAdbPath } from '../core/device/AdbDevice';
@@ -242,6 +242,10 @@ ipcMain.handle('check-update', () => {
 
 ipcMain.handle('install-update', () => {
   autoUpdater.quitAndInstall();
+});
+
+ipcMain.handle('open-external', (_event, url: string) => {
+  shell.openExternal(url);
 });
 
 // Prevent multiple instances

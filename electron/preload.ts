@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   installUpdate: () => ipcRenderer.invoke('install-update'),
   checkUpdate: () => ipcRenderer.invoke('check-update'),
+  openExternal: (url: string) => ipcRenderer.invoke('open-external', url),
 });
 
 declare global {
@@ -24,6 +25,7 @@ declare global {
       onUpdateStatus: (callback: (data: { status: string; progress?: number; version?: string }) => void) => () => void;
       installUpdate: () => Promise<void>;
       checkUpdate: () => Promise<void>;
+      openExternal: (url: string) => Promise<void>;
     };
   }
 }
