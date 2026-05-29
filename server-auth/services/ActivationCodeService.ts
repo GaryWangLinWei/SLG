@@ -67,7 +67,7 @@ export function revokeCode(id: number): boolean {
   return result.changes > 0;
 }
 
-export function useCode(code: string, deviceFingerprint: string): { success: boolean; expiresAt?: number; error?: string } {
+export function useCode(code: string, deviceFingerprint: string): { success: boolean; expiresAt?: number; error?: string; renewType?: string } {
   const db = getDb();
   const now = Date.now();
 

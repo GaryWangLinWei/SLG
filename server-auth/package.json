@@ -10,10 +10,12 @@
   },
   "dependencies": {
     "@koa/cors": "^5.0.0",
+    "@types/koa-mount": "^4.0.5",
     "better-sqlite3": "^9.4.3",
     "jsonwebtoken": "^9.0.2",
     "koa": "^2.15.3",
     "koa-bodyparser": "^4.4.1",
+    "koa-mount": "^4.2.0",
     "koa-router": "^12.0.1",
     "koa-static": "^5.0.0",
     "uuid": "^9.0.1"

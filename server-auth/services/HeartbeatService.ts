@@ -29,7 +29,7 @@ export function verifyAndHeartbeat(token: string, deviceFingerprint: string, ip?
     }
 
     // Verify device binding
-    const binding = db.prepare('SELECT * FROM device_bindings WHERE activation_code_id = ? AND device_fingerprint = ?').get(codeId, deviceFingerprint);
+    const binding = db.prepare('SELECT * FROM device_bindings WHERE activation_code_id = ? AND device_fingerprint = ?').get(codeId, deviceFingerprint) as any;
     if (!binding) {
       return { success: false, error: '设备不匹配' };
     }
