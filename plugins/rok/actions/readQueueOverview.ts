@@ -1,7 +1,8 @@
-import * as path from 'path';
 import * as fs from 'fs/promises';
+import * as path from 'path';
 import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
+import { getTemplatesDir } from '../../../core/resourcePath';
 
 import { ocrService } from '../../../core/ocr/OcrService';
 import { parseCountdown } from '../../../core/ocr/parseCountdown';
@@ -36,7 +37,7 @@ async function ensureQueueFilters(
   await ctx.tap(btn.x, btn.y);
   await ctx.sleep(1);
 
-  const templatePath = path.join(__dirname, '..', 'templates', 'chooseState.png');
+  const templatePath = path.join(getTemplatesDir(), 'chooseState.png');
   const found = await ctx.findAllImages(templatePath, 0.8, SETTINGS_REGION);
 
   ctx.log(`[队列过滤] 找到 ${found.length} 个勾选: ${found.map(f => `(${f.x},${f.y})`).join(', ')}`);
