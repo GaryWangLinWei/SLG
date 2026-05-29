@@ -96,13 +96,13 @@ export async function readQueueOverview(
     return { build1: null, build2: null, train_bingying: null, train_majiu: null, train_bachang: null, train_gongcheng: null, research: null };
   }
 
-  if (!queueFiltersEnsured) {
-    await ensureQueueFilters(ctx, config);
-  }
-
   ctx.log('[OCR] 打开队列速览面板');
   await ctx.tap(qo.openButton.x, qo.openButton.y);
   await ctx.sleep(1);
+
+  if (!queueFiltersEnsured) {
+    await ensureQueueFilters(ctx, config);
+  }
 
   // 向下滑动确保所有队列都显示
   if (qo.swipeDown) {
