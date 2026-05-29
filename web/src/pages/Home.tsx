@@ -380,6 +380,14 @@ export function HomePage() {
       let round = 0;
       let bottomBarChecked = false;
 
+      // 重置队列速览过滤状态（每次开始运行时重新检查）
+      (async () => {
+        const r = await api.tasks.create(currentAccountId, 'com.rok.automation', 'read-queue-overview', { reset: true });
+        if (r.success) {
+          await api.tasks.run(r.task.id);
+        }
+      })().catch(() => {});
+
       // 城外采集独立循环 — 按固定间隔执行，不受 OCR 调度影响
       const gatherLoop = (async () => {
         let first = true;

@@ -7,7 +7,7 @@ import { trainTroopsSingle } from './actions/trainTroops';
 import { explore } from './actions/explore';
 import { idleDrag } from './actions/idleDrag';
 import { helpTeammates } from './actions/helpTeammates';
-import { readQueueOverview } from './actions/readQueueOverview';
+import { readQueueOverview, resetQueueFilters } from './actions/readQueueOverview';
 import { sendWorldChat, sendWorldChatFirstRun } from './actions/sendWorldChat';
 import { ensureInCity, ensureBottomBarCollapsed } from './utils/location';
 
@@ -457,8 +457,12 @@ export const RiseOfKingdomsPlugin: Plugin = {
     {
       id: 'read-queue-overview',
       name: '读取队列倒计时',
-      description: '打开队列速览面板，OCR 读取建造/训练/研究倒计时',
-      run: async (ctx) => {
+      description: '打开队列速览面板，OCR 读取建造/训练/研究倒计时。传 { reset: true } 重置过滤状态',
+      run: async (ctx, params?: { reset?: boolean }) => {
+        if (params?.reset) {
+          resetQueueFilters();
+          return;
+        }
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         await readQueueOverview(ctx, config);
       }

@@ -11,6 +11,10 @@ const POSITION_TOLERANCE = 15;
 
 let queueFiltersEnsured = false;
 
+export function resetQueueFilters(): void {
+  queueFiltersEnsured = false;
+}
+
 function isNear(a: { x: number; y: number }, b: { x: number; y: number }): boolean {
   return Math.abs(a.x - b.x) <= POSITION_TOLERANCE && Math.abs(a.y - b.y) <= POSITION_TOLERANCE;
 }
