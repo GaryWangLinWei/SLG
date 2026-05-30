@@ -9,11 +9,14 @@ import { CONFIG } from './config';
 import authRouter from './routes/auth';
 import adminRouter from './routes/admin';
 import { getDb } from './services/AuthDatabase';
-import * as fs from 'fs';
+import fs from 'fs';
 
 const APP_VERSION: string = (() => {
   try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'));
+    const pkgPath = fs.existsSync(path.join(__dirname, 'package.json'))
+      ? path.join(__dirname, 'package.json')
+      : path.join(__dirname, '..', 'package.json');
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
     return pkg.version || '0.0.0';
   } catch { return '0.0.0'; }
 })();
