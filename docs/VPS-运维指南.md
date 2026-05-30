@@ -32,11 +32,62 @@ http://106.15.11.158:3456/health
 ```
 正常返回 `{"status":"ok"}`。
 
-## 发布新版本
+## 发布新版本（server-auth 后端）
 
 ### 1. 修改版本号
 
-编辑 `package.json`，改 `version` 字段（如 `1.0.0` → `1.0.1`）。
+编辑 `server-auth/package.json`，改 `version` 字段（如 `1.0.0` → `1.0.1`）。
+
+### 2. 构建
+
+```bash
+cd server-auth && npm run build
+```
+
+### 3. 上传到 VPS
+
+```powershell
+scp -r "D:\SLG\server-auth\dist\*" root@106.15.11.158:/root/server-auth/dist/
+scp "D:\SLG\server-auth\package.json" root@106.15.11.158:/root/server-auth/
+scp "D:\SLG\server-auth\index.ts" root@106.15.11.158:/root/server-auth/
+```
+
+### 4. Git 提交版本 + 重启
+
+```bash
+ssh root@106.15.11.158 "cd /root/server-auth && git add -A && git commit -m 'v1.0.1: 描述改动' && pm2 restart slg-auth"
+```
+
+### 5. 验证
+
+浏览器打开：
+```
+http://106.15.11.158:3456/health
+```
+应返回包含新版本号的 JSON。
+
+## VPS 回退
+
+如果部署后出问题，回退到之前的版本：
+
+```bash
+ssh root@106.15.11.158
+cd /root/server-auth
+git log --oneline               # 查看历史版本，找到想回退的 commit
+git reset --hard <commit>       # 回退
+pm2 restart slg-auth            # 重启生效
+```
+
+验证回退成功：
+```
+http://106.15.11.158:3456/health
+```
+
+## Electron 客户端发布
+
+### 1. 修改版本号
+
+编辑 `package.json`（项目根），改 `version` 字段。
 
 ### 2. 构建
 
