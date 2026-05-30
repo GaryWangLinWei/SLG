@@ -118,6 +118,14 @@ function NavBar() {
   const { status } = useLicense();
   const isElectron = typeof window !== 'undefined' && 'electronAPI' in window;
   const location = useLocation();
+  const [appVersion, setAppVersion] = useState('');
+
+  useEffect(() => {
+    fetch(isElectron ? 'http://localhost:3000/api/health' : '/api/health')
+      .then(r => r.json())
+      .then(d => { if (d.version) setAppVersion(d.version); })
+      .catch(() => {});
+  }, []);
 
   const linkClass = (path: string) =>
     `px-3 py-1.5 rounded text-sm transition-colors ${
@@ -185,6 +193,9 @@ function NavBar() {
               &#x00d7;
             </button>
           </>
+        )}
+        {appVersion && (
+          <span className="text-xs text-slate-400 ml-1">v{appVersion}</span>
         )}
       </div>
     </nav>

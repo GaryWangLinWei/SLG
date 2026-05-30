@@ -3,6 +3,8 @@ import Router from 'koa-router';
 import bodyParser from 'koa-bodyparser';
 import cors from '@koa/cors';
 import serve from 'koa-static';
+import * as path from 'path';
+import * as fs from 'fs';
 import { CONFIG } from './config';
 import deviceRouter from './routes/device';
 import pluginsRouter from './routes/plugins';
@@ -13,6 +15,13 @@ import licenseRouter from './routes/license';
 import { licenseGuard } from './middleware/licenseGuard';
 import { migrateLegacyConfig } from './services/ConfigService';
 import { licenseService } from '../core/license';
+
+const APP_VERSION: string = (() => {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'));
+    return pkg.version || '0.0.0';
+  } catch { return '0.0.0'; }
+})();
 
 const app = new Koa();
 const router = new Router();
@@ -29,6 +38,7 @@ app.use(licenseGuard);
 router.get('/api/health', async (ctx) => {
   ctx.body = {
     status: 'ok',
+    version: APP_VERSION,
     timestamp: new Date().toISOString(),
     service: 'SLG Automation Framework API'
   };
@@ -37,7 +47,7 @@ router.get('/api/health', async (ctx) => {
 // Root API info
 router.get('/api', async (ctx) => {
   ctx.body = {
-    version: '1.0.0',
+    version: APP_VERSION,
     endpoints: {
       health: '/api/health',
       device: '/api/device',
