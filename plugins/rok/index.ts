@@ -297,6 +297,12 @@ export const RiseOfKingdomsPlugin: Plugin = {
           }
           ctx.log(`有空闲队伍 (${used}/${total})，继续采集`);
         } else {
+          // OCR 可能漏掉斜杠，如 "33" → 3/3, "55" → 5/5
+          const digitsOnly = teamCountText.replace(/\D/g, '');
+          if (digitsOnly.length >= 2 && /^(\d)\1+$/.test(digitsOnly)) {
+            ctx.log(`⏭️ 无空闲队伍 (OCR识别为 "${digitsOnly}"，推测全部忙碌)，跳过本轮采集`);
+            return;
+          }
           ctx.log('⚠️ 未识别到队伍计数，继续采集');
         }
 
@@ -307,6 +313,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
           if (hasPaging === null) hasPaging = result.hasPaging;
           if (result.noIdleTeams) {
             ctx.log('⛔ 没有空闲队伍，停止采集任务');
+            await ensureInCity(ctx, config);
             return;
           }
         }

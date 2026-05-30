@@ -204,13 +204,16 @@ export async function readQueueOverview(
   }
   await ctx.sleep(0.5);
 
-  // 计算下次检测时间（取最近到期的倒计时 × 0.6，上限 30 分钟）
-  const timerKeys: (keyof QueueTimers)[] = ['build1', 'build2', 'train_bingying', 'train_majiu', 'train_bachang', 'train_gongcheng', 'research'];
-  const allTimers = timerKeys.map(k => result[k]).filter((v): v is number => v !== null);
-  if (allTimers.length > 0) {
-    const minTimer = Math.min(...allTimers);
-    const nextCheck = Math.round(Math.min(minTimer * 0.6, 1800));
-    ctx.log(`[OCR] 所有队列均忙碌，下次检测约 ${nextCheck}s 后 (最近到期: ${minTimer}s)`);
+  // 计算下次检测时间（建筑/科技队列 ×0.6，训练队列用原始值，上限 30 分钟）
+  const buildResearchKeys: (keyof QueueTimers)[] = ['build1', 'build2', 'research'];
+  const trainKeys: (keyof QueueTimers)[] = ['train_bingying', 'train_majiu', 'train_bachang', 'train_gongcheng'];
+  const buildResearchTimers = buildResearchKeys.map(k => result[k]).filter((v): v is number => v !== null);
+  const trainTimers = trainKeys.map(k => result[k]).filter((v): v is number => v !== null);
+  const adjustedTimers = [...buildResearchTimers.map(t => t * 0.6), ...trainTimers];
+  if (adjustedTimers.length > 0) {
+    const minTimer = Math.min(...adjustedTimers);
+    const nextCheck = Math.round(Math.min(minTimer, 1800));
+    ctx.log(`[OCR] 下次检测约 ${nextCheck}s 后 (调整后最近到期: ${minTimer.toFixed(0)}s)`);
   } else {
     ctx.log('[OCR] 所有队列空闲/识别失败，无活跃倒计时');
   }

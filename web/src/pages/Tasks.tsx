@@ -59,13 +59,13 @@ export function TasksPage() {
   }
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold mb-6">任务中心</h1>
+    <div className="h-[calc(100vh-4rem)] flex flex-col">
+      <h1 className="text-2xl font-bold mb-4 flex-shrink-0">任务中心</h1>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1">
-          <h2 className="text-lg font-semibold mb-4">任务列表</h2>
-          <div className="space-y-2">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 flex-1 min-h-0">
+        <div className="lg:col-span-1 flex flex-col min-h-0">
+          <h2 className="text-lg font-semibold mb-3 flex-shrink-0">任务列表</h2>
+          <div className="space-y-2 overflow-y-auto flex-1 pr-1">
             {tasks.length === 0 ? (
               <p className="text-slate-400">暂无任务</p>
             ) : (
@@ -88,10 +88,10 @@ export function TasksPage() {
           </div>
         </div>
 
-        <div className="lg:col-span-2">
+        <div className="lg:col-span-2 min-h-0">
           {selectedTask ? (
-            <div className="bg-white rounded-xl shadow-sm p-6 border border-slate-100">
-              <div className="flex justify-between items-center mb-4">
+            <div className="bg-white rounded-xl shadow-sm p-6 border border-slate-100 h-full flex flex-col">
+              <div className="flex justify-between items-center mb-4 flex-shrink-0">
                 <div>
                   <h2 className="text-xl font-bold">{selectedTask.actionId}</h2>
                   <p className="text-sm text-slate-500 mt-1">
@@ -113,7 +113,7 @@ export function TasksPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 mb-6 text-sm">
+              <div className="grid grid-cols-2 gap-4 mb-4 text-sm flex-shrink-0">
                 <div>
                   <p className="text-slate-500">任务ID</p>
                   <p className="font-mono text-xs">{selectedTask.id}</p>
@@ -124,9 +124,9 @@ export function TasksPage() {
                 </div>
               </div>
 
-              <div>
-                <h3 className="font-semibold mb-2">执行日志</h3>
-                <div className="bg-slate-50 rounded-lg p-4 max-h-96 overflow-y-auto font-mono text-sm border border-slate-100">
+              <div className="flex-1 min-h-0 flex flex-col">
+                <h3 className="font-semibold mb-2 flex-shrink-0">执行日志</h3>
+                <div className="bg-slate-50 rounded-lg p-4 overflow-y-auto font-mono text-sm border border-slate-100 flex-1">
                   {selectedTask.logs.length === 0 ? (
                     <p className="text-slate-400">暂无日志</p>
                   ) : (
@@ -138,14 +138,14 @@ export function TasksPage() {
               </div>
 
               {selectedTask.error && (
-                <div className="mt-4 p-3 bg-red-50 border border-red-300 rounded-lg text-red-700">
+                <div className="mt-4 p-3 bg-red-50 border border-red-300 rounded-lg text-red-700 flex-shrink-0">
                   <p className="font-semibold">错误信息</p>
                   <p className="font-mono text-sm mt-1">{selectedTask.error}</p>
                 </div>
               )}
             </div>
           ) : (
-            <div className="bg-white rounded-xl shadow-sm p-6 text-center text-slate-400 border border-slate-100">
+            <div className="bg-white rounded-xl shadow-sm p-6 text-center text-slate-400 border border-slate-100 h-full flex items-center justify-center">
               选择一个任务查看详情
             </div>
           )}

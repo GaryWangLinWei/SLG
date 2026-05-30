@@ -140,8 +140,6 @@ export async function gatherSingleResource(
   if (addTeamDiff >= 0.3) {
     ctx.log(`  ⚠️ 没有空闲队伍，停止采集`);
     await fs.unlink(addTeamRegionPath).catch(() => {});
-    await ctx.tap(config.resourceCollect.worldSwitchButton.x, config.resourceCollect.worldSwitchButton.y);
-    await ctx.sleep(0.5);
     return { success: false, hasPaging: hasPaging ?? false, noIdleTeams: true };
   }
   await fs.unlink(addTeamRegionPath).catch(() => {});

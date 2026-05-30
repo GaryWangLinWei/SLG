@@ -769,15 +769,18 @@ export function HomePage() {
         if (loopStopped) break;
 
         // Step 4: 计算下次唤醒时间（基于最新 OCR 结果）
-        const allTimers = [latestTimers.build1, latestTimers.build2, latestTimers.train_bingying, latestTimers.train_majiu, latestTimers.train_bachang, latestTimers.train_gongcheng, latestTimers.research].filter((t): t is number => t !== null && t > 0);
-        const minTimer = allTimers.length > 0 ? Math.min(...allTimers) : null;
+        // 建筑/科技队列提前唤醒 (*0.6)，训练队列用原始值
+        const buildResearchTimers = [latestTimers.build1, latestTimers.build2, latestTimers.research].filter((t): t is number => t !== null && t > 0);
+        const trainTimers = [latestTimers.train_bingying, latestTimers.train_majiu, latestTimers.train_bachang, latestTimers.train_gongcheng].filter((t): t is number => t !== null && t > 0);
+        const adjustedTimers = [...buildResearchTimers.map(t => t * 0.6), ...trainTimers];
+        const minTimer = adjustedTimers.length > 0 ? Math.min(...adjustedTimers) : null;
 
         let nextWake: number;
         if (minTimer !== null) {
           if (minTimer < 120) {
             nextWake = Math.max(minTimer, 15); // < 2min 直接用倒计时，不加系数不抖动
           } else {
-            nextWake = Math.min(minTimer * 0.6, 1800); // 系数 0.6，上限 30 分钟
+            nextWake = Math.min(minTimer, 1800); // 上限 30 分钟（已含系数）
             nextWake += Math.random() * 30; // 随机抖动 0 ~ 30s
           }
         } else {

@@ -11,7 +11,7 @@ interface BuildingPos {
 const BUILDING_TYPES = [
   '市政厅', '仓库', '城堡', '城墙', '学院', '酒馆', '联盟中心',
   '斥候营地', '医院', '农场', '木材厂', '采石场', '金矿',
-  '兵营', '马厩', '靶场', '攻城武器厂', '商栈', '政务院',
+  '兵营', '马厩', '靶场', '攻城武器厂', '商栈', '政务院', '铁匠铺',
 ];
 
 export function ConfigPage() {
@@ -21,6 +21,8 @@ export function ConfigPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [mode, setMode] = useState<'tap' | 'annotate'>('annotate');
+  const [showMarkers, setShowMarkers] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
 
   const [buildingPositions, setBuildingPositions] = useState<BuildingPos[]>([]);
   const [pendingCoord, setPendingCoord] = useState<{ x: number; y: number; domX: number; domY: number } | null>(null);
@@ -372,12 +374,12 @@ export function ConfigPage() {
           <button onClick={handleScreenshot} disabled={loading}
             className="px-6 py-2 bg-emerald-500 hover:bg-emerald-600 rounded disabled:opacity-50 text-white">刷新截图</button>
         )}
-        <div className="flex items-center gap-2 bg-slate-100 rounded-lg p-1">
-          <button onClick={() => setMode('annotate')}
-            className={`px-4 py-1 rounded ${mode === 'annotate' ? 'bg-emerald-500 text-white' : ''}`}>标注模式</button>
-          <button onClick={() => setMode('tap')}
-            className={`px-4 py-1 rounded ${mode === 'tap' ? 'bg-emerald-500 text-white' : ''}`}>点击模式</button>
-        </div>
+        <button
+          onClick={() => setShowMarkers(!showMarkers)}
+          className={`px-4 py-2 rounded text-sm ${showMarkers ? 'bg-amber-500 text-white' : 'bg-slate-100 hover:bg-slate-200 text-slate-700'}`}
+        >
+          {showMarkers ? '隐藏坐标' : '显示坐标'}
+        </button>
         <div className="flex-1" />
       </div>
 
@@ -393,8 +395,30 @@ export function ConfigPage() {
                 <p className="text-xs text-slate-400 mb-2">
                   {mode === 'annotate' ? '点击截图标注坐标' : '点击截图发送点击指令'}
                   {pendingCoord && ' — 已标记坐标，选择建筑类型后确认'}
+                  {typeof window !== 'undefined' && !('electronAPI' in window) && (
+                    <>
+                      <span className="ml-3 text-slate-300">|</span>
+                      <button onClick={() => setMode(mode === 'annotate' ? 'tap' : 'annotate')} className="ml-3 text-slate-400 hover:text-slate-600 underline underline-offset-2">
+                        {mode === 'annotate' ? '切换到点击模式' : '切换到标注模式'}
+                      </button>
+                    </>
+                  )}
                 </p>
-                <img src={screenshot} alt="截图" className="w-full border border-slate-200 rounded cursor-crosshair" onClick={handleImageClick} />
+                <img ref={imgRef} src={screenshot} alt="截图" className="w-full border border-slate-200 rounded cursor-crosshair" onClick={handleImageClick} />
+                {showMarkers && imgRef.current && imgRef.current.naturalWidth > 0 && buildingPositions.map((b, i) => {
+                  const imgRect = imgRef.current!.getBoundingClientRect();
+                  const containerRect = imgRef.current!.parentElement!.getBoundingClientRect();
+                  const scaleX = imgRect.width / imgRef.current!.naturalWidth;
+                  const scaleY = imgRect.height / imgRef.current!.naturalHeight;
+                  const left = b.x * scaleX + (imgRect.left - containerRect.left);
+                  const top = b.y * scaleY + (imgRect.top - containerRect.top);
+                  return (
+                    <div key={i} className="absolute pointer-events-none" style={{ left, top, transform: 'translate(-50%, -50%)' }}>
+                      <div className="w-4 h-4 bg-red-500 rounded-full border-[3px] border-white shadow-lg shadow-red-500/50" />
+                      <span className="absolute left-4 -top-3 text-base bg-black/75 text-white px-2 py-0.5 rounded font-bold whitespace-nowrap">{b.name}</span>
+                    </div>
+                  );
+                })}
                 {pendingCoord && !overwriteTarget && (
                   <div
                     className="absolute z-10 bg-white border border-slate-200 rounded-lg p-2 shadow-lg"
