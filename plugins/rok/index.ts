@@ -10,6 +10,8 @@ import { helpTeammates } from './actions/helpTeammates';
 import { readQueueOverview, resetQueueFilters } from './actions/readQueueOverview';
 import { sendWorldChat, sendWorldChatFirstRun } from './actions/sendWorldChat';
 import { ensureInCity, ensureBottomBarCollapsed } from './utils/location';
+import { ocrService } from '../../core/ocr/OcrService';
+import * as fs from 'fs/promises';
 
 // 万国觉醒 - 配置项
 // 这些坐标需要根据你的实际屏幕分辨率进行调整
@@ -276,6 +278,27 @@ export const RiseOfKingdomsPlugin: Plugin = {
       run: async (ctx, params: { gatherTasks: GatherTask[] }) => {
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         let hasPaging: boolean | null = null;
+
+        // Pre-check: OCR team count to skip round if no idle teams
+        ctx.log('[预备] OCR 检测空闲队伍数...');
+        const regionPath = await ctx.captureRegion(1507, 169, 55, 31);
+        const teamCountText = await ocrService.readText(regionPath);
+        await fs.unlink(regionPath).catch(() => {});
+        ctx.log(`[预备] OCR 结果: "${teamCountText}"`);
+
+        // Parse fraction like "2/4", "3/3", "5/5"
+        const match = teamCountText.match(/(\d+)\s*\/\s*(\d+)/);
+        if (match) {
+          const used = parseInt(match[1], 10);
+          const total = parseInt(match[2], 10);
+          if (used === total) {
+            ctx.log(`⏭️ 无空闲队伍 (${used}/${total})，跳过本轮采集`);
+            return;
+          }
+          ctx.log(`有空闲队伍 (${used}/${total})，继续采集`);
+        } else {
+          ctx.log('⚠️ 未识别到队伍计数，继续采集');
+        }
 
         for (let i = 0; i < params.gatherTasks.length; i++) {
           const task = params.gatherTasks[i];

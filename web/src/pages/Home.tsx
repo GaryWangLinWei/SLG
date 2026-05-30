@@ -774,11 +774,16 @@ export function HomePage() {
 
         let nextWake: number;
         if (minTimer !== null) {
-          nextWake = Math.min(minTimer * 0.6, 1800); // 系数 0.6，上限 30 分钟
+          if (minTimer < 120) {
+            nextWake = Math.max(minTimer, 15); // < 2min 直接用倒计时，不加系数不抖动
+          } else {
+            nextWake = Math.min(minTimer * 0.6, 1800); // 系数 0.6，上限 30 分钟
+            nextWake += Math.random() * 30; // 随机抖动 0 ~ 30s
+          }
         } else {
           nextWake = 1800; // 无活跃队列，30 分钟后再查
+          nextWake += Math.random() * 30;
         }
-        nextWake += Math.random() * 30; // 随机抖动 0 ~ 30s
         nextWake = Math.max(60, nextWake); // 最少等 60 秒
 
         setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏳ 下次检查 ${nextWake.toFixed(0)} 秒后 (build1=${latestTimers.build1}s build2=${latestTimers.build2}s train=${latestTimers.train_bingying}/${latestTimers.train_majiu}/${latestTimers.train_bachang}/${latestTimers.train_gongcheng}s research=${latestTimers.research}s)`]);

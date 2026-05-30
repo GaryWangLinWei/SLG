@@ -212,7 +212,7 @@ export async function readQueueOverview(
     const nextCheck = Math.round(Math.min(minTimer * 0.6, 1800));
     ctx.log(`[OCR] 所有队列均忙碌，下次检测约 ${nextCheck}s 后 (最近到期: ${minTimer}s)`);
   } else {
-    ctx.log('[OCR] 所有队列空闲，无活跃倒计时');
+    ctx.log('[OCR] 所有队列空闲/识别失败，无活跃倒计时');
   }
 
   // 结构化日志，供前端解析
