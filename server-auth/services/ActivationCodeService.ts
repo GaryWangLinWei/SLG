@@ -301,9 +301,6 @@ export function processInviteCode(inviteCode: string, inviteeFingerprint: string
   if (!codeRow) {
     return { success: false, error: '邀请码不存在' };
   }
-  if (codeRow.status === 'used') {
-    return { success: false, error: '邀请码已被使用' };
-  }
   if (codeRow.status === 'revoked') {
     return { success: false, error: '邀请码已失效' };
   }
@@ -334,9 +331,6 @@ export function processInviteCode(inviteCode: string, inviteeFingerprint: string
   `).get(inviteeFingerprint) as { id: number; expires_at: number } | undefined;
 
   const transaction = db.transaction(() => {
-    db.prepare('UPDATE activation_codes SET status = ?, used_at = ? WHERE id = ?')
-      .run('used', now, codeRow.id);
-
     // 奖励邀请人：延长其激活码的到期时间
     if (inviterCode) {
       const newExpiresAt = Math.max(inviterCode.expires_at, now) + INVITE_BONUS_DAYS * 86400000;
