@@ -96,9 +96,25 @@ router.get('/my-invite-code', async (ctx) => {
     return;
   }
   const db = (await import('../services/AuthDatabase')).getDb();
-  const row = db.prepare(
+  let row = db.prepare(
     "SELECT code FROM activation_codes WHERE type = 'invite' AND created_by = ?"
   ).get(fingerprint) as { code: string } | undefined;
+
+  // 老用户补救：设备已激活但尚无邀请码，自动生成
+  if (!row) {
+    const binding = db.prepare(
+      'SELECT * FROM device_bindings WHERE device_fingerprint = ? LIMIT 1'
+    ).get(fingerprint) as any;
+    if (binding) {
+      const { generateInviteCode } = await import('../services/ActivationCodeService');
+      const code = generateInviteCode();
+      db.prepare(
+        "INSERT INTO activation_codes (code, duration_days, status, type, created_at, created_by) VALUES (?, 3, 'unused', 'invite', ?, ?)"
+      ).run(code, Date.now(), fingerprint);
+      row = { code };
+    }
+  }
+
   ctx.body = { success: true, code: row?.code || null };
 });
 
