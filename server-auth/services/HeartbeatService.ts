@@ -63,6 +63,12 @@ export function getActiveDevices(limit: number = 50): any[] {
     FROM device_bindings b
     JOIN activation_codes c ON b.activation_code_id = c.id
     WHERE c.status = 'used'
+      AND c.expires_at = (
+        SELECT MAX(c2.expires_at)
+        FROM device_bindings b2
+        JOIN activation_codes c2 ON b2.activation_code_id = c2.id
+        WHERE b2.device_fingerprint = b.device_fingerprint AND c2.status = 'used'
+      )
     ORDER BY b.last_heartbeat_at DESC
     LIMIT ?
   `);
