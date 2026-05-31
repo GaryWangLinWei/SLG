@@ -4,6 +4,8 @@ import { useLicense } from '../contexts/LicenseContext';
 export default function ActivationPage() {
   const { activate, loading, activateError, clearActivateError, expiredMessage, setExpiredMessage } = useLicense();
   const [code, setCode] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
+  const [inviteResult, setInviteResult] = useState<{ success: boolean; inviterBonusDays?: number; inviteeBonusDays?: number; error?: string } | null>(null);
   const [success, setSuccess] = useState(false);
   const [showExpired, setShowExpired] = useState(!!expiredMessage);
   const isElectron = typeof window !== 'undefined' && 'electronAPI' in window;
@@ -26,9 +28,15 @@ export default function ActivationPage() {
     clearActivateError();
     setSuccess(false);
 
-    const result = await activate(code.trim());
+    const result = await activate(code.trim(), inviteCode.trim() || undefined);
     if (result.success) {
       setSuccess(true);
+      if (result.inviteBonus) {
+        setInviteResult({ success: true, inviterBonusDays: result.inviterBonusDays, inviteeBonusDays: result.inviteeBonusDays });
+      }
+      if (result.inviteError) {
+        setInviteResult({ success: false, error: result.inviteError });
+      }
     }
   };
 
@@ -83,6 +91,20 @@ export default function ActivationPage() {
               />
             </div>
 
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                邀请码（选填）
+              </label>
+              <input
+                type="text"
+                value={inviteCode}
+                onChange={(e) => setInviteCode(e.target.value)}
+                placeholder="如有邀请码，请输入"
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
+                disabled={loading}
+              />
+            </div>
+
             {activateError && (
               <div className="mb-4 p-3 bg-red-50 border border-red-300 rounded-xl text-red-700 text-sm">
                 {activateError}
@@ -92,6 +114,17 @@ export default function ActivationPage() {
             {success && (
               <div className="mb-4 p-3 bg-green-50 border border-green-300 rounded-xl text-green-700 text-sm">
                 激活成功！正在加载...
+              </div>
+            )}
+
+            {inviteResult?.success && (
+              <div className="mb-4 p-3 bg-emerald-50 border border-emerald-300 rounded-xl text-emerald-700 text-sm">
+                邀请奖励已发放！你和邀请人各获得 {inviteResult.inviteeBonusDays} 天
+              </div>
+            )}
+            {inviteResult && !inviteResult.success && (
+              <div className="mb-4 p-3 bg-amber-50 border border-amber-300 rounded-xl text-amber-700 text-sm">
+                {inviteResult.error}
               </div>
             )}
 

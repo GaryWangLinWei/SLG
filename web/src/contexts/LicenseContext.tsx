@@ -17,7 +17,7 @@ interface LicenseContextType {
   activateError: string | null;  // 激活错误提示
   expiredMessage: string | null; // 到期跳转时的一次性提示
   setExpiredMessage: (msg: string | null) => void;
-  activate: (code: string) => Promise<{ success: boolean; error?: string }>;
+  activate: (code: string, inviteCode?: string) => Promise<{ success: boolean; error?: string; inviteBonus?: boolean; inviteError?: string; inviterBonusDays?: number; inviteeBonusDays?: number }>;
   preview: (code: string) => Promise<{ success: boolean; durationDays?: number; error?: string }>;
   deactivate: () => Promise<void>;
   refreshStatus: () => Promise<void>;
@@ -48,14 +48,20 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const activate = useCallback(async (code: string): Promise<{ success: boolean; error?: string }> => {
+  const activate = useCallback(async (code: string, inviteCode?: string): Promise<{ success: boolean; error?: string; inviteBonus?: boolean; inviteError?: string; inviterBonusDays?: number; inviteeBonusDays?: number }> => {
     try {
       setLoading(true);
       setActivateError(null);  // 清除之前的错误
-      const result = await api.license.activate(code);
+      const result = await api.license.activate(code, inviteCode);
       if (result.success) {
         await refreshStatus();
-        return { success: true };
+        return {
+          success: true,
+          inviteBonus: result.inviteBonus,
+          inviteError: result.inviteError,
+          inviterBonusDays: result.inviterBonusDays,
+          inviteeBonusDays: result.inviteeBonusDays,
+        };
       }
       const errorMsg = result.error || '激活失败，请检查激活码';
       setActivateError(errorMsg);

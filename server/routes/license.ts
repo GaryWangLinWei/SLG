@@ -9,14 +9,14 @@ router.get('/status', async (ctx) => {
 });
 
 router.post('/activate', async (ctx) => {
-  const body = ctx.request.body as { code?: string };
+  const body = ctx.request.body as { code?: string; inviteCode?: string };
   if (!body.code) {
     ctx.status = 400;
     ctx.body = { success: false, error: '激活码不能为空' };
     return;
   }
 
-  const result = await licenseService.activate(body.code);
+  const result = await licenseService.activate(body.code, body.inviteCode);
   if (result.success) {
     ctx.body = result;
   } else {
