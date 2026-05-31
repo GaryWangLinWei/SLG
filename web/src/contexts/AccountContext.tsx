@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { api, Account } from '../api/client';
 
 interface AccountContextValue {
@@ -20,11 +20,30 @@ export function AccountProvider({ children }: { children: ReactNode }) {
   const [currentAccountId, setCurrentAccountIdState] = useState<string | null>(() => {
     return localStorage.getItem('currentAccountId');
   });
+  const currentRef = useRef(currentAccountId);
+  currentRef.current = currentAccountId;
+
+  const setCurrentAccountId = useCallback((id: string | null) => {
+    setCurrentAccountIdState(id);
+    currentRef.current = id;
+    if (id) {
+      localStorage.setItem('currentAccountId', id);
+    } else {
+      localStorage.removeItem('currentAccountId');
+    }
+  }, []);
 
   const refreshAccounts = useCallback(async () => {
     try {
       const res = await api.accounts.list();
       setAccounts(res.accounts);
+      // 如果没有选中账号但列表非空，自动选第一个
+      if (!currentRef.current && res.accounts.length > 0) {
+        const first = res.accounts[0].id;
+        setCurrentAccountIdState(first);
+        currentRef.current = first;
+        localStorage.setItem('currentAccountId', first);
+      }
     } catch { /* will retry on next mount */ }
   }, []);
 
@@ -57,14 +76,6 @@ export function AccountProvider({ children }: { children: ReactNode }) {
     })();
   }, []);
 
-  const setCurrentAccountId = useCallback((id: string | null) => {
-    setCurrentAccountIdState(id);
-    if (id) {
-      localStorage.setItem('currentAccountId', id);
-    } else {
-      localStorage.removeItem('currentAccountId');
-    }
-  }, []);
 
   return (
     <AccountContext.Provider value={{ accounts, currentAccountId, setCurrentAccountId, refreshAccounts }}>

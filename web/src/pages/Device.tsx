@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAccount } from '../contexts/AccountContext';
 
@@ -71,10 +72,10 @@ export function DevicePage() {
   if (!currentAccountId) {
     return (
       <div className="text-center py-20 text-gray-400">
-        <p className="text-lg mb-4">请先选择或创建一个账号</p>
-        <a href="/accounts" className="px-6 py-3 bg-blue-600 rounded-lg hover:bg-blue-500 inline-block">
-          前往账号管理
-        </a>
+        <p className="text-lg mb-4">请先创建配置</p>
+        <Link to="/config" className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-500 inline-block">
+          新建配置
+        </Link>
       </div>
     );
   }
@@ -90,17 +91,17 @@ export function DevicePage() {
       <div className="flex gap-4 mb-6">
         {!connected ? (
           <button onClick={handleConnect} disabled={loading}
-            className="px-6 py-2 bg-green-600 hover:bg-green-700 rounded disabled:opacity-50">
+            className="px-6 py-2 bg-green-600 hover:bg-green-700 text-white rounded disabled:opacity-50">
             连接设备
           </button>
         ) : (
           <>
             <button onClick={handleDisconnect} disabled={loading}
-              className="px-6 py-2 bg-red-600 hover:bg-red-700 rounded disabled:opacity-50">
+              className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded disabled:opacity-50">
               断开连接
             </button>
             <button onClick={handleScreenshot} disabled={loading}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 rounded disabled:opacity-50">
+              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50">
               刷新截图
             </button>
           </>

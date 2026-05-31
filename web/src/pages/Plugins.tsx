@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { api, Plugin } from '../api/client';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAccount } from '../contexts/AccountContext';
 
 export function PluginsPage() {
@@ -49,10 +49,10 @@ export function PluginsPage() {
   if (!currentAccountId) {
     return (
       <div className="text-center py-20 text-slate-400">
-        <p className="text-lg mb-4">请先选择或创建一个账号</p>
-        <a href="/accounts" className="px-6 py-3 bg-emerald-500 rounded-full hover:bg-emerald-600 shadow-lg shadow-emerald-500/30 inline-block">
-          前往账号管理
-        </a>
+        <p className="text-lg mb-4">请先创建配置</p>
+        <Link to="/config" className="px-6 py-3 bg-emerald-500 text-white rounded-full hover:bg-emerald-600 shadow-lg shadow-emerald-500/30 inline-block">
+          新建配置
+        </Link>
       </div>
     );
   }

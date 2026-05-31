@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api, DeviceInfo } from '../api/client';
 import { useAccount } from '../contexts/AccountContext';
 
 export function AccountsPage() {
   const { accounts, refreshAccounts } = useAccount();
+  const navigate = useNavigate();
   const [deviceId, setDeviceId] = useState('');
   const [devices, setDevices] = useState<DeviceInfo[]>([]);
   const [scanning, setScanning] = useState(false);
@@ -39,13 +41,17 @@ export function AccountsPage() {
     setError('');
     setOk('');
     try {
-      if (accounts.length === 0) {
+      const isFirstAccount = accounts.length === 0;
+      if (isFirstAccount) {
         await api.accounts.create({ name: '默认', deviceId: deviceId.trim() });
       } else {
         await api.accounts.update(accounts[0].id, { deviceId: deviceId.trim() });
       }
       await refreshAccounts();
       setOk('已保存');
+      if (isFirstAccount) {
+        setTimeout(() => navigate('/config'), 800);
+      }
     } catch (e: any) {
       setError(e.data?.error || e.message || String(e));
     }
@@ -55,7 +61,7 @@ export function AccountsPage() {
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800">
       <div className="max-w-lg mx-auto p-6">
-        <h1 className="text-2xl font-bold mb-6">设备设置</h1>
+        <h1 className="text-2xl font-bold mb-6">模拟器配置</h1>
 
         {error && <div className="mb-4 p-3 bg-red-50 border border-red-300 rounded-lg text-sm text-red-700">{error}</div>}
         {ok && <div className="mb-4 p-3 bg-green-50 border border-green-300 rounded-lg text-sm text-green-700">{ok}</div>}
@@ -104,9 +110,19 @@ export function AccountsPage() {
             disabled={saving}
             className="w-full py-2 bg-emerald-500 rounded-full hover:bg-emerald-600 shadow-lg shadow-emerald-500/30 font-bold disabled:opacity-50 text-white"
           >
-            {saving ? '保存中...' : '保存'}
+            {saving ? '保存中...' : accounts.length === 0 ? '连接模拟器' : '保存'}
           </button>
         </div>
+
+        {accounts.length > 0 && (
+          <p className="text-center text-sm text-slate-400 mt-4">
+            下一步：前往
+            <button onClick={() => navigate('/config')} className="text-emerald-600 hover:text-emerald-500 underline mx-1">
+              坐标配置
+            </button>
+            标注建筑位置
+          </p>
+        )}
       </div>
     </div>
   );

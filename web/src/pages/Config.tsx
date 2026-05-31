@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAccount } from '../contexts/AccountContext';
 
@@ -250,9 +251,9 @@ export function ConfigPage() {
     return (
       <div className="text-center py-20 text-slate-500">
         <p className="text-lg mb-4">请先选择或创建一个账号</p>
-        <a href="/accounts" className="px-6 py-3 bg-emerald-500 rounded-lg hover:bg-emerald-500 inline-block">
+        <Link to="/accounts" className="px-6 py-3 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 inline-block">
           前往账号管理
-        </a>
+        </Link>
       </div>
     );
   }
@@ -357,7 +358,7 @@ export function ConfigPage() {
               className="px-3 py-1.5 bg-slate-50 border border-slate-200 rounded text-sm text-slate-800 w-48 focus:outline-none focus:border-emerald-400"
             />
             <button type="submit" disabled={!newProfileName.trim()}
-              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-500 rounded text-sm disabled:opacity-30">确认创建</button>
+              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded text-sm disabled:opacity-30">确认创建</button>
             <button type="button" onClick={() => { setCreateMode(false); setNewProfileName(''); }}
               className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded text-sm">取消</button>
           </form>
@@ -453,7 +454,7 @@ export function ConfigPage() {
                     <span className="text-sm text-amber-700">「{overwriteTarget}」已存在，覆盖？</span>
                     <div className="flex gap-1 mt-1">
                       <button onClick={() => addBuilding(overwriteTarget, true)}
-                        className="px-2 py-1 bg-amber-500 hover:bg-amber-600 rounded text-xs">覆盖</button>
+                        className="px-2 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded text-xs">覆盖</button>
                       <button onClick={() => { setPendingCoord(null); setSelectedBuildingType(''); setOverwriteTarget(null); }}
                         className="px-2 py-1 bg-slate-100 hover:bg-slate-200 rounded text-xs">取消</button>
                     </div>

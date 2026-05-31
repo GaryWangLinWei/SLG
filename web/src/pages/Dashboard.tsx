@@ -219,7 +219,7 @@ export function DashboardPage() {
 
               <div className="flex gap-2">
                 <Link to="/" state={{ selectedAccountId: account.id }}
-                  className="flex-1 text-center px-3 py-2 bg-blue-600 rounded text-sm hover:bg-blue-500">
+                  className="flex-1 text-center px-3 py-2 bg-blue-600 text-white rounded text-sm hover:bg-blue-500">
                   开始任务
                 </Link>
                 <Link to={`/tasks?account=${account.id}`}
@@ -235,7 +235,7 @@ export function DashboardPage() {
       {accounts.length === 0 && (
         <div className="text-center py-16 bg-gray-800 rounded-xl">
           <p className="text-gray-400 mb-4">还没有账号</p>
-          <Link to="/accounts" className="px-5 py-2 bg-blue-600 rounded hover:bg-blue-500 inline-block">
+          <Link to="/accounts" className="px-5 py-2 bg-blue-600 text-white rounded hover:bg-blue-500 inline-block">
             去创建第一个账号
           </Link>
         </div>

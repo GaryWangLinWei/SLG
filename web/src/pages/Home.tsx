@@ -847,10 +847,10 @@ export function HomePage() {
   if (!currentAccountId) {
     return (
       <div className="max-w-4xl mx-auto p-6 text-center py-20">
-        <p className="text-xl text-slate-500 mb-4">请先创建账号</p>
-        <p className="text-sm text-slate-400 mb-6">需要绑定一个模拟器实例才能开始使用</p>
-        <Link to="/accounts" className="px-6 py-3 bg-emerald-500 text-white rounded-full hover:bg-emerald-600 inline-block shadow-lg shadow-emerald-500/30">
-          前往账号管理
+        <p className="text-xl text-slate-500 mb-4">请先创建配置</p>
+        <p className="text-sm text-slate-400 mb-6">需要配置建筑坐标后才能开始运行</p>
+        <Link to="/config" className="px-6 py-3 bg-emerald-500 text-white rounded-full hover:bg-emerald-600 inline-block shadow-lg shadow-emerald-500/30">
+          新建配置
         </Link>
       </div>
     );
