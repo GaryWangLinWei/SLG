@@ -119,6 +119,19 @@ function NavBar() {
   const isElectron = typeof window !== 'undefined' && 'electronAPI' in window;
   const location = useLocation();
   const [appVersion, setAppVersion] = useState('');
+  const [showInvite, setShowInvite] = useState(false);
+  const [myInviteCode, setMyInviteCode] = useState('');
+  const [copyText, setCopyText] = useState('复制');
+
+  const loadInviteCode = async () => {
+    if (status?.deviceFingerprint) {
+      try {
+        const res = await fetch(`http://106.15.11.158:3456/api/auth/my-invite-code?fingerprint=${status.deviceFingerprint}`);
+        const data = await res.json();
+        if (data.success && data.code) setMyInviteCode(data.code);
+      } catch {}
+    }
+  };
 
   useEffect(() => {
     fetch(isElectron ? 'http://localhost:3000/api/health' : '/api/health')
@@ -135,7 +148,8 @@ function NavBar() {
     }`;
 
   return (
-    <nav className="bg-white px-6 py-0 h-14 border-b border-slate-200 shadow-sm shrink-0 flex items-center" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
+    <>
+      <nav className="bg-white px-6 py-0 h-14 border-b border-slate-200 shadow-sm shrink-0 flex items-center" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}>
       <div className="flex gap-4 items-center w-full">
         <Link to="/" className="flex items-center gap-2.5 font-bold text-base text-slate-800" style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>
           <span className="w-8 h-8 rounded-[10px] flex items-center justify-center overflow-hidden"><img src="./icon.png" alt="ROK助手" className="w-full h-full object-cover rounded-[10px]" /></span>
@@ -170,6 +184,15 @@ function NavBar() {
             </span>
             <RemainingTime expiresAt={status.expiresAt} />
             <RenewButton />
+            {status?.activated && (
+              <button
+                onClick={() => { loadInviteCode(); setShowInvite(true); }}
+                className="text-sm text-amber-600 hover:text-amber-500 px-3 py-1.5 rounded hover:bg-amber-50 transition-colors"
+                style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+              >
+                邀请好友
+              </button>
+            )}
           </>
         )}
 
@@ -199,6 +222,30 @@ function NavBar() {
         )}
       </div>
     </nav>
+      {showInvite && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowInvite(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
+            <h2 className="text-xl font-bold text-slate-800 mb-2">邀请好友</h2>
+            <p className="text-sm text-slate-500 mb-4">你和好友各获得 3 天免费使用</p>
+            <div className="flex items-center gap-2 mb-4">
+              <input readOnly value={myInviteCode || '加载中...'} className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm text-slate-700" />
+              <button
+                onClick={() => { navigator.clipboard.writeText(myInviteCode); setCopyText('已复制'); setTimeout(() => setCopyText('复制'), 2000); }}
+                className="px-4 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl text-sm font-medium transition-colors whitespace-nowrap"
+              >
+                {copyText}
+              </button>
+            </div>
+            <button
+              onClick={() => setShowInvite(false)}
+              className="w-full py-2 bg-slate-100 hover:bg-slate-200 rounded-xl text-sm text-slate-600 transition-colors"
+            >
+              关闭
+            </button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
