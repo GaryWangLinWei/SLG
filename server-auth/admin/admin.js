@@ -111,19 +111,19 @@ async function loadDevices() {
           </td>
         </tr>
         <tr id="${detailId}" class="device-detail" style="display:none;">
-          <td colspan="5" style="padding:0;">
-            <table style="width:100%;margin:0;background:#f8fafc;">
+          <td colspan="5" style="padding:8px 12px;background:rgba(15,23,42,0.6);color:#cbd5e1;">
+            <table style="width:100%;margin:0;border-collapse:collapse;">
               <thead>
                 <tr>
-                  <th style="padding:6px 12px;font-size:12px;">激活码</th>
-                  <th style="padding:6px 12px;font-size:12px;">绑定时间</th>
+                  <th style="padding:4px 8px;font-size:11px;text-align:left;color:#64748b;border-bottom:1px solid rgba(100,116,139,0.2);">激活码</th>
+                  <th style="padding:4px 8px;font-size:11px;text-align:left;color:#64748b;border-bottom:1px solid rgba(100,116,139,0.2);">绑定时间</th>
                 </tr>
               </thead>
               <tbody>
                 ${device.codes.map(c => `
                   <tr>
-                    <td style="padding:4px 12px;font-size:13px;"><code>${c.code}</code></td>
-                    <td style="padding:4px 12px;font-size:13px;">${formatDate(c.bound_at)}</td>
+                    <td style="padding:3px 8px;font-size:12px;border-bottom:1px solid rgba(100,116,139,0.1);"><code style="color:#93c5fd;">${c.code}</code></td>
+                    <td style="padding:3px 8px;font-size:12px;border-bottom:1px solid rgba(100,116,139,0.1);">${formatDate(c.bound_at)}</td>
                   </tr>
                 `).join('')}
               </tbody>
