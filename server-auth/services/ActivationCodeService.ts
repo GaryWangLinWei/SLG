@@ -82,7 +82,7 @@ export function revokeCode(id: number): boolean {
 const TRIAL_CODE = 'TRIAL-7DAYS';
 const TRIAL_DAYS = 7;
 
-export function useCode(code: string, deviceFingerprint: string): { success: boolean; expiresAt?: number; error?: string; renewType?: string } {
+export function useCode(code: string, deviceFingerprint: string): { success: boolean; expiresAt?: number; error?: string; renewType?: string; code?: string } {
   const db = getDb();
   const now = Date.now();
 
@@ -123,7 +123,7 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
 
     try {
       transaction();
-      return { success: true, expiresAt };
+      return { success: true, expiresAt, code: trialCode };
     } catch (e: any) {
       return { success: false, error: e.message };
     }

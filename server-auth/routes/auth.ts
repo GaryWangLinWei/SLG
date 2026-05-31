@@ -20,9 +20,10 @@ router.post('/activate', async (ctx) => {
     return;
   }
 
-  // Get code ID from database
+  // Get code ID from database (use returned code for trial codes)
   const db = (await import('../services/AuthDatabase')).getDb();
-  const codeRow = db.prepare('SELECT id FROM activation_codes WHERE code = ?').get(code) as any;
+  const lookupCode = result.code || code;
+  const codeRow = db.prepare('SELECT id FROM activation_codes WHERE code = ?').get(lookupCode) as any;
 
   // Generate JWT
   const token = generateToken(codeRow.id);
