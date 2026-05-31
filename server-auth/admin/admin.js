@@ -92,15 +92,73 @@ async function loadDevices() {
   try {
     const data = await apiRequest('/api/admin/devices');
     const tbody = document.getElementById('devicesTable');
-    tbody.innerHTML = data.devices.map(device => `
-      <tr>
-        <td><code>${device.device_fingerprint}</code></td>
-        <td><code>${device.code}</code></td>
-        <td>${formatDate(device.bound_at)}</td>
-        <td>${formatDate(device.last_heartbeat_at)}</td>
-        <td>${formatDate(device.expires_at)}</td>
-      </tr>
-    `).join('');
+    tbody.innerHTML = data.devices.map((device, idx) => {
+      const rowId = 'dev-row-' + idx;
+      const detailId = 'dev-detail-' + idx;
+      const codeCount = device.codes.length;
+      return `
+        <tr class="device-row" data-detail="${detailId}">
+          <td><code>${device.device_fingerprint}</code></td>
+          <td>${formatDate(device.last_heartbeat_at)}</td>
+          <td>${formatDate(device.expires_at)}</td>
+          <td>
+            <span class="code-count-link" data-detail="${detailId}" style="cursor:pointer;color:#6366f1;text-decoration:underline;">
+              ${codeCount} 条 ▶
+            </span>
+          </td>
+          <td>
+            <button class="btn btn-danger delete-device-btn" data-fingerprint="${device.device_fingerprint}" title="删除设备" style="padding:2px 8px;font-size:16px;line-height:1;">✕</button>
+          </td>
+        </tr>
+        <tr id="${detailId}" class="device-detail" style="display:none;">
+          <td colspan="5" style="padding:0;">
+            <table style="width:100%;margin:0;background:#f8fafc;">
+              <thead>
+                <tr>
+                  <th style="padding:6px 12px;font-size:12px;">激活码</th>
+                  <th style="padding:6px 12px;font-size:12px;">绑定时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${device.codes.map(c => `
+                  <tr>
+                    <td style="padding:4px 12px;font-size:13px;"><code>${c.code}</code></td>
+                    <td style="padding:4px 12px;font-size:13px;">${formatDate(c.bound_at)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </td>
+        </tr>
+      `;
+    }).join('');
+
+    // 展开/收起
+    tbody.querySelectorAll('.code-count-link').forEach(link => {
+      link.addEventListener('click', () => {
+        const detailRow = document.getElementById(link.dataset.detail);
+        if (detailRow) {
+          const open = detailRow.style.display !== 'none';
+          detailRow.style.display = open ? 'none' : 'table-row';
+          link.textContent = open ? `${codeCount} 条 ▶` : `${codeCount} 条 ▼`;
+        }
+      });
+    });
+
+    // 删除设备
+    tbody.querySelectorAll('.delete-device-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const fp = btn.dataset.fingerprint;
+        if (!confirm(`确定要删除设备 ${fp.slice(0,16)}... 的所有绑定记录吗？此操作不可撤销。`)) return;
+        try {
+          const res = await apiRequest(`/api/admin/devices/${encodeURIComponent(fp)}`, { method: 'DELETE' });
+          alert(res.message);
+          loadDevices();
+        } catch (err) {
+          alert('删除失败: ' + err.message);
+        }
+      });
+    });
   } catch (e) {
     console.error('Failed to load devices:', e);
   }

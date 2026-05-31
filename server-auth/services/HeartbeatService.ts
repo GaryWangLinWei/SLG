@@ -53,7 +53,8 @@ export function generateToken(codeId: number): string {
 
 export function getActiveDevices(limit: number = 50): any[] {
   const db = getDb();
-  const stmt = db.prepare(`
+  // 先取所有激活绑定，按绑定时��降序
+  const allBindings = db.prepare(`
     SELECT
       b.device_fingerprint,
       b.bound_at,
@@ -63,14 +64,35 @@ export function getActiveDevices(limit: number = 50): any[] {
     FROM device_bindings b
     JOIN activation_codes c ON b.activation_code_id = c.id
     WHERE c.status = 'used'
-      AND c.expires_at = (
-        SELECT MAX(c2.expires_at)
-        FROM device_bindings b2
-        JOIN activation_codes c2 ON b2.activation_code_id = c2.id
-        WHERE b2.device_fingerprint = b.device_fingerprint AND c2.status = 'used'
-      )
     ORDER BY b.last_heartbeat_at DESC
-    LIMIT ?
-  `);
-  return stmt.all(limit);
+  `).all() as any[];
+
+  // 按指纹分组
+  const grouped = new Map<string, any>();
+  for (const row of allBindings) {
+    if (!grouped.has(row.device_fingerprint)) {
+      grouped.set(row.device_fingerprint, {
+        device_fingerprint: row.device_fingerprint,
+        last_heartbeat_at: row.last_heartbeat_at,
+        expires_at: row.expires_at,
+        codes: [] as { code: string; bound_at: number }[],
+      });
+    }
+    const device = grouped.get(row.device_fingerprint)!;
+    if (row.last_heartbeat_at > device.last_heartbeat_at) {
+      device.last_heartbeat_at = row.last_heartbeat_at;
+    }
+    if (row.expires_at > device.expires_at) {
+      device.expires_at = row.expires_at;
+    }
+    device.codes.push({ code: row.code, bound_at: row.bound_at });
+  }
+
+  return Array.from(grouped.values()).slice(0, limit);
+}
+
+export function deleteDevice(fingerprint: string): number {
+  const db = getDb();
+  const result = db.prepare('DELETE FROM device_bindings WHERE device_fingerprint = ?').run(fingerprint);
+  return result.changes;
 }

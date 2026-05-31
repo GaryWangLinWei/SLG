@@ -1,7 +1,7 @@
 import Router from 'koa-router';
 import { CONFIG } from '../config';
 import { generateCodes, getAllCodes, revokeCode, getStats, previewCode, exportCodes } from '../services/ActivationCodeService';
-import { getActiveDevices } from '../services/HeartbeatService';
+import { getActiveDevices, deleteDevice } from '../services/HeartbeatService';
 
 const router = new Router({ prefix: '/api/admin' });
 
@@ -89,6 +89,14 @@ router.get('/devices', async (ctx) => {
   ctx.body = {
     success: true,
     devices: getActiveDevices(limit)
+  };
+});
+
+router.delete('/devices/:fingerprint', async (ctx) => {
+  const count = deleteDevice(ctx.params.fingerprint);
+  ctx.body = {
+    success: count > 0,
+    message: count > 0 ? `已删除 ${count} 条绑定记录` : '设备不存在'
   };
 });
 

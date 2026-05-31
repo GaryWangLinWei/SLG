@@ -28,7 +28,9 @@
 - `HeartbeatService.ts` `getActiveDevices()` — GROUP BY fingerprint，聚合 codes 为子数组
 
 **前端改动：**
-- `admin.js` `loadDevices()` — 主表 4 列（指纹/最后心跳/到期时间/激活码记录），点击切换展开 codes 子表
+- `admin.js` `loadDevices()` — 主表 5 列（指纹/最后心跳/到期时间/激活码记录/操作），点击切换展开 codes 子表
+- 操作列：红色 ✕ 删除按钮，二次确认后调用 DELETE API
 - `index.html` 表头相应调整
 
-**不改动：** routes/admin.ts 只透传，不涉及业务逻辑变更。
+**后端改动：**
+- `routes/admin.ts` 新增 `DELETE /api/admin/devices/:fingerprint` — 删除该设备所有绑定记录
