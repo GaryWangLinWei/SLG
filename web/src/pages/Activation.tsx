@@ -138,7 +138,7 @@ export default function ActivationPage() {
 
             <p className="mt-4 text-center text-xs text-slate-400">
               还没有激活码？
-              <a href="https://d.871faka.com/3v07Q" target="_blank" rel="noopener noreferrer"
+              <a href="https://pay.ldxp.cn/item/h86d8u" target="_blank" rel="noopener noreferrer"
                 className="text-emerald-600 hover:text-emerald-500 ml-1">
                 在线购买
               </a>

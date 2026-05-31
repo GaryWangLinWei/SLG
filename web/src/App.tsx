@@ -83,7 +83,7 @@ function RenewButton() {
           className="text-sm text-slate-500 hover:text-red-500 px-1 py-0.5 rounded hover:bg-slate-100">
           取消
         </button>
-        <a href="https://d.871faka.com/3v07Q" target="_blank" rel="noopener noreferrer"
+        <a href="https://pay.ldxp.cn/item/h86d8u" target="_blank" rel="noopener noreferrer"
           className="text-xs text-slate-400 hover:text-emerald-600 ml-2">
           购买
         </a>

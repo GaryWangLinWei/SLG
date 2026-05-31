@@ -153,7 +153,7 @@ export class AdbDevice implements Device {
     // exec-out bypasses shell, outputs raw binary PNG via spawn
     return new Promise<Buffer>((resolve, reject) => {
       const doSpawn = () => {
-        const child = spawn(ADB_PATH, ['-s', this.deviceId, 'exec-out', 'screencap', '-p'], {
+        const child = spawn(getAdbPath(), ['-s', this.deviceId, 'exec-out', 'screencap', '-p'], {
           stdio: ['ignore', 'pipe', 'pipe']
         });
         const chunks: Buffer[] = [];
