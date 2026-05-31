@@ -47,7 +47,7 @@ router.post('/activate', async (ctx) => {
   ctx.body = {
     success: true,
     token,
-    expiresAt: result.expiresAt,
+    expiresAt: inviteeBonusDays ? (result.expiresAt || 0) + inviteeBonusDays * 86400000 : result.expiresAt,
     ...(inviteBonus ? { inviteBonus, inviterBonusDays, inviteeBonusDays } : {}),
     ...(inviteError ? { inviteError } : {})
   };

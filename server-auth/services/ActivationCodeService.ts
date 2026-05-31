@@ -279,24 +279,38 @@ export function processInviteCode(inviteCode: string, inviteeFingerprint: string
 
   const inviterFingerprint = codeRow.created_by;
 
-  const inviterBinding = db.prepare(
-    'SELECT * FROM device_bindings WHERE device_fingerprint = ? ORDER BY bound_at DESC LIMIT 1'
-  ).get(inviterFingerprint) as { expires_at: number } | undefined;
+  // 查邀请人最新的 expires_at（在 activation_codes 上，不在 device_bindings）
+  const inviterCode = db.prepare(`
+    SELECT ac.id, ac.expires_at FROM activation_codes ac
+    JOIN device_bindings db ON ac.id = db.activation_code_id
+    WHERE db.device_fingerprint = ?
+    ORDER BY ac.expires_at DESC LIMIT 1
+  `).get(inviterFingerprint) as { id: number; expires_at: number } | undefined;
+
+  // 查被邀请人最新的 activation_code
+  const inviteeCode = db.prepare(`
+    SELECT ac.id, ac.expires_at FROM activation_codes ac
+    JOIN device_bindings db ON ac.id = db.activation_code_id
+    WHERE db.device_fingerprint = ?
+    ORDER BY ac.expires_at DESC LIMIT 1
+  `).get(inviteeFingerprint) as { id: number; expires_at: number } | undefined;
 
   const transaction = db.transaction(() => {
     db.prepare('UPDATE activation_codes SET status = ?, used_at = ? WHERE id = ?')
       .run('used', now, codeRow.id);
 
-    // 奖励邀请人
-    if (inviterBinding) {
-      const newExpiresAt = Math.max(inviterBinding.expires_at, now) + INVITE_BONUS_DAYS * 86400000;
-      db.prepare('UPDATE device_bindings SET expires_at = ? WHERE device_fingerprint = ?')
-        .run(newExpiresAt, inviterFingerprint);
+    // 奖励邀请人：延长其激活码的到期时间
+    if (inviterCode) {
+      const newExpiresAt = Math.max(inviterCode.expires_at, now) + INVITE_BONUS_DAYS * 86400000;
+      db.prepare('UPDATE activation_codes SET expires_at = ? WHERE id = ?')
+        .run(newExpiresAt, inviterCode.id);
     }
 
-    // 奖励被邀请人
-    db.prepare('UPDATE device_bindings SET expires_at = expires_at + ? WHERE device_fingerprint = ?')
-      .run(INVITE_BONUS_DAYS * 86400000, inviteeFingerprint);
+    // 奖励被邀请人：延长其激活码的到期时间
+    if (inviteeCode) {
+      db.prepare('UPDATE activation_codes SET expires_at = expires_at + ? WHERE id = ?')
+        .run(INVITE_BONUS_DAYS * 86400000, inviteeCode.id);
+    }
 
     // 记录邀请关系
     db.prepare(
