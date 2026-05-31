@@ -6,7 +6,7 @@ export interface ActivationCode {
   code: string;
   duration_days: number;
   status: 'unused' | 'used' | 'revoked' | 'exported';
-  type?: 'normal' | 'invite';
+  type?: 'normal' | 'invite' | 'trial';
   created_at: number;
   used_at?: number;
   expires_at?: number;
@@ -79,9 +79,47 @@ export function revokeCode(id: number): boolean {
   return result.changes > 0;
 }
 
+const TRIAL_CODE = 'TRIAL-7DAYS';
+const TRIAL_DAYS = 7;
+
 export function useCode(code: string, deviceFingerprint: string): { success: boolean; expiresAt?: number; error?: string; renewType?: string } {
   const db = getDb();
   const now = Date.now();
+
+  // 试用码处理
+  if (code === TRIAL_CODE) {
+    const alreadyTrialed = db.prepare(`
+      SELECT 1 FROM device_bindings db
+      JOIN activation_codes ac ON db.activation_code_id = ac.id
+      WHERE db.device_fingerprint = ? AND ac.type = 'trial'
+    `).get(deviceFingerprint);
+    if (alreadyTrialed) {
+      return { success: false, error: '该设备已领取过试用' };
+    }
+
+    const insertCode = db.prepare(`
+      INSERT INTO activation_codes (code, duration_days, status, type, created_at, created_by, expires_at)
+      VALUES (?, ?, 'used', 'trial', ?, ?, ?)
+    `);
+    const insertBinding = db.prepare(`
+      INSERT INTO device_bindings (activation_code_id, device_fingerprint, bound_at, last_heartbeat_at)
+      VALUES (?, ?, ?, ?)
+    `);
+    const trialCode = `TRIAL-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const expiresAt = now + TRIAL_DAYS * 24 * 60 * 60 * 1000;
+
+    const transaction = db.transaction(() => {
+      const result = insertCode.run(trialCode, TRIAL_DAYS, now, deviceFingerprint, expiresAt);
+      insertBinding.run(result.lastInsertRowid, deviceFingerprint, now, now);
+    });
+
+    try {
+      transaction();
+      return { success: true, expiresAt };
+    } catch (e: any) {
+      return { success: false, error: e.message };
+    }
+  }
 
   const activationCode = getCode(code);
   if (!activationCode) {
