@@ -145,6 +145,12 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../../web/dist/index.html'));
   }
 
+  // 拦截 target="_blank" 链接，用系统默认浏览器打开
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
   // Log page load failures
   mainWindow.webContents.on('did-fail-load', (_event, code, desc, url) => {
     console.error('Page load failed:', { code, desc, url });

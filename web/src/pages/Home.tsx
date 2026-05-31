@@ -338,16 +338,8 @@ export function HomePage() {
       return;
     }
 
-    const selectedActions: string[] = [];
-    if (features.collectResources) selectedActions.push('收集资源');
-    if (features.upgradeBuildings) selectedActions.push('升级建筑');
-    if (features.autoResearch) selectedActions.push('研究科技');
-    if (features.gatherResources) selectedActions.push('城外采集');
-    if (features.trainTroops) selectedActions.push('训练兵种');
-    if (features.helpTeammates) selectedActions.push('帮助盟友');
-    if (features.autoExplore) selectedActions.push('自动探索');
-
-    if (selectedActions.length === 0) {
+    const hasAnyFeature = Object.values(features).some(v => typeof v === 'boolean' && v === true);
+    if (!hasAnyFeature) {
       alert('请勾选要执行的功能');
       return;
     }
@@ -358,9 +350,11 @@ export function HomePage() {
     saveLoopState(currentAccountId);
     setTaskRunning(true);
     const isExploreMode = features.autoExplore;
-    const interval = isExploreMode ? 60 : features.loopInterval;
+    const isWorldChatMode = features.autoWorldChat;
+    const interval = isExploreMode ? 60 : isWorldChatMode ? features.worldChatInterval : features.loopInterval;
     clearLoopState();
-    setLogs([`[${new Date().toLocaleTimeString()}] 🚀 开始${isExploreMode ? '自动探索' : '循环执行: ' + selectedActions.join(' + ')} (间隔${interval}秒)`]);
+    const modeLabel = isExploreMode ? '自动探索' : isWorldChatMode ? '自动喊话' : '自动循环';
+    setLogs([`[${new Date().toLocaleTimeString()}] 🚀 开始${modeLabel} (间隔${interval}秒)`]);
 
     // Reset completion state for a fresh run (module-level for loop, state for UI)
     loopCompletedBuildings = [false, false, false, false, false];
@@ -440,7 +434,7 @@ export function HomePage() {
         let first = true;
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
-          if (features.helpTeammates && !features.autoExplore) {
+          if (features.helpTeammates && !features.autoExplore && !features.autoWorldChat) {
             if (!await acquireLock()) break;
             try {
               const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'help-teammates');
@@ -476,7 +470,7 @@ export function HomePage() {
         let first = true;
         while (!loopStopped) {
           if (first) { first = false; await sleep(4 * 3600); continue; }
-          if (features.collectResources && !features.autoExplore) {
+          if (features.collectResources && !features.autoExplore && !features.autoWorldChat) {
             if (!await acquireLock()) break;
             try {
               const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'collect-resources');
