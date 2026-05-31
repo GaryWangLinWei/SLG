@@ -241,7 +241,8 @@ ipcMain.handle('check-update', () => {
 });
 
 ipcMain.handle('install-update', () => {
-  autoUpdater.quitAndInstall();
+  isQuiting = true;
+  autoUpdater.quitAndInstall(true, true);
 });
 
 ipcMain.handle('open-external', (_event, url: string) => {

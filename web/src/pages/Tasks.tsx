@@ -76,9 +76,6 @@ export function TasksPage() {
                     <span className={`w-2 h-2 rounded-full ${getStatusColor(task.status)}`}></span>
                     <span className="font-medium truncate">{task.actionId}</span>
                   </div>
-                  <p className="text-xs text-slate-400 mt-1">
-                    {getAccountName(task.accountId)}
-                  </p>
                   <p className="text-xs text-slate-500">
                     {task.startTime ? new Date(task.startTime).toLocaleString('zh-CN') : '-'}
                   </p>

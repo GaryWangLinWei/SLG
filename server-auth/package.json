@@ -11,7 +11,7 @@
   "dependencies": {
     "@koa/cors": "^5.0.0",
     "@types/koa-mount": "^4.0.5",
-    "better-sqlite3": "^9.4.3",
+    "better-sqlite3": "^12.10.0",
     "jsonwebtoken": "^9.0.2",
     "koa": "^2.15.3",
     "koa-bodyparser": "^4.4.1",

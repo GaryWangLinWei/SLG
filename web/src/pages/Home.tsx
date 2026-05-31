@@ -123,6 +123,12 @@ export function HomePage() {
   const [_runningTaskIds, setRunningTaskIds] = useState<string[]>([]);
   const [logs, setLogs] = useState<string[]>(loopLogs);
   useEffect(() => { loopLogs = logs; }, [logs]);
+  const logContainerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [logs]);
   const DEFAULT_FEATURES = {
     ...DEFAULT_HOME_FEATURES,
     completedBuildings: [false, false, false, false, false] as boolean[],
@@ -1219,7 +1225,7 @@ export function HomePage() {
             </div>
             <Link to="/tasks" className="text-xs text-slate-400 hover:text-emerald-600">调试</Link>
           </div>
-          <div className="bg-slate-900 rounded-xl p-4 h-48 overflow-y-auto font-mono text-sm">
+          <div ref={logContainerRef} className="bg-slate-900 rounded-xl p-4 h-80 overflow-y-auto font-mono text-sm">
             {logs.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full gap-3">
                 <span className="text-2xl opacity-30">📝</span>

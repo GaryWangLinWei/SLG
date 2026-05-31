@@ -100,8 +100,10 @@ npm run electron:build:win
 ### 3. 上传到 VPS
 
 ```powershell
-scp "D:\SLG\release\latest.yml" "D:\SLG\release\ROK助手 Setup 1.0.1.exe" root@106.15.11.158:/root/server-auth/updates/
+scp "D:\SLG\release\latest.yml" "D:\SLG\release\ROK助手 Setup 1.0.2.exe" "D:\SLG\release\ROK助手 Setup 1.0.2.exe.blockmap" root@106.15.11.158:/root/server-auth/updates/
 ```
+
+> **重要：不要删除 VPS 上旧版本的 .exe 和 .blockmap 文件。** `electron-updater` 会用旧版本的 blockmap 做**差量更新**，只下载差异部分（通常几 MB 而非 169 MB）。如果删了旧文件，每次都得全量下载。
 
 ### 4. 验证
 
