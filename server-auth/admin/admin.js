@@ -189,10 +189,14 @@ document.getElementById('copyBtn').addEventListener('click', () => {
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(c => {
+      c.classList.remove('active');
+      c.style.display = 'none';
+    });
     btn.classList.add('active');
-    document.getElementById(btn.dataset.tab + 'Tab').classList.add('active');
-    document.getElementById(btn.dataset.tab + 'Tab').style.display = 'block';
+    const target = document.getElementById(btn.dataset.tab + 'Tab');
+    target.classList.add('active');
+    target.style.display = 'block';
 
     if (btn.dataset.tab === 'devices') {
       loadDevices();
