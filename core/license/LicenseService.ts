@@ -89,7 +89,14 @@ class LicenseService {
       await saveLicense(licenseData);
       this.startHeartbeatInterval();
 
-      return { success: true, expiresAt: safeExpiresAt };
+      return {
+        success: true,
+        expiresAt: safeExpiresAt,
+        inviteBonus: data.inviteBonus,
+        inviteError: data.inviteError,
+        inviterBonusDays: data.inviterBonusDays,
+        inviteeBonusDays: data.inviteeBonusDays,
+      };
     } catch (e: any) {
       return { success: false, error: '无法连接授权服务器，请检查网络: ' + e.message };
     }
