@@ -6,6 +6,7 @@ export interface ActivationCode {
   code: string;
   duration_days: number;
   status: 'unused' | 'used' | 'revoked' | 'exported';
+  type?: 'normal' | 'invite';
   created_at: number;
   used_at?: number;
   expires_at?: number;
@@ -14,6 +15,17 @@ export interface ActivationCode {
 
 function generateCode(): string {
   return uuidv4().replace(/-/g, '').substring(0, 16).toUpperCase();
+}
+
+const INVITE_BONUS_DAYS = 3;
+
+function generateInviteCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
+  let result = 'INV-';
+  for (let i = 0; i < 8; i++) {
+    result += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return result;
 }
 
 export function generateCodes(count: number, durationDays: number = 30): ActivationCode[] {
@@ -76,6 +88,10 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
     return { success: false, error: '激活码不存在' };
   }
 
+  if (activationCode.type === 'invite') {
+    return { success: false, error: '邀请码不能直接激活，请使用购买的激活码' };
+  }
+
   if (activationCode.status === 'revoked') {
     return { success: false, error: '激活码已被吊销' };
   }
@@ -133,6 +149,16 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
   const transaction = db.transaction(() => {
     updateCode.run(now, expiresAt, activationCode.id);
     insertBinding.run(activationCode.id, deviceFingerprint, now, now);
+
+    // 首次激活成功后自动生成邀请码
+    const existingInvite = db.prepare(
+      "SELECT id FROM activation_codes WHERE type = 'invite' AND created_by = ?"
+    ).get(deviceFingerprint);
+    if (!existingInvite) {
+      db.prepare(
+        'INSERT INTO activation_codes (code, duration_days, status, type, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)'
+      ).run(generateInviteCode(), INVITE_BONUS_DAYS, 'unused', 'invite', now, deviceFingerprint);
+    }
   });
 
   try {
@@ -219,4 +245,69 @@ export function exportCodes(ids?: number[]): string {
 
   // 生成 TXT，每行一个激活码
   return rows.map(r => r.code).join('\n');
+}
+
+export function processInviteCode(inviteCode: string, inviteeFingerprint: string): {
+  success: boolean;
+  inviterBonusDays?: number;
+  inviteeBonusDays?: number;
+  error?: string;
+} {
+  const db = getDb();
+  const now = Date.now();
+
+  const codeRow = db.prepare(
+    "SELECT * FROM activation_codes WHERE code = ? AND type = 'invite'"
+  ).get(inviteCode) as ActivationCode | undefined;
+
+  if (!codeRow) {
+    return { success: false, error: '邀请码不存在' };
+  }
+  if (codeRow.status === 'used') {
+    return { success: false, error: '邀请码已被使用' };
+  }
+  if (codeRow.status === 'revoked') {
+    return { success: false, error: '邀请码已失效' };
+  }
+
+  const alreadyInvited = db.prepare(
+    'SELECT id FROM invitations WHERE invitee_fingerprint = ?'
+  ).get(inviteeFingerprint);
+  if (alreadyInvited) {
+    return { success: false, error: '该设备已领取过邀请奖励' };
+  }
+
+  const inviterFingerprint = codeRow.created_by;
+
+  const inviterBinding = db.prepare(
+    'SELECT * FROM device_bindings WHERE device_fingerprint = ? ORDER BY bound_at DESC LIMIT 1'
+  ).get(inviterFingerprint) as { expires_at: number } | undefined;
+
+  const transaction = db.transaction(() => {
+    db.prepare('UPDATE activation_codes SET status = ?, used_at = ? WHERE id = ?')
+      .run('used', now, codeRow.id);
+
+    // 奖励邀请人
+    if (inviterBinding) {
+      const newExpiresAt = Math.max(inviterBinding.expires_at, now) + INVITE_BONUS_DAYS * 86400000;
+      db.prepare('UPDATE device_bindings SET expires_at = ? WHERE device_fingerprint = ?')
+        .run(newExpiresAt, inviterFingerprint);
+    }
+
+    // 奖励被邀请人
+    db.prepare('UPDATE device_bindings SET expires_at = expires_at + ? WHERE device_fingerprint = ?')
+      .run(INVITE_BONUS_DAYS * 86400000, inviteeFingerprint);
+
+    // 记录邀请关系
+    db.prepare(
+      'INSERT INTO invitations (invite_code_id, inviter_fingerprint, invitee_fingerprint, inviter_bonus_days, invitee_bonus_days, created_at) VALUES (?, ?, ?, ?, ?, ?)'
+    ).run(codeRow.id, inviterFingerprint, inviteeFingerprint, INVITE_BONUS_DAYS, INVITE_BONUS_DAYS, now);
+  });
+
+  try {
+    transaction();
+    return { success: true, inviterBonusDays: INVITE_BONUS_DAYS, inviteeBonusDays: INVITE_BONUS_DAYS };
+  } catch (e: any) {
+    return { success: false, error: e.message };
+  }
 }
