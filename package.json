@@ -1,6 +1,6 @@
 {
   "name": "rok-automation",
-  "version": "1.0.2",
+  "version": "1.0.0",
   "description": "万国觉醒自动化助手",
   "main": "dist/electron/main.js",
   "scripts": {
@@ -59,7 +59,8 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "createStartMenuShortcut": true
+      "createStartMenuShortcut": true,
+      "include": "electron/installer.nsh"
     },
     "publish": {
       "provider": "generic",
