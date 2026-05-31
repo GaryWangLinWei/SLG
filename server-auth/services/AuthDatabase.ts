@@ -55,9 +55,30 @@ function initTables() {
     )
   `);
 
+  // 邀请关系表
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS invitations (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      invite_code_id INTEGER NOT NULL,
+      inviter_fingerprint TEXT NOT NULL,
+      invitee_fingerprint TEXT NOT NULL,
+      inviter_bonus_days INTEGER NOT NULL,
+      invitee_bonus_days INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (invite_code_id) REFERENCES activation_codes(id)
+    )
+  `);
+
+  // activation_codes 新增 type 字段
+  try {
+    database.exec(`ALTER TABLE activation_codes ADD COLUMN type TEXT NOT NULL DEFAULT 'normal'`);
+  } catch { /* 字段已存在，忽略 */ }
+
   database.exec('CREATE INDEX IF NOT EXISTS idx_codes_status ON activation_codes(status)');
   database.exec('CREATE INDEX IF NOT EXISTS idx_codes_code ON activation_codes(code)');
   database.exec('CREATE INDEX IF NOT EXISTS idx_bindings_fingerprint ON device_bindings(device_fingerprint)');
+  database.exec('CREATE INDEX IF NOT EXISTS idx_invitations_inviter ON invitations(inviter_fingerprint)');
+  database.exec('CREATE INDEX IF NOT EXISTS idx_invitations_invitee ON invitations(invitee_fingerprint)');
 }
 
 export function closeDb() {
