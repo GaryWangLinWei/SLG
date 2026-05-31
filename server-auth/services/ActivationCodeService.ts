@@ -86,8 +86,16 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
   const db = getDb();
   const now = Date.now();
 
-  // 试用码处理
+  // 试用码处理（仅限新用户）
   if (code === TRIAL_CODE) {
+    // 检查设备是否已有任何激活（新用户才能试用）
+    const hasAnyActivation = db.prepare(
+      'SELECT id FROM device_bindings WHERE device_fingerprint = ?'
+    ).get(deviceFingerprint);
+    if (hasAnyActivation) {
+      return { success: false, error: '试用码仅限新用户使用' };
+    }
+
     const alreadyTrialed = db.prepare(`
       SELECT 1 FROM device_bindings db
       JOIN activation_codes ac ON db.activation_code_id = ac.id
