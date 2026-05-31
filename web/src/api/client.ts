@@ -195,6 +195,8 @@ export const api = {
         body: JSON.stringify({ code })
       }),
     deactivate: () =>
-      request<{ success: boolean }>('/license/deactivate', { method: 'POST' })
+      request<{ success: boolean }>('/license/deactivate', { method: 'POST' }),
+    heartbeat: () =>
+      request<{ success: boolean; expiresAt?: number }>('/license/heartbeat', { method: 'POST' })
   }
 };

@@ -115,7 +115,7 @@ function RenewButton() {
 }
 
 function NavBar() {
-  const { status } = useLicense();
+  const { status, syncStatus } = useLicense();
   const isElectron = typeof window !== 'undefined' && 'electronAPI' in window;
   const location = useLocation();
   const [appVersion, setAppVersion] = useState('');
@@ -183,6 +183,16 @@ function NavBar() {
               <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> 已激活
             </span>
             <RemainingTime expiresAt={status.expiresAt} />
+            <button
+              onClick={() => syncStatus()}
+              className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 transition-colors"
+              style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+              title="同步授权状态"
+            >
+              <svg className="w-3.5 h-3.5 text-slate-400 hover:text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+            </button>
             <RenewButton />
             {status?.activated && (
               <button
@@ -294,7 +304,7 @@ function LicenseGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function AppContent() {
+function UpdateUI() {
   const [updateStatus, setUpdateStatus] = useState<{
     status: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded';
     progress?: number;
@@ -315,31 +325,38 @@ function AppContent() {
   }, []);
 
   return (
+    <>
+      {updateStatus.status === 'downloading' && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-slate-900 h-1">
+          <div
+            className="h-full bg-emerald-500 transition-all duration-300"
+            style={{ width: `${updateStatus.progress || 0}%` }}
+          />
+        </div>
+      )}
+      {updateStatus.status === 'downloaded' && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-emerald-50 border-b border-emerald-300 px-6 py-2 flex items-center justify-between">
+          <span className="text-sm text-emerald-700">
+            v{updateStatus.version} 已就绪，重启后生效
+          </span>
+          <button
+            onClick={() => window.electronAPI?.installUpdate()}
+            className="px-4 py-1 bg-emerald-500 text-white rounded-full text-sm font-medium hover:bg-emerald-600 transition-colors"
+          >
+            重启安装
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
+function AppContent() {
+  return (
     <LicenseGate>
       <AccountProvider>
         <div className="h-screen bg-slate-100 text-slate-800 flex flex-col">
           <NavBar />
-          {updateStatus.status === 'downloading' && (
-            <div className="bg-slate-900 h-1 relative">
-              <div
-                className="h-full bg-emerald-500 transition-all duration-300"
-                style={{ width: `${updateStatus.progress || 0}%` }}
-              />
-            </div>
-          )}
-          {updateStatus.status === 'downloaded' && (
-            <div className="bg-emerald-50 border-b border-emerald-300 px-6 py-2 flex items-center justify-between">
-              <span className="text-sm text-emerald-700">
-                v{updateStatus.version} 已就绪，重启后生效
-              </span>
-              <button
-                onClick={() => window.electronAPI?.installUpdate()}
-                className="px-4 py-1 bg-emerald-500 text-white rounded-full text-sm font-medium hover:bg-emerald-600 transition-colors"
-              >
-                重启安装
-              </button>
-            </div>
-          )}
           <div className="flex-1 overflow-y-auto">
             <Routes>
               <Route path="/" element={<HomePage />} />
@@ -361,6 +378,7 @@ function App() {
     <ErrorBoundary>
       <Router>
         <LicenseProvider>
+          <UpdateUI />
           <AppContent />
         </LicenseProvider>
       </Router>

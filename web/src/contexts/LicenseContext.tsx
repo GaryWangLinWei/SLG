@@ -21,6 +21,7 @@ interface LicenseContextType {
   preview: (code: string) => Promise<{ success: boolean; durationDays?: number; error?: string }>;
   deactivate: () => Promise<void>;
   refreshStatus: () => Promise<void>;
+  syncStatus: () => Promise<void>;   // 手动心跳同步
   clearActivateError: () => void;  // 清除激活错误
 }
 
@@ -88,6 +89,13 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  const syncStatus = useCallback(async () => {
+    try {
+      await api.license.heartbeat();
+      await refreshStatus();
+    } catch { /* ignore */ }
+  }, [refreshStatus]);
+
   const deactivate = useCallback(async () => {
     try {
       setLoading(true);
@@ -108,7 +116,7 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
   }, [refreshStatus]);
 
   return (
-    <LicenseContext.Provider value={{ status, loading, error, activateError, expiredMessage, setExpiredMessage, activate, preview, deactivate, refreshStatus, clearActivateError }}>
+    <LicenseContext.Provider value={{ status, loading, error, activateError, expiredMessage, setExpiredMessage, activate, preview, deactivate, refreshStatus, syncStatus, clearActivateError }}>
       {children}
     </LicenseContext.Provider>
   );
