@@ -1,11 +1,11 @@
 import Router from 'koa-router';
-import { useCode } from '../services/ActivationCodeService';
+import { useCode, processInviteCode } from '../services/ActivationCodeService';
 import { verifyAndHeartbeat, generateToken } from '../services/HeartbeatService';
 
 const router = new Router({ prefix: '/api/auth' });
 
 router.post('/activate', async (ctx) => {
-  const { code, fingerprint } = ctx.request.body as { code?: string; fingerprint?: string };
+  const { code, fingerprint, inviteCode } = ctx.request.body as { code?: string; fingerprint?: string; inviteCode?: string };
 
   if (!code || !fingerprint) {
     ctx.status = 400;
@@ -27,10 +27,29 @@ router.post('/activate', async (ctx) => {
   // Generate JWT
   const token = generateToken(codeRow.id);
 
+  // 处理邀请码（主激活成功后）
+  let inviteError: string | undefined;
+  let inviteBonus: boolean | undefined;
+  let inviterBonusDays: number | undefined;
+  let inviteeBonusDays: number | undefined;
+
+  if (inviteCode) {
+    const inviteResult = processInviteCode(inviteCode, fingerprint);
+    if (inviteResult.success) {
+      inviteBonus = true;
+      inviterBonusDays = inviteResult.inviterBonusDays;
+      inviteeBonusDays = inviteResult.inviteeBonusDays;
+    } else {
+      inviteError = inviteResult.error;
+    }
+  }
+
   ctx.body = {
     success: true,
     token,
-    expiresAt: result.expiresAt
+    expiresAt: result.expiresAt,
+    ...(inviteBonus ? { inviteBonus, inviterBonusDays, inviteeBonusDays } : {}),
+    ...(inviteError ? { inviteError } : {})
   };
 });
 
@@ -67,6 +86,20 @@ router.post('/heartbeat', async (ctx) => {
   }
 
   ctx.body = result;
+});
+
+router.get('/my-invite-code', async (ctx) => {
+  const fingerprint = ctx.query.fingerprint as string;
+  if (!fingerprint) {
+    ctx.status = 400;
+    ctx.body = { success: false, error: '缺少设备指纹' };
+    return;
+  }
+  const db = (await import('../services/AuthDatabase')).getDb();
+  const row = db.prepare(
+    "SELECT code FROM activation_codes WHERE type = 'invite' AND created_by = ?"
+  ).get(fingerprint) as { code: string } | undefined;
+  ctx.body = { success: true, code: row?.code || null };
 });
 
 export default router;
