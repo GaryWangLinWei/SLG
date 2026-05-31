@@ -219,8 +219,11 @@ class LicenseService {
       });
 
       if (response.ok) {
-        await saveLicense({ ...stored, lastHeartbeatAt: Date.now() });
-        return { success: true, isOffline: false };
+        const data = await response.json() as any;
+        const updatedExpiresAt = data?.expiresAt && data.expiresAt > stored.expiresAt
+          ? data.expiresAt : stored.expiresAt;
+        await saveLicense({ ...stored, lastHeartbeatAt: Date.now(), expiresAt: updatedExpiresAt });
+        return { success: true, isOffline: false, expiresAt: updatedExpiresAt };
       }
 
       return { success: false, isOffline: false, error: (await response.json() as any).error || '心跳验证失败' };

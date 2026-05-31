@@ -30,6 +30,7 @@ export interface HeartbeatResult {
   success: boolean;
   isOffline: boolean;
   error?: string;
+  expiresAt?: number;
 }
 
 export interface StoredLicenseData {
