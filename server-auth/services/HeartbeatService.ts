@@ -93,6 +93,10 @@ export function getActiveDevices(limit: number = 50): any[] {
 
 export function deleteDevice(fingerprint: string): number {
   const db = getDb();
-  const result = db.prepare('DELETE FROM device_bindings WHERE device_fingerprint = ?').run(fingerprint);
-  return result.changes;
+  const transaction = db.transaction(() => {
+    db.prepare('DELETE FROM device_bindings WHERE device_fingerprint = ?').run(fingerprint);
+    db.prepare('DELETE FROM invitations WHERE invitee_fingerprint = ? OR inviter_fingerprint = ?').run(fingerprint, fingerprint);
+  });
+  transaction();
+  return 1; // always returns success since it's a cleanup operation
 }
