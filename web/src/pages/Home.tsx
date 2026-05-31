@@ -606,13 +606,16 @@ export function HomePage() {
 
         // 喊话模式：与其他任务互斥，只执行世界喊话
         if (features.autoWorldChat) {
-          if (!features.worldChatMessage?.trim()) {
+          const messages = (features.worldChatMessages || []).filter(m => m.trim());
+          if (messages.length === 0) {
             setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未填写喊话内容，跳过`]);
             loopStopped = true;
             break;
           }
+          let msgIndex = 0;
+
           if (await acquireLock()) {
-            try { await runTask('send-world-chat', { message: features.worldChatMessage, isFirst: true }); }
+            try { await runTask('send-world-chat', { message: messages[msgIndex], isFirst: true }); }
             finally { releaseLock(); }
           }
           if (loopStopped) break;
@@ -621,7 +624,8 @@ export function HomePage() {
             const chatInterval = features.worldChatInterval || 300;
             const nextWake = Math.max(15, chatInterval * (0.85 + Math.random() * 0.3));
             const chatStartWait = Date.now();
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📢 喊话模式，下次发送 ${nextWake.toFixed(0)} 秒后`]);
+            msgIndex = (msgIndex + 1) % messages.length;
+            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📢 喊话模式，下次发送 消息${msgIndex + 1} ${nextWake.toFixed(0)} 秒后`]);
 
             const dragSafety = 5;
             const dragWindow = nextWake - dragSafety;
@@ -644,7 +648,7 @@ export function HomePage() {
             if (loopStopped) break;
 
             if (await acquireLock()) {
-              try { await runTask('send-world-chat', { message: features.worldChatMessage, isFirst: false }); }
+              try { await runTask('send-world-chat', { message: messages[msgIndex], isFirst: false }); }
               finally { releaseLock(); }
             }
           }
@@ -1157,16 +1161,23 @@ export function HomePage() {
               </div>
               <div className="flex flex-col gap-2 mt-2">
                 {features.autoWorldChat && <span className="text-xs px-1.5 py-0.5 bg-purple-500 text-white rounded-full font-medium w-fit">独立模式</span>}
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400 whitespace-nowrap">消息内容</span>
-                  <input
-                    type="text"
-                    value={features.worldChatMessage}
-                    onChange={(e) => setFeatures({ ...features, worldChatMessage: e.target.value })}
-                    placeholder="输入喊话内容..."
-                    disabled={features.autoWorldChat}
-                    className="flex-1 px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 focus:outline-none focus:border-purple-500 disabled:opacity-50"
-                  />
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs text-slate-400">消息内容（轮换发送，空消息自动跳过）</span>
+                  {[0, 1, 2].map(i => (
+                    <input
+                      key={i}
+                      type="text"
+                      value={features.worldChatMessages?.[i] ?? ''}
+                      onChange={(e) => {
+                        const msgs = [...(features.worldChatMessages || ['', '', ''])];
+                        msgs[i] = e.target.value;
+                        setFeatures({ ...features, worldChatMessages: msgs });
+                      }}
+                      placeholder={`消息 ${i + 1}`}
+                      disabled={features.autoWorldChat}
+                      className="px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 focus:outline-none focus:border-purple-500 disabled:opacity-50"
+                    />
+                  ))}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-400 whitespace-nowrap">间隔（秒）</span>

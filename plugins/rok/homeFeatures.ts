@@ -11,7 +11,7 @@ export interface HomeFeatures {
   autoExplore: boolean;
   exploreCount: number;
   autoWorldChat: boolean;
-  worldChatMessage: string;
+  worldChatMessages: string[];
   worldChatInterval: number;
   helpTeammates: boolean;
   loopInterval: number;
@@ -36,7 +36,7 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   autoExplore: false,
   exploreCount: 3,
   autoWorldChat: false,
-  worldChatMessage: '',
+  worldChatMessages: ['', '', ''],
   worldChatInterval: 300,
   helpTeammates: false,
   loopInterval: 300,
