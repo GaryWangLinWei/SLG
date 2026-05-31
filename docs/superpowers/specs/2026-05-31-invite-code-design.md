@@ -122,12 +122,12 @@ function processInviteCode(inviteCode: string, inviteeFingerprint: string): {
     return { success: false, error: '邀请码已失效' };
   }
 
-  // 被邀请人必须是新用户
-  const existingBinding = db.prepare(
-    'SELECT * FROM device_bindings WHERE device_fingerprint = ?'
+  // 被邀请人不能重复领取邀请奖励
+  const alreadyInvited = db.prepare(
+    'SELECT id FROM invitations WHERE invitee_fingerprint = ?'
   ).get(inviteeFingerprint);
-  if (existingBinding) {
-    return { success: false, error: '邀请码仅供新用户使用' };
+  if (alreadyInvited) {
+    return { success: false, error: '该设备已领取过邀请奖励' };
   }
 
   const inviterFingerprint = codeRow.created_by;
