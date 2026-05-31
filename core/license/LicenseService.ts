@@ -55,7 +55,7 @@ class LicenseService {
     };
   }
 
-  async activate(activationCode: string): Promise<ActivationResult> {
+  async activate(activationCode: string, inviteCode?: string): Promise<ActivationResult> {
     const fingerprint = await generateFingerprint();
 
     // ========== 测试模式 ==========
@@ -131,7 +131,7 @@ class LicenseService {
       const response = await fetch(`${AUTH_SERVER_URL}/api/auth/activate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: activationCode, fingerprint })
+        body: JSON.stringify({ code: activationCode, fingerprint, inviteCode })
       });
 
       let data: any = {};

@@ -19,7 +19,11 @@ export interface ActivationResult {
   success: boolean;
   error?: string;
   expiresAt?: number;
-  renewType?: 'same' | 'up' | 'down';  // same=续费累加, up/down=时间重置
+  renewType?: string;
+  inviteBonus?: boolean;
+  inviteError?: string;
+  inviterBonusDays?: number;
+  inviteeBonusDays?: number;
 }
 
 export interface HeartbeatResult {
