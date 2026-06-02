@@ -87,10 +87,21 @@ class TaskService {
       return { success: false, message: '任务不存在' };
     }
 
-    if (task.status !== 'running') {
-      return { success: false, message: '任务未在运行' };
+    // 已完成/错误/已停止 的终态任务不可再停止
+    if (task.status === 'completed' || task.status === 'error' || task.status === 'stopped') {
+      return { success: false, message: '任务已结束，无需停止' };
     }
 
+    // pending: 还没开始跑，直接标记为 stopped
+    if (task.status === 'pending') {
+      task.status = 'stopped';
+      task.endTime = new Date();
+      task.stopRequested = true;
+      task.logs.push(`[${new Date().toLocaleTimeString()}] 任务已手动停止`);
+      return { success: true, message: '任务已停止' };
+    }
+
+    // running: 设标志位 + abort
     task.stopRequested = true;
     const abort = this.abortControllers.get(taskId);
     if (abort) {
@@ -121,6 +132,14 @@ class TaskService {
     }
     this.accountBusy.set(task.accountId, true);
 
+    // 拿到锁后检查是否在排队期间被停止了
+    if (task.status === 'stopped' || task.stopRequested) {
+      this.accountBusy.set(task.accountId, false);
+      task.logs.push(`[${new Date().toLocaleTimeString()}] 任务已手动停止`);
+      task.endTime = new Date();
+      return task;
+    }
+
     const checkStop = () => {
       if (task.stopRequested) {
         throw new Error('Task stopped by user');
@@ -137,7 +156,6 @@ class TaskService {
 
     task.status = 'running';
     task.startTime = new Date();
-    task.stopRequested = false;
     task.logs.push(`[${new Date().toLocaleTimeString()}] 任务开始执行`);
 
     // Per-task logger: writes to task.logs AND persistent log file

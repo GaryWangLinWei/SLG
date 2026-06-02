@@ -523,6 +523,14 @@ export function HomePage() {
               const runResult = await api.tasks.run(createResult.task.id);
               runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
               setRunningTaskIds([...runningTaskIdsRef.current]);
+
+              // 任务在排队等锁期间被停止
+              if (runResult.task?.status === 'stopped') {
+                loopStopped = true;
+                setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ ${createResult.task.actionId} 已被停止`]);
+                return runResult.task?.logs ?? [];
+              }
+
               const logs = runResult.task?.logs ?? [];
 
               const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
@@ -606,32 +614,43 @@ export function HomePage() {
 
         // 喊话模式：与其他任务互斥，只执行世界喊话
         if (features.autoWorldChat) {
-          const messages = (features.worldChatMessages || []).filter(m => m.trim());
+          const messages = (features.worldChatMessages || []).filter((m: string) => m.trim());
           if (messages.length === 0) {
             setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未填写喊话内容，跳过`]);
             loopStopped = true;
             break;
           }
-          let msgIndex = 0;
-
-          if (await acquireLock()) {
-            try { await runTask('send-world-chat', { message: messages[msgIndex], isFirst: true }); }
-            finally { releaseLock(); }
-          }
-          if (loopStopped) break;
 
           while (!loopStopped && features.autoWorldChat) {
-            const chatInterval = features.worldChatInterval || 300;
-            const nextWake = Math.max(15, chatInterval * (0.85 + Math.random() * 0.3));
-            const chatStartWait = Date.now();
-            msgIndex = (msgIndex + 1) % messages.length;
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📢 喊话模式，下次发送 消息${msgIndex + 1} ${nextWake.toFixed(0)} 秒后`]);
+            // 一轮：依次发送所有消息，每条间隔 15s
+            for (let i = 0; i < messages.length && !loopStopped; i++) {
+              // 第一条不等，后续等 15s
+              if (i > 0) {
+                setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📢 下一条消息 15 秒后`]);
+                await sleep(15);
+              }
 
+              if (loopStopped) break;
+
+              if (await acquireLock()) {
+                try { await runTask('send-world-chat', { message: messages[i], isFirst: i === 0 && true }); }
+                finally { releaseLock(); }
+              }
+            }
+
+            if (loopStopped) break;
+
+            // 一轮结束，等 CD
+            const cd = features.worldChatInterval || 300;
+            const cdJitter = cd * (0.85 + Math.random() * 0.3);
+            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📢 一轮喊话完成，${cdJitter.toFixed(0)} 秒后开始下一轮`]);
+
+            const cdStartWait = Date.now();
             const dragSafety = 5;
-            const dragWindow = nextWake - dragSafety;
+            const dragWindow = cdJitter - dragSafety;
             if (dragWindow > 20 && Math.random() < 0.05) {
               const dragDelay = 5 + Math.random() * (dragWindow * 0.7);
-              while (!loopStopped && (Date.now() - chatStartWait) < dragDelay * 1000) {
+              while (!loopStopped && (Date.now() - cdStartWait) < dragDelay * 1000) {
                 await sleep(1);
               }
               if (!loopStopped) {
@@ -639,17 +658,11 @@ export function HomePage() {
                   try { await runTask('idle-drag'); } catch {} finally { releaseLock(); }
                 }
               }
-              while (!loopStopped && (Date.now() - chatStartWait) < nextWake * 1000) {
+              while (!loopStopped && (Date.now() - cdStartWait) < cdJitter * 1000) {
                 await sleep(1);
               }
             } else {
-              await sleep(nextWake);
-            }
-            if (loopStopped) break;
-
-            if (await acquireLock()) {
-              try { await runTask('send-world-chat', { message: messages[msgIndex], isFirst: false }); }
-              finally { releaseLock(); }
+              await sleep(cdJitter);
             }
           }
           if (loopStopped) break;
