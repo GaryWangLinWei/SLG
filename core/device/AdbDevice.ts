@@ -243,9 +243,19 @@ export class AdbDevice implements Device {
 
   async pinch(x1: number, y1: number, x2: number, y2: number, toX1: number, toY1: number, toX2: number, toY2: number, duration: number = 500): Promise<void> {
     if (!this.connected) throw new Error('Device not connected');
+
+    // Use sendevent with Protocol B (ABS_MT_SLOT) — the only reliable multi-touch method on older Android
+    const touchDev = await this.getTouchDevice();
+    if (!touchDev) throw new Error('Cannot find touch input device for pinch gesture');
+
+    // Event codes:
+    //   3  = EV_ABS,    47 = ABS_MT_SLOT,  53 = ABS_MT_POSITION_X
+    //   54 = ABS_MT_POSITION_Y,  57 = ABS_MT_TRACKING_ID,  58 = ABS_MT_PRESSURE
+    //   0  = EV_SYN,     2 = SYN_MT_REPORT,  0 = SYN_REPORT
+
     const steps = 10;
     const stepDuration = Math.floor(duration / steps);
-    let pointersDown = false;
+
     try {
       for (let i = 0; i <= steps; i++) {
         const t = i / steps;
@@ -253,28 +263,100 @@ export class AdbDevice implements Device {
         const cy1 = Math.round(y1 + (toY1 - y1) * t);
         const cx2 = Math.round(x2 + (toX2 - x2) * t);
         const cy2 = Math.round(y2 + (toY2 - y2) * t);
+
         if (i === 0) {
-          // First frame: touch down both pointers
-          await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent DOWN ${cx1} ${cy1}`);
-          await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent POINTER_DOWN 1 ${cx2} ${cy2}`);
-          pointersDown = true;
+          // First frame: two fingers down on slot 0 and slot 1
+          await this.execAsync(
+            `"${getAdbPath()}" -s ${this.deviceId} shell sendevent ${touchDev} 3 47 0; sendevent ${touchDev} 3 57 0; sendevent ${touchDev} 3 53 ${cx1}; sendevent ${touchDev} 3 54 ${cy1}; sendevent ${touchDev} 3 58 50; sendevent ${touchDev} 0 2 0; sendevent ${touchDev} 3 47 1; sendevent ${touchDev} 3 57 1; sendevent ${touchDev} 3 53 ${cx2}; sendevent ${touchDev} 3 54 ${cy2}; sendevent ${touchDev} 3 58 50; sendevent ${touchDev} 0 2 0; sendevent ${touchDev} 0 0 0`
+          );
         } else if (i === steps) {
-          // Last frame: lift both pointers
-          await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent POINTER_UP 1 ${cx2} ${cy2}`);
-          await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent UP ${cx1} ${cy1}`);
-          pointersDown = false;
+          // Last frame: lift BOTH fingers (slot 0 and slot 1)
+          await this.execAsync(
+            `"${getAdbPath()}" -s ${this.deviceId} shell sendevent ${touchDev} 3 47 0; sendevent ${touchDev} 3 57 -1; sendevent ${touchDev} 0 2 0; sendevent ${touchDev} 3 47 1; sendevent ${touchDev} 3 57 -1; sendevent ${touchDev} 0 2 0; sendevent ${touchDev} 0 0 0`
+          );
         } else {
-          // Move both pointers
-          await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent MOVE ${cx1} ${cy1} ${cx2} ${cy2}`);
+          // Move both fingers (select slot, update coords, no tracking ID change needed)
+          await this.execAsync(
+            `"${getAdbPath()}" -s ${this.deviceId} shell sendevent ${touchDev} 3 47 0; sendevent ${touchDev} 3 53 ${cx1}; sendevent ${touchDev} 3 54 ${cy1}; sendevent ${touchDev} 0 2 0; sendevent ${touchDev} 3 47 1; sendevent ${touchDev} 3 53 ${cx2}; sendevent ${touchDev} 3 54 ${cy2}; sendevent ${touchDev} 0 2 0; sendevent ${touchDev} 0 0 0`
+          );
         }
+
         if (i < steps) await new Promise(r => setTimeout(r, stepDuration));
       }
     } finally {
-      if (pointersDown) {
-        await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent POINTER_UP 1 0 0`).catch(() => {});
-        await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent UP 0 0`).catch(() => {});
-      }
+      // Cleanup: lift ALL 10 possible slots (0-9) + reset Android framework touch state.
+      // This is awaited synchronously so the kernel state is clean before we return.
+      try {
+        const liftParts: string[] = [];
+        for (let slot = 0; slot < 10; slot++) {
+          liftParts.push(`sendevent ${touchDev} 3 47 ${slot}`);
+          liftParts.push(`sendevent ${touchDev} 3 57 -1`);
+          liftParts.push(`sendevent ${touchDev} 0 2 0`);
+        }
+        liftParts.push(`sendevent ${touchDev} 0 0 0`);
+        await this.execAsync(
+          `"${getAdbPath()}" -s ${this.deviceId} shell ${liftParts.join('; ')}`
+        );
+        // Tap a safe on-screen spot to reset Android framework gesture state
+        await this.execAsync(
+          `"${getAdbPath()}" -s ${this.deviceId} shell input tap 100 100`
+        );
+      } catch { /* best-effort cleanup, ignore errors */ }
     }
+  }
+
+  /** Find the touchscreen input device, cached. Throws descriptive error on failure. */
+  private async getTouchDevice(): Promise<string> {
+    if ((this as any).__touchDevice !== undefined) return (this as any).__touchDevice;
+
+    // Method 1: read /proc/bus/input/devices (works on most Android)
+    try {
+      const { stdout } = await this.execAsync(
+        `"${getAdbPath()}" -s ${this.deviceId} shell cat /proc/bus/input/devices`
+      );
+      console.log(`[AdbDevice] /proc/bus/input/devices:\n${stdout}`);
+      const blocks = stdout.split(/\n\n|\n\s*\n/);
+      for (const block of blocks) {
+        if (/touch|ts|mt|multi|synaptics|ft5x|gt9x/i.test(block)) {
+          const m = block.match(/Handlers=.*?(event\d+)/);
+          if (m) {
+            const dev = `/dev/input/${m[1]}`;
+            console.log(`[AdbDevice] Found touch device: ${dev} (via /proc match)`);
+            (this as any).__touchDevice = dev;
+            return dev;
+          }
+        }
+      }
+    } catch (e: any) { console.log(`[AdbDevice] /proc fallback failed: ${e.message}`); }
+
+    // Method 2: enumerate /dev/input/event* with getevent -i
+    try {
+      const { stdout } = await this.execAsync(
+        `"${getAdbPath()}" -s ${this.deviceId} shell "for dev in /dev/input/event0 /dev/input/event1 /dev/input/event2 /dev/input/event3 /dev/input/event4 /dev/input/event5 /dev/input/event6 /dev/input/event7 /dev/input/event8 /dev/input/event9; do test -e \\$dev && getevent -i \\$dev 2>/dev/null | grep -iqE 'touch|mt|ABS_MT' && echo \\$dev; done"`
+      );
+      console.log(`[AdbDevice] getevent -i search result: "${stdout.trim()}"`);
+      const lines = stdout.trim().split('\n');
+      if (lines[0]?.trim()) {
+        const dev = lines[0].trim();
+        console.log(`[AdbDevice] Found touch device: ${dev} (via getevent -i)`);
+        (this as any).__touchDevice = dev;
+        return dev;
+      }
+    } catch (e: any) { console.log(`[AdbDevice] getevent search failed: ${e.message}`); }
+
+    // Method 3: brute force — probe common paths with a harmless sendevent
+    for (const dev of ['/dev/input/event4', '/dev/input/event2', '/dev/input/event1', '/dev/input/event3', '/dev/input/event5', '/dev/input/event0']) {
+      try {
+        await this.execAsync(
+          `"${getAdbPath()}" -s ${this.deviceId} shell sendevent ${dev} 3 57 -1; sendevent ${dev} 0 0 0`
+        );
+        console.log(`[AdbDevice] sendevent probe OK on ${dev}, using as touch device`);
+        (this as any).__touchDevice = dev;
+        return dev;
+      } catch { /* continue */ }
+    }
+
+    throw new Error('Cannot find touch input device. Run: adb shell cat /proc/bus/input/devices | grep -i touch');
   }
 
   async inputText(text: string): Promise<void> {
