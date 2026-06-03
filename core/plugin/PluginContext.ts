@@ -142,6 +142,11 @@ export class PluginContext {
     await this.device.swipe(x1, y1, x2, y2, duration);
   }
 
+  async pinch(x1: number, y1: number, x2: number, y2: number, toX1: number, toY1: number, toX2: number, toY2: number, duration: number = 500): Promise<void> {
+    this.checkCancellation();
+    await this.device.pinch(x1, y1, x2, y2, toX1, toY1, toX2, toY2, duration);
+  }
+
   async inputText(text: string): Promise<void> {
     await this.device.inputText(text);
   }

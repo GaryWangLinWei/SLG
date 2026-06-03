@@ -10,6 +10,7 @@ export interface Device {
   tap(x: number, y: number): Promise<void>;
   tapPoint(point: Point): Promise<void>;
   swipe(x1: number, y1: number, x2: number, y2: number, duration?: number): Promise<void>;
+  pinch(x1: number, y1: number, x2: number, y2: number, toX1: number, toY1: number, toX2: number, toY2: number, duration?: number): Promise<void>;
   inputText(text: string): Promise<void>;
   sleep(seconds: number, maxSeconds?: number): Promise<void>;
 }
