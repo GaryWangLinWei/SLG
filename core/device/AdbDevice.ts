@@ -297,10 +297,6 @@ export class AdbDevice implements Device {
         await this.execAsync(
           `"${getAdbPath()}" -s ${this.deviceId} shell ${liftParts.join('; ')}`
         );
-        // Tap a safe on-screen spot to reset Android framework gesture state
-        await this.execAsync(
-          `"${getAdbPath()}" -s ${this.deviceId} shell input tap 100 100`
-        );
       } catch { /* best-effort cleanup, ignore errors */ }
     }
   }
