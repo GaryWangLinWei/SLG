@@ -14,6 +14,9 @@ export interface HomeFeatures {
   worldChatMessages: string[];
   worldChatInterval: number;
   helpTeammates: boolean;
+  autoRallyFort: boolean;
+  rallyFortTasks: { level: number; team: number }[];
+  rallyFortInterval: number;
   loopInterval: number;
 }
 
@@ -39,5 +42,14 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   worldChatMessages: ['', '', ''],
   worldChatInterval: 300,
   helpTeammates: false,
+  autoRallyFort: false,
+  rallyFortTasks: [
+    { level: 5, team: 1 },
+    { level: 5, team: 2 },
+    { level: 5, team: 3 },
+    { level: 5, team: 4 },
+    { level: 5, team: 5 },
+  ],
+  rallyFortInterval: 600,
   loopInterval: 300,
 };
