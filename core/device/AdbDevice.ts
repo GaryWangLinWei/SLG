@@ -242,27 +242,38 @@ export class AdbDevice implements Device {
   }
 
   async pinch(x1: number, y1: number, x2: number, y2: number, toX1: number, toY1: number, toX2: number, toY2: number, duration: number = 500): Promise<void> {
+    if (!this.connected) throw new Error('Device not connected');
     const steps = 10;
     const stepDuration = Math.floor(duration / steps);
-    for (let i = 0; i <= steps; i++) {
-      const t = i / steps;
-      const cx1 = Math.round(x1 + (toX1 - x1) * t);
-      const cy1 = Math.round(y1 + (toY1 - y1) * t);
-      const cx2 = Math.round(x2 + (toX2 - x2) * t);
-      const cy2 = Math.round(y2 + (toY2 - y2) * t);
-      if (i === 0) {
-        // First frame: touch down both pointers
-        await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent DOWN ${cx1} ${cy1}`);
-        await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent POINTER_DOWN 1 ${cx2} ${cy2}`);
-      } else if (i === steps) {
-        // Last frame: lift both pointers
-        await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent POINTER_UP 1 ${cx2} ${cy2}`);
-        await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent UP ${cx1} ${cy1}`);
-      } else {
-        // Move both pointers
-        await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent MOVE ${cx1} ${cy1} ${cx2} ${cy2}`);
+    let pointersDown = false;
+    try {
+      for (let i = 0; i <= steps; i++) {
+        const t = i / steps;
+        const cx1 = Math.round(x1 + (toX1 - x1) * t);
+        const cy1 = Math.round(y1 + (toY1 - y1) * t);
+        const cx2 = Math.round(x2 + (toX2 - x2) * t);
+        const cy2 = Math.round(y2 + (toY2 - y2) * t);
+        if (i === 0) {
+          // First frame: touch down both pointers
+          await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent DOWN ${cx1} ${cy1}`);
+          await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent POINTER_DOWN 1 ${cx2} ${cy2}`);
+          pointersDown = true;
+        } else if (i === steps) {
+          // Last frame: lift both pointers
+          await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent POINTER_UP 1 ${cx2} ${cy2}`);
+          await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent UP ${cx1} ${cy1}`);
+          pointersDown = false;
+        } else {
+          // Move both pointers
+          await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent MOVE ${cx1} ${cy1} ${cx2} ${cy2}`);
+        }
+        if (i < steps) await new Promise(r => setTimeout(r, stepDuration));
       }
-      if (i < steps) await new Promise(r => setTimeout(r, stepDuration));
+    } finally {
+      if (pointersDown) {
+        await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent POINTER_UP 1 0 0`).catch(() => {});
+        await this.execAsync(`"${getAdbPath()}" -s ${this.deviceId} shell motionevent UP 0 0`).catch(() => {});
+      }
     }
   }
 
