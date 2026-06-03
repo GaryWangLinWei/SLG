@@ -8,6 +8,7 @@ import { explore } from './actions/explore';
 import { idleDrag } from './actions/idleDrag';
 import { helpTeammates } from './actions/helpTeammates';
 import { readQueueOverview, resetQueueFilters } from './actions/readQueueOverview';
+import { rallyFort } from './actions/rallyFort';
 import { sendWorldChat, sendWorldChatFirstRun } from './actions/sendWorldChat';
 import { ensureInCity, ensureBottomBarCollapsed } from './utils/location';
 import { ocrService } from '../../core/ocr/OcrService';
@@ -495,6 +496,18 @@ export const RiseOfKingdomsPlugin: Plugin = {
         }
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         await readQueueOverview(ctx, config);
+      }
+    },
+    {
+      id: 'rally-fort',
+      name: '攻打城寨',
+      description: '搜索野蛮人城寨并发起集结',
+      run: async (ctx, params: { level?: number; team?: number } = {}) => {
+        const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
+        const level = params.level || 5;
+        const team = params.team || 1;
+        const outcome = await rallyFort(ctx, config, level, team);
+        ctx.log(`城寨集结: Lv.${outcome.foundLevel || level} 队伍${team} → ${outcome.result}`);
       }
     },
   ],
