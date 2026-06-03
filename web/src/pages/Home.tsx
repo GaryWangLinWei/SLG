@@ -152,6 +152,10 @@ export function HomePage() {
         if (!Array.isArray(merged.completedTechs) || merged.completedTechs.length !== 5) {
           merged.completedTechs = [false, false, false, false, false];
         }
+        // Migrate old state without rallyFortTasks array
+        if (!Array.isArray(merged.rallyFortTasks) || merged.rallyFortTasks.length !== 5) {
+          merged.rallyFortTasks = DEFAULT_FEATURES.rallyFortTasks;
+        }
         return merged;
       }
     } catch {}
@@ -501,6 +505,63 @@ export function HomePage() {
         }
       })();
 
+      // 攻打城寨独立循环 — 每 10min
+      const rallyLoop = (async () => {
+        let first = true;
+        while (!loopStopped) {
+          if (first) { first = false; await sleep(10); continue; }
+          if (features.autoRallyFort) {
+            const tasks = features.rallyFortTasks
+              .map((t: { level: number; team: number }, i: number) => ({ ...t, team: i + 1 }))
+              .filter((t: { level: number; team: number }) => t.level > 0);
+            if (tasks.length > 0) {
+              for (const task of tasks) {
+                if (loopStopped) break;
+                if (!await acquireLock()) break;
+                try {
+                  const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'rally-fort', { level: task.level, team: task.team });
+                  if (createResult.success) {
+                    runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
+                    setRunningTaskIds([...runningTaskIdsRef.current]);
+                    const runResult = await api.tasks.run(createResult.task.id);
+                    runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
+                    setRunningTaskIds([...runningTaskIdsRef.current]);
+
+                    if (runResult.task?.status === 'stopped') {
+                      loopStopped = true;
+                      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ ${createResult.task.actionId} 已被停止`]);
+                      return;
+                    }
+
+                    const logs = runResult.task?.logs ?? [];
+                    const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
+                    if (hasExpiredLog) {
+                      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
+                      loopStopped = true;
+                      setExpiredMessage('激活码已到期，请重新激活');
+                      refreshStatus();
+                    } else {
+                      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 城寨 Lv.${task.level} 队伍${task.team} 完成`]);
+                    }
+                  }
+                } catch {} finally { releaseLock(); }
+              }
+              if (loopStopped) break;
+              const cd = features.rallyFortInterval || 600;
+              const cdJitter = cd * (0.85 + Math.random() * 0.3);
+              setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏰 城寨一轮完成，${cdJitter.toFixed(0)} 秒后下一轮`]);
+              const startWait = Date.now();
+              while (!loopStopped && (Date.now() - startWait) < cdJitter * 1000) {
+                await sleep(1);
+              }
+            }
+          } else {
+            // 未开启城寨功能，长时间休眠避免空转
+            await sleep(60);
+          }
+        }
+      })();
+
       while (!loopStopped) {
         round++;
         setLogs(prev => { const next = [...prev, `[${new Date().toLocaleTimeString()}] 🔄 第${round}轮`]; saveLoopState(currentAccountId); return next; });
@@ -832,7 +893,7 @@ export function HomePage() {
           }
         }
       }
-      await Promise.all([helpLoop, collectLoop, gatherLoop]);
+      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop]);
       loopRunning = false;
       clearLoopState();
       runningTaskIdsRef.current = [];
@@ -1209,16 +1270,55 @@ export function HomePage() {
               )}
             </div>
 
-            {/* 自动攻打城寨 — coming soon */}
-            <div className="flex flex-col gap-0 p-4 rounded-lg bg-slate-100 border border-dashed border-slate-200 relative overflow-hidden">
-              <div className="absolute inset-0 bg-white/20 backdrop-blur-[1px] rounded-lg flex items-center justify-center z-10">
-                <span className="bg-white border border-slate-200 px-3 py-1.5 rounded-full text-xs text-slate-500 font-semibold shadow-sm flex items-center gap-1.5">🔒 即将上线</span>
-              </div>
+            {/* 自动攻打城寨 */}
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${features.autoRallyFort ? 'border-purple-500 bg-purple-50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 font-semibold text-sm text-slate-400"><span className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center text-base opacity-50">🏰</span>自动攻打城寨</span>
-                <span className="relative w-10 h-[22px] flex-shrink-0"><span className="absolute inset-0 rounded-full bg-slate-200" /><span className="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm" /></span>
+                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center text-base">🏰</span>自动攻打城寨</span>
+                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+                  <input type="checkbox" checked={features.autoRallyFort}
+                    onChange={(e) => setFeatures({ ...features, autoRallyFort: e.target.checked })}
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.autoRallyFort ? 'bg-purple-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoRallyFort ? 'translate-x-[18px]' : ''}`} />
+                </label>
               </div>
-              <p className="text-xs text-slate-400 mt-1.5">自动加入或集结野蛮人城寨</p>
+              <div className="flex flex-col gap-2 mt-2">
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs text-slate-400">队伍配置（等级 + 队伍编号）</span>
+                  {features.rallyFortTasks.map((task: { level: number; team: number }, i: number) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-xs text-slate-400 w-8">#{i + 1}</span>
+                      <select value={task.level} disabled={features.autoRallyFort}
+                        onChange={(e) => {
+                          const next = [...features.rallyFortTasks];
+                          next[i] = { ...next[i], level: Number(e.target.value) };
+                          setFeatures({ ...features, rallyFortTasks: next });
+                        }}
+                        className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-20">
+                        {[1,2,3,4,5,6,7,8,9,10].map(l => (<option key={l} value={l}>Lv.{l}</option>))}
+                      </select>
+                      <span className="text-xs text-slate-400">队伍</span>
+                      <select value={task.team} disabled={features.autoRallyFort}
+                        onChange={(e) => {
+                          const next = [...features.rallyFortTasks];
+                          next[i] = { ...next[i], team: Number(e.target.value) };
+                          setFeatures({ ...features, rallyFortTasks: next });
+                        }}
+                        className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-16">
+                        {[1,2,3,4,5].map(t => (<option key={t} value={t}>{t}</option>))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400 whitespace-nowrap">循环间隔（秒）</span>
+                  <input type="number" value={features.rallyFortInterval} min={60}
+                    onChange={(e) => setFeatures({ ...features, rallyFortInterval: Math.max(60, Number(e.target.value)) })}
+                    disabled={features.autoRallyFort}
+                    className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 focus:outline-none focus:border-purple-500 disabled:opacity-50" />
+                </div>
+              </div>
+              <p className="text-xs text-slate-400 mt-1.5">需标记城寨图标模板和集结按钮模板</p>
             </div>
 
             {/* 智慧采集宝石 — coming soon */}
