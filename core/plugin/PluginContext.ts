@@ -59,7 +59,9 @@ export class PluginContext {
   async findImageWithLocation(
     templatePath: string,
     threshold: number = 0.85,
-    scales?: number[]
+    scales?: number[],
+    normalize?: boolean,
+    channel?: string
   ): Promise<{ found: boolean; x: number; y: number; confidence: number }> {
     this.checkCancellation();
     const screenshotBuffer = await this.device.screenshot();
@@ -67,7 +69,7 @@ export class PluginContext {
     await fs.writeFile(tempPath, screenshotBuffer);
 
     try {
-      const result = await this.vision.findImage(tempPath, templatePath, threshold, scales);
+      const result = await this.vision.findImage(tempPath, templatePath, threshold, scales, normalize, channel);
       if (result.found) {
         const tapLoc = this.vision.getTapLocation(result);
         return {
@@ -91,7 +93,10 @@ export class PluginContext {
   async findAllImages(
     templatePath: string,
     threshold: number = 0.85,
-    searchRegion?: { x: number; y: number; width: number; height: number }
+    searchRegion?: { x: number; y: number; width: number; height: number },
+    scales?: number[],
+    normalize?: boolean,
+    channel?: string
   ): Promise<Array<{ x: number; y: number; confidence: number }>> {
     this.checkCancellation();
     const screenshotBuffer = await this.device.screenshot();
@@ -106,7 +111,7 @@ export class PluginContext {
         await fs.writeFile(tempPath, screenshotBuffer);
       }
 
-      const results = await this.vision.findAllImages(tempPath, templatePath, threshold);
+      const results = await this.vision.findAllImages(tempPath, templatePath, threshold, scales, normalize, channel);
 
       const offsetX = searchRegion?.x ?? 0;
       const offsetY = searchRegion?.y ?? 0;
@@ -184,6 +189,16 @@ export class PluginContext {
   /**
    * Capture a specific region of the screen and save to temp file
    */
+  /**
+   * Get the current screen dimensions from a screenshot.
+   * Result is cached per call, not across calls (dimensions don't change).
+   */
+  async getScreenSize(): Promise<{ width: number; height: number }> {
+    const buf = await this.device.screenshot();
+    const meta = await sharp(buf).metadata();
+    return { width: meta.width!, height: meta.height! };
+  }
+
   async captureRegion(
     x: number,
     y: number,

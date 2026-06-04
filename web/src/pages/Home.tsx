@@ -1271,41 +1271,32 @@ export function HomePage() {
             </div>
 
             {/* 自动攻打城寨 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${features.autoRallyFort ? 'border-purple-500 bg-purple-50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${features.autoRallyFort ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center text-base">🏰</span>自动攻打城寨</span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
                   <input type="checkbox" checked={features.autoRallyFort}
                     onChange={(e) => setFeatures({ ...features, autoRallyFort: e.target.checked })}
                     className="sr-only" />
-                  <span className={`absolute inset-0 rounded-full transition-colors ${features.autoRallyFort ? 'bg-purple-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.autoRallyFort ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                   <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoRallyFort ? 'translate-x-[18px]' : ''}`} />
                 </label>
               </div>
               <div className="flex flex-col gap-2 mt-2">
                 <div className="flex flex-col gap-1.5">
-                  <span className="text-xs text-slate-400">队伍配置（等级 + 队伍编号）</span>
+                  <span className="text-xs text-slate-400">队伍配置（每行固定队伍1~5，可选择等级或取消）</span>
                   {features.rallyFortTasks.map((task: { level: number; team: number }, i: number) => (
                     <div key={i} className="flex items-center gap-2">
-                      <span className="text-xs text-slate-400 w-8">#{i + 1}</span>
-                      <select value={task.level} disabled={features.autoRallyFort}
+                      <span className="text-xs text-slate-500 w-12">队伍{i + 1}</span>
+                      <select value={task.level}
                         onChange={(e) => {
                           const next = [...features.rallyFortTasks];
                           next[i] = { ...next[i], level: Number(e.target.value) };
                           setFeatures({ ...features, rallyFortTasks: next });
                         }}
                         className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-20">
+                        <option value={0}>—</option>
                         {[1,2,3,4,5,6,7,8,9,10].map(l => (<option key={l} value={l}>Lv.{l}</option>))}
-                      </select>
-                      <span className="text-xs text-slate-400">队伍</span>
-                      <select value={task.team} disabled={features.autoRallyFort}
-                        onChange={(e) => {
-                          const next = [...features.rallyFortTasks];
-                          next[i] = { ...next[i], team: Number(e.target.value) };
-                          setFeatures({ ...features, rallyFortTasks: next });
-                        }}
-                        className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-16">
-                        {[1,2,3,4,5].map(t => (<option key={t} value={t}>{t}</option>))}
                       </select>
                     </div>
                   ))}
@@ -1314,11 +1305,10 @@ export function HomePage() {
                   <span className="text-xs text-slate-400 whitespace-nowrap">循环间隔（秒）</span>
                   <input type="number" value={features.rallyFortInterval} min={60}
                     onChange={(e) => setFeatures({ ...features, rallyFortInterval: Math.max(60, Number(e.target.value)) })}
-                    disabled={features.autoRallyFort}
-                    className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 focus:outline-none focus:border-purple-500 disabled:opacity-50" />
+                    className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 focus:outline-none focus:border-emerald-500" />
                 </div>
               </div>
-              <p className="text-xs text-slate-400 mt-1.5">需标记城寨图标模板和集结按钮模板</p>
+
             </div>
 
             {/* 智慧采集宝石 — coming soon */}

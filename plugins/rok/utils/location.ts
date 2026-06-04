@@ -48,23 +48,32 @@ export async function getCurrentLocation(ctx: PluginContext): Promise<Location> 
 }
 
 /**
- * 确保当前在城外。如果在城内则切换到城外。
+ * 确保当前在城外，并重置城外视角。
+ * - 如果在城内：切换到城外
+ * - 如果已在城外：点2次切换（回城→出城），重置视角到默认位置
  */
 export async function ensureInWorld(ctx: PluginContext, config: RokConfig): Promise<void> {
+  const { x, y } = config.resourceCollect.worldSwitchButton;
   const location = await getCurrentLocation(ctx);
   if (location === 'world') {
-    ctx.log('  [位置] 已在城外');
+    ctx.log('  [位置] 已在城外，重置视角...');
+    await ctx.tap(x, y);
+    await ctx.sleep(1.5);
+    await ctx.tap(x, y);
+    await ctx.sleep(2);
     return;
   }
   if (location === 'city') {
     ctx.log('  [位置] 在城内，切换到城外...');
-    await ctx.tap(config.resourceCollect.worldSwitchButton.x, config.resourceCollect.worldSwitchButton.y);
+    await ctx.tap(x, y);
     await ctx.sleep(2);
     return;
   }
-  // unknown 状态，保险起见点一次切换
+  // unknown 状态，保险起见点两次切换
   ctx.log('  [位置] 状态未知，尝试切换...');
-  await ctx.tap(config.resourceCollect.worldSwitchButton.x, config.resourceCollect.worldSwitchButton.y);
+  await ctx.tap(x, y);
+  await ctx.sleep(1.5);
+  await ctx.tap(x, y);
   await ctx.sleep(2);
 }
 

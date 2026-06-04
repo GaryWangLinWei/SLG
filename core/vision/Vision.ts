@@ -21,7 +21,9 @@ export class Vision {
     screenshotPath: string,
     templatePath: string,
     threshold: number = 0.85,
-    scales?: number[]
+    scales?: number[],
+    normalize?: boolean,
+    channel?: string
   ): Promise<ImageMatchResult> {
     const scaleList = scales || [1.0];
 
@@ -33,7 +35,7 @@ export class Vision {
     };
 
     for (const scale of scaleList) {
-      const result = await this._matchTemplate(screenshotPath, templatePath, scale);
+      const result = await this._matchTemplate(screenshotPath, templatePath, scale, normalize, channel);
       if (result.confidence > bestResult.confidence) {
         bestResult = result;
       }
@@ -55,11 +57,15 @@ export class Vision {
   private async _matchTemplate(
     screenshotPath: string,
     templatePath: string,
-    scale: number
+    scale: number,
+    normalize = false,
+    channel?: string
   ): Promise<ImageMatchResult> {
     // Load screenshot
-    const screenshotData = await sharp(await fs.readFile(screenshotPath))
-      .raw().toBuffer({ resolveWithObject: true });
+    let screenshotPipeline = sharp(await fs.readFile(screenshotPath));
+    if (channel) screenshotPipeline = screenshotPipeline.extractChannel(channel as any);
+    if (normalize) screenshotPipeline = screenshotPipeline.normalize();
+    const screenshotData = await screenshotPipeline.raw().toBuffer({ resolveWithObject: true });
 
     const sWidth = screenshotData.info.width;
     const sHeight = screenshotData.info.height;
@@ -78,13 +84,29 @@ export class Vision {
       };
     }
 
-    const templateRaw = scale === 1.0
-      ? await sharp(await fs.readFile(templatePath)).raw().toBuffer({ resolveWithObject: true })
-      : await sharp(templatePath)
-          .resize({ width: tWidth, height: tHeight })
-          .raw().toBuffer({ resolveWithObject: true });
+    let templatePipeline = scale === 1.0
+      ? sharp(await fs.readFile(templatePath))
+      : sharp(templatePath).resize({ width: tWidth, height: tHeight });
+    if (channel) templatePipeline = templatePipeline.extractChannel(channel as any);
+    if (normalize) templatePipeline = templatePipeline.normalize();
+    const templateRaw = await templatePipeline.raw().toBuffer({ resolveWithObject: true });
     const tPixels = templateRaw.data;
+    const tChannels = templateRaw.info.channels;
     const totalPixels = tWidth * tHeight;
+
+    // Build alpha mask: skip transparent pixels in template
+    const hasAlpha = tChannels >= 4;
+    const tOpaque: boolean[] = [];
+    let opaqueCount = 0;
+    if (hasAlpha) {
+      for (let ty = 0; ty < tHeight; ty++) {
+        for (let tx = 0; tx < tWidth; tx++) {
+          const ok = tPixels[(ty * tWidth + tx) * tChannels + 3] >= 128;
+          tOpaque.push(ok);
+          if (ok) opaqueCount++;
+        }
+      }
+    }
 
     // --- Coarse scan ---
     const coarseStepX = Math.max(1, Math.floor(tWidth / 4));
@@ -94,13 +116,18 @@ export class Vision {
     for (let y = 0; y <= sHeight - tHeight; y += coarseStepY) {
       for (let x = 0; x <= sWidth - tWidth; x += coarseStepX) {
         let diffPixels = 0;
+        let sampledOpaque = 0;
 
         for (let ty = 0; ty < tHeight; ty += 2) {
           for (let tx = 0; tx < tWidth; tx += 2) {
-            const sIdx = ((y + ty) * sWidth + (x + tx)) * channels;
-            const tIdx = (ty * tWidth + tx) * channels;
+            const tFlat = ty * tWidth + tx;
+            if (hasAlpha && !tOpaque[tFlat]) continue;
+            sampledOpaque++;
 
-            for (let c = 0; c < 3; c++) {
+            const sIdx = ((y + ty) * sWidth + (x + tx)) * channels;
+            const tIdx = tFlat * tChannels;
+
+            for (let c = 0; c < Math.min(3, channels); c++) {
               if (Math.abs(sPixels[sIdx + c] - tPixels[tIdx + c]) > 48) {
                 diffPixels++;
                 break;
@@ -109,8 +136,8 @@ export class Vision {
           }
         }
 
-        const sampleCount = Math.ceil(tHeight / 2) * Math.ceil(tWidth / 2);
-        const confidence = 1 - (diffPixels / sampleCount);
+        if (sampledOpaque === 0) continue;
+        const confidence = 1 - (diffPixels / sampledOpaque);
 
         if (confidence > 0.3) {
           candidates.push({ x, y, confidence });
@@ -124,6 +151,7 @@ export class Vision {
     // --- Fine scan ---
     let bestMatch = { x: 0, y: 0, confidence: 0 };
     const searchRadius = 8;
+    const effectiveOpaque = hasAlpha ? opaqueCount : totalPixels;
 
     for (const candidate of candidates) {
       for (let dy = -searchRadius; dy <= searchRadius; dy += 2) {
@@ -135,10 +163,13 @@ export class Vision {
           let diffPixels = 0;
           for (let ty = 0; ty < tHeight; ty++) {
             for (let tx = 0; tx < tWidth; tx++) {
-              const sIdx = ((cy + ty) * sWidth + (cx + tx)) * channels;
-              const tIdx = (ty * tWidth + tx) * channels;
+              const tFlat = ty * tWidth + tx;
+              if (hasAlpha && !tOpaque[tFlat]) continue;
 
-              for (let c = 0; c < 3; c++) {
+              const sIdx = ((cy + ty) * sWidth + (cx + tx)) * channels;
+              const tIdx = tFlat * tChannels;
+
+              for (let c = 0; c < Math.min(3, channels); c++) {
                 if (Math.abs(sPixels[sIdx + c] - tPixels[tIdx + c]) > 48) {
                   diffPixels++;
                   break;
@@ -147,7 +178,7 @@ export class Vision {
             }
           }
 
-          const confidence = 1 - (diffPixels / totalPixels);
+          const confidence = 1 - (diffPixels / effectiveOpaque);
           if (confidence > bestMatch.confidence) {
             bestMatch = { x: cx, y: cy, confidence };
           }
@@ -177,7 +208,10 @@ export class Vision {
   async findAllImages(
     screenshotPath: string,
     templatePath: string,
-    threshold: number = 0.85
+    threshold: number = 0.85,
+    scales?: number[],
+    normalize?: boolean,
+    channel?: string
   ): Promise<ImageMatchResult[]> {
     const results: ImageMatchResult[] = [];
     let currentScreenshot = screenshotPath;
@@ -187,7 +221,7 @@ export class Vision {
     const tHeight = templateMeta.height!;
 
     while (true) {
-      const result = await this.findImage(currentScreenshot, templatePath, threshold);
+      const result = await this.findImage(currentScreenshot, templatePath, threshold, scales, normalize, channel);
       if (!result.found) break;
 
       results.push(result);

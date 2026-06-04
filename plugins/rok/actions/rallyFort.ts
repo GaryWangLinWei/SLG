@@ -10,15 +10,24 @@ const TEMPLATE_DIR = getTemplatesDir();
 const CHENG_ZHAI_TEMPLATE = path.join(TEMPLATE_DIR, 'ChengZhai.png');
 const JIJIE_TEMPLATE = path.join(TEMPLATE_DIR, 'JiJie.png');
 
+// ===== 缩放参数 =====
+// 双指起始间距（占屏宽比）。越大手指越开
+const PINCH_START_SPREAD = 0.39;
+// 双指结束间距（占屏宽比）。越小捏得越紧 → 缩小越多
+const PINCH_END_SPREAD = 0.215;
+// 缩放时长 ms
+const PINCH_DURATION = 500;
+// =====================
+
 // 队伍选择坐标（复用 gatherResources）
 const SELECT_TEAM_BUTTON = { x: 1259, y: 180 };
 const TEAM_BUTTONS_NO_PAGE: Record<number, { x: number; y: number }> = {
-  1: { x: 1378, y: 292 }, 2: { x: 1378, y: 359 },
-  3: { x: 1378, y: 430 }, 4: { x: 1378, y: 499 }, 5: { x: 1378, y: 565 },
+  1: { x: 1378, y: 362 }, 2: { x: 1378, y: 430 },
+  3: { x: 1378, y: 497 }, 4: { x: 1378, y: 566 }, 5: { x: 1378, y: 633 },
 };
 const TEAM_BUTTONS_PAGED: Record<number, { x: number; y: number }> = {
-  1: { x: 1378, y: 328 }, 2: { x: 1378, y: 392 },
-  3: { x: 1378, y: 465 }, 4: { x: 1378, y: 529 }, 5: { x: 1378, y: 595 },
+  1: { x: 1378, y: 397 }, 2: { x: 1378, y: 463 },
+  3: { x: 1378, y: 533 }, 4: { x: 1378, y: 600 }, 5: { x: 1378, y: 671 },
 };
 const MARCH_BUTTON = { x: 1154, y: 791 };
 const CLOSE_POPUP_BUTTON = { x: 1392, y: 57 };
@@ -52,12 +61,21 @@ export async function rallyFort(
   ctx.log('  [1/8] 确保在城外');
   await ensureInWorld(ctx, config);
 
+  // Get actual screen dimensions
+  const { width: sw, height: sh } = await ctx.getScreenSize();
+  ctx.log(`  [info] 屏幕尺寸: ${sw}x${sh}`);
+
   // [2/8] 缩小地图（双指捏合）
   ctx.log('  [2/8] 缩小地图');
+  const cy = Math.round(sh / 2);
+  const halfStart = PINCH_START_SPREAD / 2;
+  const halfEnd = PINCH_END_SPREAD / 2;
   await ctx.pinch(
-    300, 960, 780, 960,
-    500, 960, 580, 960,
-    800
+    Math.round(sw * (0.5 - halfStart)), cy,
+    Math.round(sw * (0.5 + halfStart)), cy,
+    Math.round(sw * (0.5 - halfEnd)), cy,
+    Math.round(sw * (0.5 + halfEnd)), cy,
+    PINCH_DURATION
   );
   await ctx.sleep(1);
 
@@ -68,48 +86,77 @@ export async function rallyFort(
   let fortY = 0;
   let foundLevel = 0;
 
-  const screenX = 540;
-  const screenY = 960;
+  const screenX = Math.round(sw / 2);
+  const screenY = Math.round(sh / 2);
+  const spiralLen = Math.round(Math.min(sw, sh) * 0.33); // swipe distance ~1/3 of shorter axis
 
   let attempt = 0;
 
   for (; attempt < SEARCH_MAX_ATTEMPTS && !fortFound; attempt++) {
-    // 截图搜索城寨图标
-    const result = await ctx.findImageWithLocation(CHENG_ZHAI_TEMPLATE, 0.7, [0.7, 0.8, 0.9, 1.0, 1.1]);
+    // 截图搜索所有城寨图标
+    const results = await ctx.findAllImages(CHENG_ZHAI_TEMPLATE, 0.65, undefined, [0.7, 0.8, 0.9, 1.0, 1.1]);
 
-    if (result.found) {
-      fortX = result.x;
-      fortY = result.y;
-      ctx.log(`  找到城寨图标 (${fortX}, ${fortY}) confidence: ${result.confidence.toFixed(3)}`);
+    ctx.log(`  [搜索] 找到 ${results.length} 个城寨候选`);
+    if (results.length > 0) {
+      // 按置信度从高到低排序
+      results.sort((a, b) => b.confidence - a.confidence);
 
-      // [4/8] OCR 识别等级
-      const ocrX = fortX - 15;
-      const ocrY = fortY + 12;
-      const ocrRegionPath = await ctx.captureRegion(ocrX, ocrY, 30, 13);
-      const ocrText = await ocrService.readText(ocrRegionPath);
-      await fs.unlink(ocrRegionPath).catch(() => {});
-      ctx.log(`  [4/8] OCR 识别等级: "${ocrText}" (区域: ${ocrX},${ocrY} 30x13)`);
+      for (let ri = 0; ri < results.length && !fortFound; ri++) {
+        const r = results[ri];
+        fortX = r.x;
+        fortY = r.y;
+        ctx.log(`  [候选${ri + 1}/${results.length}] (${fortX},${fortY}) 置信度: ${r.confidence.toFixed(3)}`);
 
-      // 解析 OCR 结果
-      const levelMatch = ocrText.match(/(\d+)/);
-      if (levelMatch) {
-        foundLevel = parseInt(levelMatch[1], 10);
-        ctx.log(`  识别到 Lv.${foundLevel} 城寨`);
-        if (foundLevel === targetLevel) {
-          fortFound = true;
-          ctx.log(`  等级匹配 Lv.${targetLevel}，选择该城寨`);
+        // 保存城寨截图
+        const debugDir = 'D:\\SLG\\temp';
+        await fs.mkdir(debugDir, { recursive: true }).catch(() => {});
+        const fortW = 50, fortH = 50;
+        let fortCapX = Math.max(0, fortX - Math.floor(fortW / 2));
+        let fortCapY = Math.max(0, fortY - Math.floor(fortH / 2));
+        if (fortCapX + fortW > sw) fortCapX = sw - fortW;
+        if (fortCapY + fortH > sh) fortCapY = sh - fortH;
+        const fortCapPath = await ctx.captureRegion(fortCapX, fortCapY, fortW, fortH);
+        const fortSavePath = path.join(debugDir, `fort-${Date.now()}.png`);
+        await fs.copyFile(fortCapPath, fortSavePath);
+        await fs.unlink(fortCapPath).catch(() => {});
+        ctx.log(`  城寨截图已保存: ${fortSavePath}`);
+
+        // [4/8] OCR 识别等级
+        const ocrW = 20, ocrH = 15;
+        let ocrX = Math.max(0, fortX - 10);
+        let ocrY = Math.max(0, fortY + 12);
+        if (ocrX + ocrW > sw) ocrX = sw - ocrW;
+        if (ocrY + ocrH > sh) ocrY = sh - ocrH;
+        ctx.log(`  [4/8] OCR 识别等级 (区域: ${ocrX},${ocrY} ${ocrW}x${ocrH})`);
+        const ocrRegionPath = await ctx.captureRegion(ocrX, ocrY, ocrW, ocrH);
+        const debugPath = path.join(debugDir, `ocr-${Date.now()}.png`);
+        await fs.copyFile(ocrRegionPath, debugPath);
+        ctx.log(`  [4/8] OCR 截图已保存: ${debugPath}`);
+        const ocrText = await ocrService.readDigits(ocrRegionPath);
+        await fs.unlink(ocrRegionPath).catch(() => {});
+        ctx.log(`  [4/8] OCR 结果: "${ocrText}"`);
+
+        // 解析 OCR 结果
+        const levelMatch = ocrText.match(/(\d+)/);
+        if (levelMatch) {
+          foundLevel = parseInt(levelMatch[1], 10);
+          ctx.log(`  识别到 Lv.${foundLevel} 城寨`);
+          if (foundLevel === targetLevel) {
+            fortFound = true;
+            ctx.log(`  等级匹配 Lv.${targetLevel}，选择该城寨`);
+          } else {
+            ctx.log(`  等级不匹配（期望 Lv.${targetLevel}，实际 Lv.${foundLevel}），跳过`);
+          }
         } else {
-          ctx.log(`  等级不匹配（期望 Lv.${targetLevel}，实际 Lv.${foundLevel}），跳过`);
+          ctx.log(`  OCR 未识别到数字，跳过`);
         }
-      } else {
-        ctx.log(`  OCR 未识别到数字，跳过`);
       }
     }
 
     if (!fortFound && attempt < SEARCH_MAX_ATTEMPTS - 1) {
       // 螺旋滑动
       const dir = SPIRAL_DIRECTIONS[attempt % 4];
-      const armLen = SPIRAL_SWIPE_LENGTH * (Math.floor(attempt / 4) + 1);
+      const armLen = spiralLen * (Math.floor(attempt / 4) + 1);
       const fromX = screenX;
       const fromY = screenY;
       const toX = screenX + dir.dx * armLen;
@@ -125,9 +172,11 @@ export async function rallyFort(
     return { result: 'not_found', dispatched: 0 };
   }
 
-  // 点击城寨
-  ctx.log(`  点击城寨 (${fortX}, ${fortY})`);
+  // 点击城寨（先点识别位置，再点固定坐标）
+  ctx.log(`  点击城寨识别位置 (${fortX}, ${fortY}) → (798, 432)`);
   await ctx.tap(fortX, fortY);
+  await ctx.sleep(1);
+  await ctx.tap(798, 432);
   await ctx.sleep(2);
 
   // [5/8] 识别并点击集结按钮
@@ -146,11 +195,6 @@ export async function rallyFort(
   // [6/8] 确认集结时间
   ctx.log(`  [6/8] 确认集结时间 (${CONFIRM_TIME_BUTTON.x}, ${CONFIRM_TIME_BUTTON.y})`);
   await ctx.tap(CONFIRM_TIME_BUTTON.x, CONFIRM_TIME_BUTTON.y);
-  await ctx.sleep(1);
-
-  // [7/8] 选队
-  ctx.log(`  [7/8] 点击选择队伍按钮 (${SELECT_TEAM_BUTTON.x}, ${SELECT_TEAM_BUTTON.y})`);
-  await ctx.tap(SELECT_TEAM_BUTTON.x, SELECT_TEAM_BUTTON.y);
   await ctx.sleep(1);
 
   // 检测分页
@@ -177,6 +221,7 @@ export async function rallyFort(
   }
 
   // 点击行军
+  await ctx.sleep(0.5);
   ctx.log(`  点击行军按钮 (${MARCH_BUTTON.x}, ${MARCH_BUTTON.y})`);
   await ctx.tap(MARCH_BUTTON.x, MARCH_BUTTON.y);
   await ctx.sleep(1);
