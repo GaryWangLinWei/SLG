@@ -336,20 +336,23 @@ export const RiseOfKingdomsPlugin: Plugin = {
         const activeTaskCount = params.gatherTasks.filter(t => t.type).length;
 
         // debug: 保存截取区域供人工检查
-        const debugDir = path.join(process.cwd(), 'temp');
+        const debugDir = 'D:/SLG/temp';
         await fs.mkdir(debugDir, { recursive: true });
         const debugRegionPath = path.join(debugDir, `caiJiState_region_${Date.now()}.png`);
-        const tmpPath = await ctx.captureRegion(1476, 206, 114, 472);
-        await fs.copyFile(tmpPath, debugRegionPath);
-        await fs.unlink(tmpPath).catch(() => {});
-        const tplStat = await fs.stat(CAIJI_STATE_TEMPLATE);
-        ctx.log(`[预备] 截取区域: ${debugRegionPath}`);
-        ctx.log(`[预备] 模板: ${CAIJI_STATE_TEMPLATE} (${tplStat.size} bytes)`);
+        try {
+          const tmpPath = await ctx.captureRegion(1476, 206, 114, 472);
+          await fs.copyFile(tmpPath, debugRegionPath);
+          await fs.unlink(tmpPath).catch(() => {});
+          const tplStat = await fs.stat(CAIJI_STATE_TEMPLATE);
+          ctx.log(`[预备] 截取区域: ${debugRegionPath}`);
+          ctx.log(`[预备] 模板: ${CAIJI_STATE_TEMPLATE} (${tplStat.size} bytes)`);
+        } catch (e: any) {
+          ctx.log(`[预备] 截取区域失败: ${e.message}`);
+        }
 
         const caiJiResults = await ctx.findAllImages(CAIJI_STATE_TEMPLATE, 0.8, {
           x: 1476, y: 206, width: 114, height: 472
         }, [0.7, 0.8, 0.9, 1.0, 1.1]);
-        await fs.unlink(debugRegionPath).catch(() => {});
         ctx.log(`[预备] 检测到 ${caiJiResults.length} 个采集状态图标（配置任务数: ${activeTaskCount}）`);
         if (caiJiResults.length >= activeTaskCount && activeTaskCount > 0) {
           ctx.log(`⏭️ 已派出队伍数 (${caiJiResults.length}) ≥ 配置任务数 (${activeTaskCount})，认为无空闲采集队伍，跳过本轮采集`);
