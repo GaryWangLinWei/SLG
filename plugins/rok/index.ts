@@ -336,7 +336,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
         const activeTaskCount = params.gatherTasks.filter(t => t.type).length;
         const caiJiResults = await ctx.findAllImages(CAIJI_STATE_TEMPLATE, 0.8, {
           x: 1476, y: 206, width: 114, height: 472
-        });
+        }, [0.7, 0.8, 0.9, 1.0, 1.1]);
         ctx.log(`[预备] 检测到 ${caiJiResults.length} 个采集状态图标（配置任务数: ${activeTaskCount}）`);
         if (caiJiResults.length >= activeTaskCount && activeTaskCount > 0) {
           ctx.log(`⏭️ 已派出队伍数 (${caiJiResults.length}) ≥ 配置任务数 (${activeTaskCount})，认为无空闲采集队伍，跳过本轮采集`);
