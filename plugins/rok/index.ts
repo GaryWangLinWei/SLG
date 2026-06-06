@@ -521,12 +521,13 @@ export const RiseOfKingdomsPlugin: Plugin = {
     {
       id: 'rally-fort',
       name: '攻打城寨',
-      description: '搜索野蛮人城寨并发起集结',
-      run: async (ctx, params: { level?: number; team?: number } = {}) => {
+      description: '使用游戏内置搜索查找野蛮人城寨并发起集结',
+      run: async (ctx, params: { level?: number; team?: number; downgrade?: boolean } = {}) => {
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const level = params.level || 5;
         const team = params.team || 1;
-        const outcome = await rallyFort(ctx, config, level, team);
+        const downgrade = params.downgrade !== false;
+        const outcome = await rallyFort(ctx, config, level, team, downgrade);
         ctx.log(`城寨集结: Lv.${outcome.foundLevel || level} 队伍${team} → ${outcome.result}`);
       }
     },
