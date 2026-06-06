@@ -39,22 +39,27 @@ export async function rallyFort(
   const fs = config.fortSearch;
   const worldBtn = config.resourceCollect.worldSwitchButton;
 
-  // [1/7] 确保在城外
-  ctx.log('  [1/7] 确保在城外');
+  // [1/8] 确保在城外
+  ctx.log('  [1/8] 确保在城外');
   await ensureInWorld(ctx, config);
 
-  // [2/7] 打开搜索面板
-  ctx.log(`  [2/7] 打开搜索面板 (${fs.searchButton.x}, ${fs.searchButton.y})`);
+  // [2/8] 打开搜索面板
+  ctx.log(`  [2/8] 打开搜索面板 (${fs.searchButton.x}, ${fs.searchButton.y})`);
   await ctx.tap(fs.searchButton.x, fs.searchButton.y);
   await ctx.sleep(1.5);
 
-  // [3/7] 切换到城寨页签
-  ctx.log(`  [3/7] 切换到城寨页签 (${fs.fortTab.x}, ${fs.fortTab.y})`);
+  // [3/8] 选择野蛮人
+  ctx.log(`  [3/8] 选择野蛮人 (${fs.barbarianButton.x}, ${fs.barbarianButton.y})`);
+  await ctx.tap(fs.barbarianButton.x, fs.barbarianButton.y);
+  await ctx.sleep(1);
+
+  // [4/8] 切换到城寨页签
+  ctx.log(`  [4/8] 切换到城寨页签 (${fs.fortTab.x}, ${fs.fortTab.y})`);
   await ctx.tap(fs.fortTab.x, fs.fortTab.y);
   await ctx.sleep(1);
 
-  // [4/7] 设置等级并搜索
-  ctx.log(`  [4/7] 设置等级并搜索`);
+  // [5/8] 设置等级并搜索
+  ctx.log(`  [5/8] 设置等级并搜索`);
 
   // 重置到 1 级：快速点击 - ×9
   ctx.log(`  重置到1级: 快速点击 - ×9`);
@@ -115,13 +120,13 @@ export async function rallyFort(
 
   await ctx.sleep(2.5);
 
-  // [5/7] 点击集结按钮
-  ctx.log(`  [5/7] 点击集结按钮 (${fs.rallyButton.x}, ${fs.rallyButton.y})`);
+  // [6/8] 点击集结按钮
+  ctx.log(`  [6/8] 点击集结按钮 (${fs.rallyButton.x}, ${fs.rallyButton.y})`);
   await ctx.tap(fs.rallyButton.x, fs.rallyButton.y);
   await ctx.sleep(1.5);
 
-  // [6/7] 确认集结时间
-  ctx.log(`  [6/7] 确认集结时间 (${CONFIRM_TIME_BUTTON.x}, ${CONFIRM_TIME_BUTTON.y})`);
+  // [7/8] 确认集结时间
+  ctx.log(`  [7/8] 确认集结时间 (${CONFIRM_TIME_BUTTON.x}, ${CONFIRM_TIME_BUTTON.y})`);
   await ctx.tap(CONFIRM_TIME_BUTTON.x, CONFIRM_TIME_BUTTON.y);
   await ctx.sleep(1);
 
@@ -136,8 +141,8 @@ export async function rallyFort(
     return { result: 'team_unavailable', dispatched: 0, foundLevel: currentLevel };
   }
 
-  // [7/7] 选择队伍并检测状态变化
-  ctx.log(`  [7/7] 选择队伍 ${team} 并检测状态变化...`);
+  // [8/8] 选择队伍并检测状态变化
+  ctx.log(`  [8/8] 选择队伍 ${team} 并检测状态变化...`);
   const stateResult = await ctx.checkButtonStateChange(teamBtn.x, teamBtn.y, 150, 50, 0.1);
   ctx.log(`  [debug] 像素变化率: ${(stateResult.diffPercentage * 100).toFixed(1)}%, changed: ${stateResult.changed}`);
 

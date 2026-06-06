@@ -104,6 +104,7 @@ export interface RokConfig {
   // ========== 城寨搜索 ==========
   fortSearch: {
     searchButton: { x: number; y: number };
+    barbarianButton: { x: number; y: number };
     fortTab: { x: number; y: number };
     minusButton: { x: number; y: number };
     plusButton: { x: number; y: number };
@@ -215,6 +216,7 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
   // ========== 城寨搜索 ==========
   fortSearch: {
     searchButton: { x: 78, y: 677 },
+    barbarianButton: { x: 318, y: 795 },
     fortTab: { x: 438, y: 295 },
     minusButton: { x: 121, y: 484 },
     plusButton: { x: 559, y: 481 },
