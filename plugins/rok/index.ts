@@ -13,6 +13,8 @@ import { sendWorldChat, sendWorldChatFirstRun } from './actions/sendWorldChat';
 import { ensureInCity, ensureBottomBarCollapsed } from './utils/location';
 import { ocrService } from '../../core/ocr/OcrService';
 import * as fs from 'fs/promises';
+import { getTemplatesDir } from '../../core/resourcePath';
+import * as path from 'path';
 
 // 万国觉醒 - 配置项
 // 这些坐标需要根据你的实际屏幕分辨率进行调整
@@ -327,6 +329,18 @@ export const RiseOfKingdomsPlugin: Plugin = {
             return;
           }
           ctx.log('⚠️ 未识别到队伍计数，继续采集');
+        }
+
+        // 二次验证：检测采集状态图标，若已派出队伍数 ≥ 配置任务数则跳过
+        const CAIJI_STATE_TEMPLATE = path.join(getTemplatesDir(), 'CaiJiState_result.png');
+        const activeTaskCount = params.gatherTasks.filter(t => t.type).length;
+        const caiJiResults = await ctx.findAllImages(CAIJI_STATE_TEMPLATE, 0.8, {
+          x: 1476, y: 206, width: 114, height: 472
+        });
+        ctx.log(`[预备] 检测到 ${caiJiResults.length} 个采集状态图标（配置任务数: ${activeTaskCount}）`);
+        if (caiJiResults.length >= activeTaskCount && activeTaskCount > 0) {
+          ctx.log(`⏭️ 已派出队伍数 (${caiJiResults.length}) ≥ 配置任务数 (${activeTaskCount})，认为无空闲采集队伍，跳过本轮采集`);
+          return;
         }
 
         for (let i = 0; i < params.gatherTasks.length; i++) {
