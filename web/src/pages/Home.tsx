@@ -152,10 +152,16 @@ export function HomePage() {
         if (!Array.isArray(merged.completedTechs) || merged.completedTechs.length !== 5) {
           merged.completedTechs = [false, false, false, false, false];
         }
-        // Migrate old state without rallyFortTasks array
-        if (!Array.isArray(merged.rallyFortTasks) || merged.rallyFortTasks.length !== 5) {
-          merged.rallyFortTasks = DEFAULT_FEATURES.rallyFortTasks;
+        // Migrate old rallyFortTasks array to rallyFortLevel/rallyFortTeam
+        if (Array.isArray(merged.rallyFortTasks)) {
+          const firstActive = merged.rallyFortTasks.find((t: any) => t.level > 0);
+          merged.rallyFortLevel = firstActive ? firstActive.level : 0;
+          merged.rallyFortTeam = firstActive ? firstActive.team : 1;
+          delete merged.rallyFortTasks;
         }
+        if (typeof merged.rallyFortLevel !== 'number') merged.rallyFortLevel = DEFAULT_FEATURES.rallyFortLevel;
+        if (typeof merged.rallyFortTeam !== 'number') merged.rallyFortTeam = DEFAULT_FEATURES.rallyFortTeam;
+        if (typeof merged.rallyFortDowngrade !== 'boolean') merged.rallyFortDowngrade = DEFAULT_FEATURES.rallyFortDowngrade;
         return merged;
       }
     } catch {}
@@ -510,50 +516,43 @@ export function HomePage() {
         let first = true;
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
-          if (features.autoRallyFort) {
-            const tasks = features.rallyFortTasks
-              .map((t: { level: number; team: number }, i: number) => ({ ...t, team: i + 1 }))
-              .filter((t: { level: number; team: number }) => t.level > 0);
-            if (tasks.length > 0) {
-              for (const task of tasks) {
-                if (loopStopped) break;
-                if (!await acquireLock()) break;
-                try {
-                  const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'rally-fort', { level: task.level, team: task.team });
-                  if (createResult.success) {
-                    runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
-                    setRunningTaskIds([...runningTaskIdsRef.current]);
-                    const runResult = await api.tasks.run(createResult.task.id);
-                    runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
-                    setRunningTaskIds([...runningTaskIdsRef.current]);
+          if (features.autoRallyFort && features.rallyFortLevel > 0) {
+            if (loopStopped) break;
+            if (!await acquireLock()) break;
+            try {
+              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'rally-fort', { level: features.rallyFortLevel, team: features.rallyFortTeam, downgrade: features.rallyFortDowngrade });
+              if (createResult.success) {
+                runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
+                setRunningTaskIds([...runningTaskIdsRef.current]);
+                const runResult = await api.tasks.run(createResult.task.id);
+                runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
+                setRunningTaskIds([...runningTaskIdsRef.current]);
 
-                    if (runResult.task?.status === 'stopped') {
-                      loopStopped = true;
-                      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ ${createResult.task.actionId} 已被停止`]);
-                      return;
-                    }
+                if (runResult.task?.status === 'stopped') {
+                  loopStopped = true;
+                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ ${createResult.task.actionId} 已被停止`]);
+                  return;
+                }
 
-                    const logs = runResult.task?.logs ?? [];
-                    const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
-                    if (hasExpiredLog) {
-                      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
-                      loopStopped = true;
-                      setExpiredMessage('激活码已到期，请重新激活');
-                      refreshStatus();
-                    } else {
-                      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 城寨 Lv.${task.level} 队伍${task.team} 完成`]);
-                    }
-                  }
-                } catch {} finally { releaseLock(); }
+                const logs = runResult.task?.logs ?? [];
+                const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
+                if (hasExpiredLog) {
+                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
+                  loopStopped = true;
+                  setExpiredMessage('激活码已到期，请重新激活');
+                  refreshStatus();
+                } else {
+                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 城寨 Lv.${features.rallyFortLevel} 队伍${features.rallyFortTeam} 完成`]);
+                }
               }
-              if (loopStopped) break;
-              const cd = features.rallyFortInterval || 600;
-              const cdJitter = cd * (0.85 + Math.random() * 0.3);
-              setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏰 城寨一轮完成，${cdJitter.toFixed(0)} 秒后下一轮`]);
-              const startWait = Date.now();
-              while (!loopStopped && (Date.now() - startWait) < cdJitter * 1000) {
-                await sleep(1);
-              }
+            } catch {} finally { releaseLock(); }
+            if (loopStopped) break;
+            const cd = features.rallyFortInterval || 600;
+            const cdJitter = cd * (0.85 + Math.random() * 0.3);
+            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏰 城寨完成，${cdJitter.toFixed(0)} 秒后下一轮`]);
+            const startWait = Date.now();
+            while (!loopStopped && (Date.now() - startWait) < cdJitter * 1000) {
+              await sleep(1);
             }
           } else {
             // 未开启城寨功能，长时间休眠避免空转
@@ -1283,23 +1282,30 @@ export function HomePage() {
                 </label>
               </div>
               <div className="flex flex-col gap-2 mt-2">
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-xs text-slate-400">队伍配置（每行固定队伍1~5，可选择等级或取消）</span>
-                  {features.rallyFortTasks.map((task: { level: number; team: number }, i: number) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <span className="text-xs text-slate-500 w-12">队伍{i + 1}</span>
-                      <select value={task.level}
-                        onChange={(e) => {
-                          const next = [...features.rallyFortTasks];
-                          next[i] = { ...next[i], level: Number(e.target.value) };
-                          setFeatures({ ...features, rallyFortTasks: next });
-                        }}
-                        className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-20">
-                        <option value={0}>—</option>
-                        {[1,2,3,4,5,6,7,8,9,10].map(l => (<option key={l} value={l}>Lv.{l}</option>))}
-                      </select>
-                    </div>
-                  ))}
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400 whitespace-nowrap">目标等级</span>
+                  <select value={features.rallyFortLevel}
+                    onChange={(e) => setFeatures({ ...features, rallyFortLevel: Number(e.target.value) })}
+                    className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-20">
+                    <option value={0}>—</option>
+                    {[1,2,3,4,5,6,7,8,9,10].map(l => (<option key={l} value={l}>Lv.{l}</option>))}
+                  </select>
+                  <span className="text-xs text-slate-400 whitespace-nowrap ml-2">队伍</span>
+                  <select value={features.rallyFortTeam}
+                    onChange={(e) => setFeatures({ ...features, rallyFortTeam: Number(e.target.value) })}
+                    className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-16">
+                    {[1,2,3,4,5].map(t => (<option key={t} value={t}>{t}</option>))}
+                  </select>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500 w-16">降级搜索</span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" checked={features.rallyFortDowngrade}
+                      onChange={(e) => setFeatures({ ...features, rallyFortDowngrade: e.target.checked })}
+                      className="sr-only peer" />
+                    <span className={`w-9 h-5 rounded-full transition-colors ${features.rallyFortDowngrade ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                    <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.rallyFortDowngrade ? 'translate-x-[18px]' : ''}`} />
+                  </label>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-400 whitespace-nowrap">循环间隔（秒）</span>
