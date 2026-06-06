@@ -529,6 +529,34 @@ export const RiseOfKingdomsPlugin: Plugin = {
         const level = params.level || 5;
         const team = params.team || 1;
         const downgrade = params.downgrade !== false;
+
+        // Pre-check: OCR team count to skip if no idle teams
+        ctx.log('[预备] OCR 检测空闲队伍数...');
+        const regionPath = await ctx.captureRegion(1507, 169, 55, 31);
+        const teamCountText = await ocrService.readText(regionPath);
+        await fs.unlink(regionPath).catch(() => {});
+        ctx.log(`[预备] OCR 结果: "${teamCountText}"`);
+
+        // Parse fraction like "2/4", "3/3", "5/5"
+        const match = teamCountText.match(/(\d+)\s*\/\s*(\d+)/);
+        if (match) {
+          const used = parseInt(match[1], 10);
+          const total = parseInt(match[2], 10);
+          if (used === total) {
+            ctx.log(`⏭️ 无空闲队伍 (${used}/${total})，跳过城寨集结`);
+            return;
+          }
+          ctx.log(`有空闲队伍 (${used}/${total})，继续城寨集结`);
+        } else {
+          // OCR 可能漏掉斜杠，如 "33" → 3/3, "55" → 5/5
+          const digitsOnly = teamCountText.replace(/\D/g, '');
+          if (digitsOnly.length >= 2 && /^(\d)\1+$/.test(digitsOnly)) {
+            ctx.log(`⏭️ 无空闲队伍 (OCR识别为 "${digitsOnly}"，推测全部忙碌)，跳过城寨集结`);
+            return;
+          }
+          ctx.log('⚠️ 未识别到队伍计数，继续城寨集结');
+        }
+
         const outcome = await rallyFort(ctx, config, level, team, downgrade);
         ctx.log(`城寨集结: Lv.${outcome.foundLevel || level} 队伍${team} → ${outcome.result}`);
       }
