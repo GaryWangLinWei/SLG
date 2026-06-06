@@ -22,7 +22,7 @@ const CLOSE_POPUP_BUTTON = { x: 1392, y: 57 };
 const CONFIRM_TIME_BUTTON = { x: 1177, y: 396 };
 
 export interface RallyFortOutcome {
-  result: 'success' | 'not_found' | 'team_unavailable';
+  result: 'success' | 'not_found' | 'team_unavailable' | 'rally_full';
   dispatched: number;
   foundLevel?: number;
 }
@@ -120,9 +120,15 @@ export async function rallyFort(
 
   await ctx.sleep(2.5);
 
-  // [6/8] 点击集结按钮
-  ctx.log(`  [6/8] 点击集结按钮 (${fs.rallyButton.x}, ${fs.rallyButton.y})`);
-  await ctx.tap(fs.rallyButton.x, fs.rallyButton.y);
+  // [6/8] 点击集结按钮并检测
+  ctx.log(`  [6/8] 点击集结按钮并检测 (${fs.rallyButton.x}, ${fs.rallyButton.y})`);
+  const rallyResult = await ctx.checkButtonStateChange(fs.rallyButton.x, fs.rallyButton.y, 120, 60, 0.05);
+  if (!rallyResult.changed) {
+    ctx.log(`  ⚠️ 集结按钮无变化，队伍已满`);
+    await ctx.tap(worldBtn.x, worldBtn.y);
+    await ctx.sleep(2);
+    return { result: 'rally_full', dispatched: 0, foundLevel: currentLevel };
+  }
   await ctx.sleep(1.5);
 
   // [7/8] 确认集结时间

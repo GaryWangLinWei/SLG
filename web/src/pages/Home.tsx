@@ -519,6 +519,7 @@ export function HomePage() {
           if (features.autoRallyFort && features.rallyFortLevel > 0) {
             if (loopStopped) break;
             if (!await acquireLock()) break;
+            let cd = 600; // 默认 CD，实际根据结果确定
             try {
               const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'rally-fort', { level: features.rallyFortLevel, team: features.rallyFortTeam, downgrade: features.rallyFortDowngrade });
               if (createResult.success) {
@@ -536,18 +537,21 @@ export function HomePage() {
 
                 const logs = runResult.task?.logs ?? [];
                 const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
+                // 根据集结结果确定 CD：成功 10 分钟，失败 2 分钟
+                const isSuccess = logs.some((l: string) => l.includes('→ success'));
+                cd = isSuccess ? 600 : 120;
                 if (hasExpiredLog) {
                   setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
                   loopStopped = true;
                   setExpiredMessage('激活码已到期，请重新激活');
                   refreshStatus();
                 } else {
-                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 城寨 Lv.${features.rallyFortLevel} 队伍${features.rallyFortTeam} 完成`]);
+                  const cdLabel = isSuccess ? '10分钟' : '2分钟';
+                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${isSuccess ? '✅' : '⚠️'} 城寨 Lv.${features.rallyFortLevel} 队伍${features.rallyFortTeam} ${isSuccess ? '集结成功' : '未找到城寨'}，CD ${cdLabel}`]);
                 }
               }
             } catch {} finally { releaseLock(); }
             if (loopStopped) break;
-            const cd = features.rallyFortInterval || 600;
             const cdJitter = cd * (0.85 + Math.random() * 0.3);
             setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏰 城寨完成，${cdJitter.toFixed(0)} 秒后下一轮`]);
             const startWait = Date.now();
@@ -1306,12 +1310,6 @@ export function HomePage() {
                     <span className={`w-9 h-5 rounded-full transition-colors ${features.rallyFortDowngrade ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                     <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.rallyFortDowngrade ? 'translate-x-[18px]' : ''}`} />
                   </label>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400 whitespace-nowrap">循环间隔（秒）</span>
-                  <input type="number" value={features.rallyFortInterval} min={60}
-                    onChange={(e) => setFeatures({ ...features, rallyFortInterval: Math.max(60, Number(e.target.value)) })}
-                    className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 focus:outline-none focus:border-emerald-500" />
                 </div>
               </div>
 

@@ -17,7 +17,6 @@ export interface HomeFeatures {
   autoRallyFort: boolean;
   rallyFortLevel: number;
   rallyFortTeam: number;
-  rallyFortInterval: number;
   rallyFortDowngrade: boolean;
   loopInterval: number;
 }
@@ -47,7 +46,6 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   autoRallyFort: false,
   rallyFortLevel: 0,
   rallyFortTeam: 1,
-  rallyFortInterval: 600,
   rallyFortDowngrade: true,
   loopInterval: 300,
 };
