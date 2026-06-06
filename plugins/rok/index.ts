@@ -336,7 +336,12 @@ export const RiseOfKingdomsPlugin: Plugin = {
         const activeTaskCount = params.gatherTasks.filter(t => t.type).length;
 
         // debug: 保存截取区域供人工检查
-        const debugRegionPath = await ctx.captureRegion(1476, 206, 114, 472);
+        const debugDir = path.join(process.cwd(), 'temp');
+        await fs.mkdir(debugDir, { recursive: true });
+        const debugRegionPath = path.join(debugDir, `caiJiState_region_${Date.now()}.png`);
+        const tmpPath = await ctx.captureRegion(1476, 206, 114, 472);
+        await fs.copyFile(tmpPath, debugRegionPath);
+        await fs.unlink(tmpPath).catch(() => {});
         const tplStat = await fs.stat(CAIJI_STATE_TEMPLATE);
         ctx.log(`[预备] 截取区域: ${debugRegionPath}`);
         ctx.log(`[预备] 模板: ${CAIJI_STATE_TEMPLATE} (${tplStat.size} bytes)`);
