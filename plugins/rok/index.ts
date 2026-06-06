@@ -334,30 +334,9 @@ export const RiseOfKingdomsPlugin: Plugin = {
         // 二次验证：检测采集状态图标，若已派出队伍数 ≥ 配置任务数则跳过
         const CAIJI_STATE_TEMPLATE = path.join(getTemplatesDir(), 'CaiJiState_result.png');
         const activeTaskCount = params.gatherTasks.filter(t => t.type).length;
-
-        // debug: 保存截取区域供人工检查
-        const debugDir = 'D:/SLG/temp';
-        await fs.mkdir(debugDir, { recursive: true });
-        const debugRegionPath = path.join(debugDir, `caiJiState_region_${Date.now()}.png`);
-        try {
-          const tmpPath = await ctx.captureRegion(1476, 206, 114, 472);
-          await fs.copyFile(tmpPath, debugRegionPath);
-          await fs.unlink(tmpPath).catch(() => {});
-          const tplStat = await fs.stat(CAIJI_STATE_TEMPLATE);
-          ctx.log(`[预备] 截取区域: ${debugRegionPath}`);
-          ctx.log(`[预备] 模板: ${CAIJI_STATE_TEMPLATE} (${tplStat.size} bytes)`);
-        } catch (e: any) {
-          ctx.log(`[预备] 截取区域失败: ${e.message}`);
-        }
-
-        const caiJiResults = await ctx.findAllImages(CAIJI_STATE_TEMPLATE, 0.8, {
+        const caiJiResults = await ctx.findAllImages(CAIJI_STATE_TEMPLATE, 0.75, {
           x: 1476, y: 206, width: 114, height: 472
         }, [0.7, 0.8, 0.9, 1.0, 1.1]);
-
-        // debug: 低阈值探测最佳匹配置信度
-        const probeResult = await ctx.findImageWithLocation(CAIJI_STATE_TEMPLATE, 0.3, [0.7, 0.8, 0.9, 1.0, 1.1]);
-        ctx.log(`[预备] 低阈值探测: found=${probeResult.found} confidence=${probeResult.confidence.toFixed(4)} at (${probeResult.x},${probeResult.y})`);
-
         ctx.log(`[预备] 检测到 ${caiJiResults.length} 个采集状态图标（配置任务数: ${activeTaskCount}）`);
         if (caiJiResults.length >= activeTaskCount && activeTaskCount > 0) {
           ctx.log(`⏭️ 已派出队伍数 (${caiJiResults.length}) ≥ 配置任务数 (${activeTaskCount})，认为无空闲采集队伍，跳过本轮采集`);
