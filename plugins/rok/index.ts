@@ -101,6 +101,16 @@ export interface RokConfig {
     sendButton: { x: number; y: number };
   };
 
+  // ========== 城寨搜索 ==========
+  fortSearch: {
+    searchButton: { x: number; y: number };
+    fortTab: { x: number; y: number };
+    minusButton: { x: number; y: number };
+    plusButton: { x: number; y: number };
+    searchActionButton: { x: number; y: number };
+    rallyButton: { x: number; y: number };
+  };
+
   homeFeatures?: HomeFeatures;
 }
 
@@ -200,6 +210,16 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
     chatButton: { x: 418, y: 845 },
     inputBox: { x: 601, y: 837 },
     sendButton: { x: 1518, y: 848 },
+  },
+
+  // ========== 城寨搜索 ==========
+  fortSearch: {
+    searchButton: { x: 78, y: 677 },
+    fortTab: { x: 438, y: 295 },
+    minusButton: { x: 121, y: 484 },
+    plusButton: { x: 559, y: 481 },
+    searchActionButton: { x: 336, y: 593 },
+    rallyButton: { x: 1181, y: 615 },
   },
 
   homeFeatures: DEFAULT_HOME_FEATURES,
