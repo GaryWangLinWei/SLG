@@ -239,7 +239,7 @@ export class Vision {
         raw: { width: maskW, height: maskH, channels: 3 }
       }).png().toBuffer();
 
-      const outputPath = path.join(TEMP_DIR, `masked_${Date.now()}.png`);
+      const outputPath = path.join(TEMP_DIR, `masked_${Date.now()}_${Math.random().toString(36).slice(2, 8)}.png`);
       await sharp(screenshotBuffer)
         .composite([{ input: overlay, top: maskTop, left: maskLeft }])
         .toFile(outputPath);
@@ -255,6 +255,41 @@ export class Vision {
     }
 
     return results;
+  }
+
+  /**
+   * Find all occurrences across multiple templates, merge & dedupe nearby matches.
+   * Runs templates in parallel — total time ≈ slowest single template.
+   */
+  async findAllImagesMultiTemplate(
+    screenshotPath: string,
+    templatePaths: string[],
+    threshold: number = 0.85,
+    scales?: number[],
+    normalize?: boolean,
+    channel?: string,
+    dedupeDistance: number = 20
+  ): Promise<ImageMatchResult[]> {
+    const allBatches = await Promise.all(
+      templatePaths.map(tp =>
+        this.findAllImages(screenshotPath, tp, threshold, scales, normalize, channel)
+      )
+    );
+
+    // Merge & dedupe nearby matches (within dedupeDistance px)
+    const all: ImageMatchResult[] = [];
+    for (const batch of allBatches) {
+      for (const r of batch) {
+        const tooClose = all.some(m =>
+          Math.abs(m.location.x - r.location.x) < dedupeDistance &&
+          Math.abs(m.location.y - r.location.y) < dedupeDistance
+        );
+        if (!tooClose) all.push(r);
+      }
+    }
+
+    all.sort((a, b) => b.confidence - a.confidence);
+    return all;
   }
 
   /**
