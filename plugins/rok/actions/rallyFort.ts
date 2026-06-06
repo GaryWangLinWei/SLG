@@ -7,7 +7,7 @@ import * as path from 'path';
 const TEMPLATE_DIR = getTemplatesDir();
 const PAGE_INDICATOR_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_page_indicator.png');
 
-// 队伍选择坐标（复用 gatherResources）
+// 队伍选择坐标（集结界面，与采集界面坐标不同）
 const SELECT_TEAM_BUTTON = { x: 1259, y: 180 };
 const TEAM_BUTTONS_NO_PAGE: Record<number, { x: number; y: number }> = {
   1: { x: 1378, y: 362 }, 2: { x: 1378, y: 430 },
