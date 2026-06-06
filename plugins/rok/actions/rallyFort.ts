@@ -22,7 +22,7 @@ const CLOSE_POPUP_BUTTON = { x: 1392, y: 57 };
 const CONFIRM_TIME_BUTTON = { x: 1177, y: 396 };
 
 export interface RallyFortOutcome {
-  result: 'success' | 'not_found' | 'no_idle_teams' | 'team_unavailable';
+  result: 'success' | 'not_found' | 'team_unavailable';
   dispatched: number;
   foundLevel?: number;
 }
