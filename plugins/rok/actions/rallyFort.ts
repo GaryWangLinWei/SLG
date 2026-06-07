@@ -22,6 +22,8 @@ const CLOSE_POPUP_BUTTON = { x: 1392, y: 57 };
 const CLOSE_TEAM_PANEL_BUTTON = { x: 1394, y: 60 };
 const CONFIRM_TIME_BUTTON = { x: 1177, y: 396 };
 const CLOSE_BTN_TEMPLATE = path.join(TEMPLATE_DIR, 'closeBtn.png');
+const SWITCH_IN_CITY_TEMPLATE = path.join(TEMPLATE_DIR, 'switch_in_city.png');
+const SWITCH_IN_WORLD_TEMPLATE = path.join(TEMPLATE_DIR, 'switch_in_world.png');
 
 export interface RallyFortOutcome {
   result: 'success' | 'not_found' | 'team_unavailable' | 'rally_full' | 'stamina_insufficient';
@@ -168,10 +170,26 @@ export async function rallyFort(
   await ctx.sleep(1);
 
   // 检测行动力不足弹窗：在 (1365,103) 附近查找 closeBtn
+  let isStaminaInsufficient = false;
   const staminaResults = await ctx.findAllImages(CLOSE_BTN_TEMPLATE, 0.9, {
     x: 1340, y: 78, width: 50, height: 50
   });
   if (staminaResults.length > 0) {
+    isStaminaInsufficient = true;
+    ctx.log(`  ⚠️ 检测到行动力不足弹窗（closeBtn）`);
+  } else {
+    // 兜底：检测城内外切换按钮是否可见，不可见则认为是行动力不足弹窗挡住了
+    ctx.log(`  兜底检测：查找城内外切换按钮...`);
+    const switchCityResult = await ctx.findImage(SWITCH_IN_CITY_TEMPLATE, 0.7);
+    const switchWorldResult = await ctx.findImage(SWITCH_IN_WORLD_TEMPLATE, 0.7);
+    ctx.log(`  切换按钮: city=${switchCityResult.found ? switchCityResult.confidence.toFixed(3) : 'not found'}, world=${switchWorldResult.found ? switchWorldResult.confidence.toFixed(3) : 'not found'}`);
+    if (!switchCityResult.found && !switchWorldResult.found) {
+      isStaminaInsufficient = true;
+      ctx.log(`  ⚠️ 城内外切换按钮不可见，认为弹出了行动力不足弹窗`);
+    }
+  }
+
+  if (isStaminaInsufficient) {
     ctx.log(`  ⚠️ 行动力不足，关闭弹窗并返回城内`);
     await ctx.tap(1363, 103);  // 关闭行动力不足弹窗
     await ctx.sleep(0.5);
