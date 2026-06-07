@@ -1,6 +1,9 @@
 import { LicenseStatus, ActivationResult, HeartbeatResult, StoredLicenseData } from './types';
 import { loadLicense, loadLicenseSync, saveLicense, clearLicense } from './LicenseStorage';
 import { generateFingerprint, verifyFingerprint, verifyFingerprintSync } from './DeviceFingerprint';
+import { join } from 'path';
+import { homedir } from 'os';
+import { writeFileSync, mkdirSync } from 'fs';
 
 // Auth server config - can be overridden by env
 const AUTH_SERVER_URL = process.env.AUTH_SERVER_URL || 'http://106.15.11.158:3456';
@@ -165,6 +168,14 @@ class LicenseService {
   }
 
   async init(): Promise<void> {
+    // 将设备指纹写入 ~/.slg-automation/设备指纹.txt，方便用户排查问题
+    try {
+      const fingerprint = await generateFingerprint();
+      const dir = join(homedir(), '.slg-automation');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, '设备指纹.txt'), `设备指纹: ${fingerprint}\n此文件由程序自动生成，请勿修改\n`);
+    } catch { /* 写入失败不影响正常使用 */ }
+
     const status = await this.getStatus();
     if (status.activated && !status.isExpired) {
       await this.heartbeat().catch(() => {});

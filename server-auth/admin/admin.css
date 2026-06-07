@@ -333,3 +333,41 @@ tr:hover {
   cursor: pointer;
   accent-color: #22c55e;
 }
+
+/* Pagination */
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+.pagination button {
+  padding: 6px 14px;
+  background: #334155;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  color: #e2e8f0;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+  min-width: 36px;
+}
+.pagination button:hover:not(:disabled) {
+  background: #475569;
+}
+.pagination button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.pagination button.active {
+  background: #3b82f6;
+  border-color: #3b82f6;
+  color: #fff;
+}
+.pagination .page-info {
+  color: #94a3b8;
+  font-size: 12px;
+  margin: 0 8px;
+}

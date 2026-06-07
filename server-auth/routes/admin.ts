@@ -1,6 +1,6 @@
 import Router from 'koa-router';
 import { CONFIG } from '../config';
-import { generateCodes, getAllCodes, revokeCode, getStats, previewCode, exportCodes } from '../services/ActivationCodeService';
+import { generateCodes, getAllCodes, revokeCode, getStats, previewCode, exportCodes, getCodesCount } from '../services/ActivationCodeService';
 import { getActiveDevices, deleteDevice } from '../services/HeartbeatService';
 
 const router = new Router({ prefix: '/api/admin' });
@@ -24,13 +24,14 @@ router.get('/stats', async (ctx) => {
 });
 
 router.get('/codes', async (ctx) => {
-  const limit = parseInt(ctx.query.limit as string) || 100;
+  const limit = parseInt(ctx.query.limit as string) || 10;
   const offset = parseInt(ctx.query.offset as string) || 0;
   const status = ctx.query.status as string | undefined;
 
   ctx.body = {
     success: true,
-    codes: getAllCodes(limit, offset, status)
+    codes: getAllCodes(limit, offset, status),
+    total: getCodesCount(status)
   };
 });
 
@@ -85,10 +86,13 @@ router.post('/codes/:id/revoke', async (ctx) => {
 });
 
 router.get('/devices', async (ctx) => {
-  const limit = parseInt(ctx.query.limit as string) || 50;
+  const limit = parseInt(ctx.query.limit as string) || 10;
+  const offset = parseInt(ctx.query.offset as string) || 0;
+  const { devices, total } = getActiveDevices(limit, offset);
   ctx.body = {
     success: true,
-    devices: getActiveDevices(limit)
+    devices,
+    total
   };
 });
 

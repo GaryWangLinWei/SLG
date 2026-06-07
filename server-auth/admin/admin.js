@@ -1,5 +1,8 @@
 const API_BASE = '';
+const PAGE_SIZE = 10;
 let adminKey = localStorage.getItem('adminKey');
+let codesPage = 1;
+let devicesPage = 1;
 
 // DOM Elements
 const loginScreen = document.getElementById('loginScreen');
@@ -12,6 +15,48 @@ const loginError = document.getElementById('loginError');
 function formatDate(timestamp) {
   if (!timestamp) return '-';
   return new Date(timestamp).toLocaleString('zh-CN');
+}
+
+function renderPagination(containerId, currentPage, totalItems, loadFn) {
+  const container = document.getElementById(containerId);
+  const totalPages = Math.max(1, Math.ceil(totalItems / PAGE_SIZE));
+
+  if (totalPages <= 1) {
+    container.innerHTML = '';
+    return;
+  }
+
+  let html = '';
+  html += `<button ${currentPage <= 1 ? 'disabled' : ''} data-page="${currentPage - 1}">上一页</button>`;
+
+  // 显示页码：总是显示第 1 页、最后一页，当前页附近 ±2
+  const pages = new Set();
+  pages.add(1);
+  pages.add(totalPages);
+  for (let i = Math.max(1, currentPage - 2); i <= Math.min(totalPages, currentPage + 2); i++) {
+    pages.add(i);
+  }
+  const sorted = Array.from(pages).sort((a, b) => a - b);
+
+  let last = 0;
+  for (const p of sorted) {
+    if (p - last > 1) {
+      html += '<span class="page-info">…</span>';
+    }
+    html += `<button class="${p === currentPage ? 'active' : ''}" data-page="${p}">${p}</button>`;
+    last = p;
+  }
+
+  html += `<button ${currentPage >= totalPages ? 'disabled' : ''} data-page="${currentPage + 1}">下一页</button>`;
+  html += `<span class="page-info">共 ${totalItems} 条</span>`;
+
+  container.innerHTML = html;
+  container.querySelectorAll('button[data-page]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const page = parseInt(btn.dataset.page);
+      loadFn(page);
+    });
+  });
 }
 
 async function apiRequest(path, options = {}) {
@@ -51,9 +96,11 @@ function renderStatus(status) {
   return map[status] || status;
 }
 
-async function loadCodes() {
+async function loadCodes(page = 1) {
   try {
-    const data = await apiRequest('/api/admin/codes');
+    codesPage = page;
+    const offset = (page - 1) * PAGE_SIZE;
+    const data = await apiRequest(`/api/admin/codes?limit=${PAGE_SIZE}&offset=${offset}`);
     const tbody = document.getElementById('codesTable');
     tbody.innerHTML = data.codes.map(code => `
       <tr>
@@ -75,7 +122,7 @@ async function loadCodes() {
         if (confirm('确定要吊销此激活码吗？')) {
           try {
             await apiRequest(`/api/admin/codes/${id}/revoke`, { method: 'POST' });
-            loadCodes();
+            loadCodes(codesPage);
             loadStats();
           } catch (err) {
             alert('吊销失败: ' + err.message);
@@ -83,17 +130,20 @@ async function loadCodes() {
         }
       });
     });
+
+    renderPagination('codesPagination', page, data.total, loadCodes);
   } catch (e) {
     console.error('Failed to load codes:', e);
   }
 }
 
-async function loadDevices() {
+async function loadDevices(page = 1) {
   try {
-    const data = await apiRequest('/api/admin/devices');
+    devicesPage = page;
+    const offset = (page - 1) * PAGE_SIZE;
+    const data = await apiRequest(`/api/admin/devices?limit=${PAGE_SIZE}&offset=${offset}`);
     const tbody = document.getElementById('devicesTable');
     tbody.innerHTML = data.devices.map((device, idx) => {
-      const rowId = 'dev-row-' + idx;
       const detailId = 'dev-detail-' + idx;
       const codeCount = device.codes.length;
       return `
@@ -140,7 +190,8 @@ async function loadDevices() {
         if (detailRow) {
           const open = detailRow.style.display !== 'none';
           detailRow.style.display = open ? 'none' : 'table-row';
-          link.textContent = open ? `${codeCount} 条 ▶` : `${codeCount} 条 ▼`;
+          const count = link.textContent.match(/\d+/)?.[0] || '';
+          link.textContent = open ? `${count} 条 ▶` : `${count} 条 ▼`;
         }
       });
     });
@@ -153,12 +204,14 @@ async function loadDevices() {
         try {
           const res = await apiRequest(`/api/admin/devices/${encodeURIComponent(fp)}`, { method: 'DELETE' });
           alert(res.message);
-          loadDevices();
+          loadDevices(devicesPage);
         } catch (err) {
           alert('删除失败: ' + err.message);
         }
       });
     });
+
+    renderPagination('devicesPagination', page, data.total, loadDevices);
   } catch (e) {
     console.error('Failed to load devices:', e);
   }

@@ -73,6 +73,16 @@ export function getAllCodes(limit: number = 100, offset: number = 0, status?: st
   return db.prepare('SELECT * FROM activation_codes ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limit, offset) as ActivationCode[];
 }
 
+export function getCodesCount(status?: string): number {
+  const db = getDb();
+  if (status) {
+    const row = db.prepare('SELECT COUNT(*) as count FROM activation_codes WHERE status = ?').get(status) as any;
+    return row.count;
+  }
+  const row = db.prepare('SELECT COUNT(*) as count FROM activation_codes').get() as any;
+  return row.count;
+}
+
 export function revokeCode(id: number): boolean {
   const db = getDb();
   const result = db.prepare('UPDATE activation_codes SET status = ? WHERE id = ?').run('revoked', id);

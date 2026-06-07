@@ -51,9 +51,9 @@ export function generateToken(codeId: number): string {
   return jwt.sign({ codeId }, CONFIG.JWT_SECRET, { expiresIn: '1y' });
 }
 
-export function getActiveDevices(limit: number = 50): any[] {
+export function getActiveDevices(limit: number = 10, offset: number = 0): { devices: any[]; total: number } {
   const db = getDb();
-  // 先取所有激活绑定，按绑定时��降序
+  // 先取所有激活绑定，按绑定时间降序
   const allBindings = db.prepare(`
     SELECT
       b.device_fingerprint,
@@ -88,7 +88,9 @@ export function getActiveDevices(limit: number = 50): any[] {
     device.codes.push({ code: row.code, bound_at: row.bound_at });
   }
 
-  return Array.from(grouped.values()).slice(0, limit);
+  const devices = Array.from(grouped.values());
+  const total = devices.length;
+  return { devices: devices.slice(offset, offset + limit), total };
 }
 
 export function deleteDevice(fingerprint: string): number {

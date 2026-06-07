@@ -138,8 +138,10 @@ export async function gatherSingleResource(
   ctx.log(`  AddTeamBtn 匹对差异: ${(addTeamDiff * 100).toFixed(1)}%`);
 
   if (addTeamDiff >= 0.3) {
-    ctx.log(`  ⚠️ 没有空闲队伍，停止采集`);
+    ctx.log(`  ⚠️ 没有空闲队伍，停止采集，切换回城内`);
     await fs.unlink(addTeamRegionPath).catch(() => {});
+    await ctx.tap(rc.worldSwitchButton.x, rc.worldSwitchButton.y);
+    await ctx.sleep(2);
     return { success: false, hasPaging: hasPaging ?? false, noIdleTeams: true };
   }
   await fs.unlink(addTeamRegionPath).catch(() => {});
