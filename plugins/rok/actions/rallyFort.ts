@@ -169,24 +169,32 @@ export async function rallyFort(
   await ctx.tap(MARCH_BUTTON.x, MARCH_BUTTON.y);
   await ctx.sleep(1);
 
-  // 检测行动力不足弹窗：在 (1365,103) 附近查找 closeBtn
+  // 检测行动力不足弹窗
   let isStaminaInsufficient = false;
+
+  // 主检测：在 (1365,103) 附近查找 closeBtn
   const staminaResults = await ctx.findAllImages(CLOSE_BTN_TEMPLATE, 0.9, {
     x: 1340, y: 78, width: 50, height: 50
   });
   if (staminaResults.length > 0) {
+    ctx.log(`  ⚠️ 主检测：找到行动力不足弹窗 closeBtn`);
+  }
+
+  // 兜底检测：城内外切换按钮不可见则认为被弹窗遮挡
+  const switchCityResult = await ctx.findImage(SWITCH_IN_CITY_TEMPLATE, 0.7);
+  const switchWorldResult = await ctx.findImage(SWITCH_IN_WORLD_TEMPLATE, 0.7);
+  ctx.log(`  切换按钮: city=${switchCityResult.found ? switchCityResult.confidence.toFixed(3) : 'not found'}, world=${switchWorldResult.found ? switchWorldResult.confidence.toFixed(3) : 'not found'}`);
+  const switchBtnVisible = switchCityResult.found || switchWorldResult.found;
+
+  if (staminaResults.length > 0 && !switchBtnVisible) {
     isStaminaInsufficient = true;
-    ctx.log(`  ⚠️ 检测到行动力不足弹窗（closeBtn）`);
-  } else {
-    // 兜底：检测城内外切换按钮是否可见，不可见则认为是行动力不足弹窗挡住了
-    ctx.log(`  兜底检测：查找城内外切换按钮...`);
-    const switchCityResult = await ctx.findImage(SWITCH_IN_CITY_TEMPLATE, 0.7);
-    const switchWorldResult = await ctx.findImage(SWITCH_IN_WORLD_TEMPLATE, 0.7);
-    ctx.log(`  切换按钮: city=${switchCityResult.found ? switchCityResult.confidence.toFixed(3) : 'not found'}, world=${switchWorldResult.found ? switchWorldResult.confidence.toFixed(3) : 'not found'}`);
-    if (!switchCityResult.found && !switchWorldResult.found) {
-      isStaminaInsufficient = true;
-      ctx.log(`  ⚠️ 城内外切换按钮不可见，认为弹出了行动力不足弹窗`);
-    }
+    ctx.log(`  ⚠️ closeBtn存在 + 切换按钮不可见 → 确认行动力不足`);
+  } else if (staminaResults.length > 0) {
+    isStaminaInsufficient = true;
+    ctx.log(`  ⚠️ closeBtn存在 → 行动力不足`);
+  } else if (!switchBtnVisible) {
+    isStaminaInsufficient = true;
+    ctx.log(`  ⚠️ 兜底：切换按钮不可见 → 认为弹出了行动力不足弹窗`);
   }
 
   if (isStaminaInsufficient) {
