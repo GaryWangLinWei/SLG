@@ -169,8 +169,8 @@ export async function rallyFort(
   await ctx.sleep(1);
 
   // 检测行动力不足弹窗：城内外切换按钮不可见则认为被弹窗遮挡
-  const switchCityResult = await ctx.findImage(SWITCH_IN_CITY_TEMPLATE, 0.7);
-  const switchWorldResult = await ctx.findImage(SWITCH_IN_WORLD_TEMPLATE, 0.7);
+  const switchCityResult = await ctx.findImageWithLocation(SWITCH_IN_CITY_TEMPLATE, 0.7);
+  const switchWorldResult = await ctx.findImageWithLocation(SWITCH_IN_WORLD_TEMPLATE, 0.7);
   ctx.log(`  切换按钮: city=${switchCityResult.found ? switchCityResult.confidence.toFixed(3) : 'not found'}, world=${switchWorldResult.found ? switchWorldResult.confidence.toFixed(3) : 'not found'}`);
   const isStaminaInsufficient = !switchCityResult.found && !switchWorldResult.found;
   if (isStaminaInsufficient) {
