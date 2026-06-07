@@ -348,13 +348,23 @@ export function HomePage() {
       return;
     }
 
-    const hasAnyFeature = Object.values(features).some(v => typeof v === 'boolean' && v === true);
+    const hasAnyFeature =
+      (features.upgradeBuildings && features.selectedBuildings.some((b: string) => b)) ||
+      (features.autoResearch && features.selectedTechs.some((t: string) => t)) ||
+      (features.gatherResources && features.gatherTasks.some((t: any) => t.type)) ||
+      (features.trainTroops && Object.values(features.trainTasks as Record<string, number>).some((v: number) => v > 0)) ||
+      features.autoExplore ||
+      (features.autoWorldChat && features.worldChatMessages.some((m: string) => m.trim())) ||
+      (features.autoRallyFort && features.rallyFortLevel > 0) ||
+      features.helpTeammates ||
+      features.collectResources;
     if (!hasAnyFeature) {
-      alert('请勾选要执行的功能');
+      alert('请先开启至少一个功能再运行');
       return;
     }
 
     if (loopRunning) return;
+
     loopRunning = true;
     loopStopped = false;
     saveLoopState(currentAccountId);
@@ -954,8 +964,8 @@ export function HomePage() {
             {deviceConnected && !taskRunning && (
               <div className="flex items-center gap-2">
                 <span className="text-slate-500 text-sm">循环间隔:</span>
-                <input type="number" min={60} step={30} value={features.loopInterval}
-                  onChange={(e) => setFeatures({ ...features, loopInterval: Math.max(60, Number(e.target.value)) })}
+                <input type="number" min={180} step={30} value={features.loopInterval}
+                  onChange={(e) => setFeatures({ ...features, loopInterval: Math.max(180, Number(e.target.value)) })}
                   className="w-16 px-2 py-1 bg-white border border-slate-200 rounded-lg text-slate-800 text-sm text-center focus:outline-none focus:border-emerald-400" />
                 <span className="text-slate-500 text-sm">秒</span>
               </div>
@@ -1002,6 +1012,86 @@ export function HomePage() {
             )}
           </div>
           <div className="grid grid-cols-2 gap-4">
+
+            {/* 自动攻打城寨 */}
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${features.autoRallyFort ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center text-base">🏰</span>自动攻打城寨</span>
+                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+                  <input type="checkbox" checked={features.autoRallyFort}
+                    onChange={(e) => setFeatures({ ...features, autoRallyFort: e.target.checked })}
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.autoRallyFort ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoRallyFort ? 'translate-x-[18px]' : ''}`} />
+                </label>
+              </div>
+              <div className="flex flex-col gap-2 mt-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400 whitespace-nowrap">目标等级</span>
+                  <select value={features.rallyFortLevel}
+                    onChange={(e) => setFeatures({ ...features, rallyFortLevel: Number(e.target.value) })}
+                    className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-20">
+                    <option value={0}>—</option>
+                    {[1,2,3,4,5,6,7,8,9,10].map(l => (<option key={l} value={l}>Lv.{l}</option>))}
+                  </select>
+                  <span className="text-xs text-slate-400 whitespace-nowrap ml-2">派遣第</span>
+                  <select value={features.rallyFortTeam}
+                    onChange={(e) => setFeatures({ ...features, rallyFortTeam: Number(e.target.value) })}
+                    className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-16">
+                    {[1,2,3,4,5].map(t => (<option key={t} value={t}>{t}</option>))}
+                  </select>
+                  <span className="text-xs text-slate-400 whitespace-nowrap">队伍</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500 w-16">降级搜索</span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" checked={features.rallyFortDowngrade}
+                      onChange={(e) => setFeatures({ ...features, rallyFortDowngrade: e.target.checked })}
+                      className="sr-only peer" />
+                    <span className={`w-9 h-5 rounded-full transition-colors ${features.rallyFortDowngrade ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                    <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.rallyFortDowngrade ? 'translate-x-[18px]' : ''}`} />
+                  </label>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">选择队伍请勿与采集队伍冲突</p>
+              </div>
+
+            </div>
+
+            {/* 城外资源采集 */}
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.gatherResources ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center text-base">🌾</span>城外资源采集</span>
+                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+                  <input type="checkbox" checked={features.gatherResources} disabled={features.autoExplore || features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, gatherResources: e.target.checked })}
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.gatherResources ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.gatherResources ? 'translate-x-[18px]' : ''}`} />
+                </label>
+              </div>
+              <div className="grid grid-cols-5 gap-1 mt-2">
+                {features.gatherTasks.map((task: { type: string; level: number }, i: number) => (
+                  <div key={i} className="flex flex-col gap-1">
+                    <select value={task.type} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
+                      const next = [...features.gatherTasks]; next[i] = { ...next[i], type: e.target.value };
+                      setFeatures({ ...features, gatherTasks: next });
+                    }}
+                    className="px-1 py-1 bg-white border border-slate-200 rounded text-xs w-full">
+                      <option value="">-</option>
+                      {RESOURCE_TYPES.map(t => (<option key={t} value={t}>{t}</option>))}
+                    </select>
+                    <select value={task.level} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
+                      const next = [...features.gatherTasks]; next[i] = { ...next[i], level: Number(e.target.value) };
+                      setFeatures({ ...features, gatherTasks: next });
+                    }}
+                    className="px-1 py-1 bg-white border border-slate-200 rounded text-xs w-full">
+                      {RESOURCE_LEVELS.map(l => (<option key={l} value={l}>Lv.{l}</option>))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-slate-400 mt-1.5">5个队伍按顺序派出采集</p>
+            </div>
 
             {/* 自动升级建筑 */}
             <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.upgradeBuildings ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
@@ -1092,42 +1182,6 @@ export function HomePage() {
                 )}
               </div>
               <p className="text-xs text-slate-400 mt-1.5">请先在配置页添加学院坐标</p>
-            </div>
-
-            {/* 城外资源采集 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.gatherResources ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center text-base">🌾</span>城外资源采集</span>
-                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.gatherResources} disabled={features.autoExplore || features.autoWorldChat}
-                    onChange={(e) => setFeatures({ ...features, gatherResources: e.target.checked })}
-                    className="sr-only" />
-                  <span className={`absolute inset-0 rounded-full transition-colors ${features.gatherResources ? 'bg-emerald-500' : 'bg-slate-200'}`} />
-                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.gatherResources ? 'translate-x-[18px]' : ''}`} />
-                </label>
-              </div>
-              <div className="grid grid-cols-5 gap-1 mt-2">
-                {features.gatherTasks.map((task: { type: string; level: number }, i: number) => (
-                  <div key={i} className="flex flex-col gap-1">
-                    <select value={task.type} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
-                      const next = [...features.gatherTasks]; next[i] = { ...next[i], type: e.target.value };
-                      setFeatures({ ...features, gatherTasks: next });
-                    }}
-                    className="px-1 py-1 bg-white border border-slate-200 rounded text-xs w-full">
-                      <option value="">-</option>
-                      {RESOURCE_TYPES.map(t => (<option key={t} value={t}>{t}</option>))}
-                    </select>
-                    <select value={task.level} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
-                      const next = [...features.gatherTasks]; next[i] = { ...next[i], level: Number(e.target.value) };
-                      setFeatures({ ...features, gatherTasks: next });
-                    }}
-                    className="px-1 py-1 bg-white border border-slate-200 rounded text-xs w-full">
-                      {RESOURCE_LEVELS.map(l => (<option key={l} value={l}>Lv.{l}</option>))}
-                    </select>
-                  </div>
-                ))}
-              </div>
-              <p className="text-xs text-slate-400 mt-1.5">5个队伍按顺序派出采集</p>
             </div>
 
             {/* 自动训练兵种 */}
@@ -1227,7 +1281,7 @@ export function HomePage() {
               </div>
               <p className="text-xs text-slate-400 mt-1.5">需标记斥候营地坐标</p>
               {features.autoExplore && (
-                <p className="text-xs text-amber-600 mt-1">⚠ 探索模式已开启，其他功能已暂停</p>
+                <p className="text-xs text-slate-400 mt-1">⚠ 探索模式已开启，其他功能已暂停</p>
               )}
             </div>
 
@@ -1276,50 +1330,8 @@ export function HomePage() {
                 </div>
               </div>
               {features.autoWorldChat && (
-                <p className="text-xs text-amber-600 mt-1">⚠ 喊话模式已开启，其他功能已暂停</p>
+                <p className="text-xs text-slate-400 mt-1">⚠ 喊话模式已开启，其他功能已暂停</p>
               )}
-            </div>
-
-            {/* 自动攻打城寨 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${features.autoRallyFort ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center text-base">🏰</span>自动攻打城寨</span>
-                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.autoRallyFort}
-                    onChange={(e) => setFeatures({ ...features, autoRallyFort: e.target.checked })}
-                    className="sr-only" />
-                  <span className={`absolute inset-0 rounded-full transition-colors ${features.autoRallyFort ? 'bg-emerald-500' : 'bg-slate-200'}`} />
-                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoRallyFort ? 'translate-x-[18px]' : ''}`} />
-                </label>
-              </div>
-              <div className="flex flex-col gap-2 mt-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400 whitespace-nowrap">目标等级</span>
-                  <select value={features.rallyFortLevel}
-                    onChange={(e) => setFeatures({ ...features, rallyFortLevel: Number(e.target.value) })}
-                    className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-20">
-                    <option value={0}>—</option>
-                    {[1,2,3,4,5,6,7,8,9,10].map(l => (<option key={l} value={l}>Lv.{l}</option>))}
-                  </select>
-                  <span className="text-xs text-slate-400 whitespace-nowrap ml-2">队伍</span>
-                  <select value={features.rallyFortTeam}
-                    onChange={(e) => setFeatures({ ...features, rallyFortTeam: Number(e.target.value) })}
-                    className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-16">
-                    {[1,2,3,4,5].map(t => (<option key={t} value={t}>{t}</option>))}
-                  </select>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-500 w-16">降级搜索</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" checked={features.rallyFortDowngrade}
-                      onChange={(e) => setFeatures({ ...features, rallyFortDowngrade: e.target.checked })}
-                      className="sr-only peer" />
-                    <span className={`w-9 h-5 rounded-full transition-colors ${features.rallyFortDowngrade ? 'bg-emerald-500' : 'bg-slate-200'}`} />
-                    <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.rallyFortDowngrade ? 'translate-x-[18px]' : ''}`} />
-                  </label>
-                </div>
-              </div>
-
             </div>
 
             {/* 智慧采集宝石 — coming soon */}
