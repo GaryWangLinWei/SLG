@@ -584,7 +584,7 @@ export function HomePage() {
       })();
 
       // 宝石采集独立循环
-      const gemLoop = (async () => {
+      (async () => {
         let first = true;
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
@@ -1395,7 +1395,7 @@ export function HomePage() {
                       onChange={(e) => {
                         const next = e.target.checked
                           ? [...features.gemGatherTeams, teamNum].sort((a, b) => a - b)
-                          : features.gemGatherTeams.filter(t => t !== teamNum);
+                          : features.gemGatherTeams.filter((t: number) => t !== teamNum);
                         setFeatures({ ...features, gemGatherTeams: next.length === 0 ? [teamNum] : next });
                       }}
                       className="sr-only" />

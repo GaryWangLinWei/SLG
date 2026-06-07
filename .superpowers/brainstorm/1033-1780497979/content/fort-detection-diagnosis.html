@@ -1,0 +1,95 @@
+<h2>城寨识别率低的根因诊断</h2>
+<p class="subtitle">模板 ChengZhai.png (82×51) 匹配不到缩放后的城寨图标</p>
+
+<div class="section">
+  <h3>问题分析</h3>
+  <div class="mockup">
+    <div class="mockup-header">匹配流程</div>
+    <div class="mockup-body">
+      <table style="width:100%;font-size:14px;border-collapse:collapse">
+        <tr style="border-bottom:1px solid #e2e8f0">
+          <td style="padding:8px">模板尺寸</td>
+          <td style="padding:8px"><strong>82×51</strong>（原始缩放捕捉）</td>
+        </tr>
+        <tr style="border-bottom:1px solid #e2e8f0">
+          <td style="padding:8px">搜索尺度</td>
+          <td style="padding:8px">[0.7, 0.8, 0.9, 1.0, 1.1]</td>
+        </tr>
+        <tr style="border-bottom:1px solid #e2e8f0">
+          <td style="padding:8px">最小模板</td>
+          <td style="padding:8px"><strong>57×36</strong>（82×0.7, 51×0.7）</td>
+        </tr>
+        <tr style="border-bottom:1px solid #e2e8f0">
+          <td style="padding:8px">阈值</td>
+          <td style="padding:8px"><strong>0.70</strong></td>
+        </tr>
+        <tr>
+          <td style="padding:8px;color:#dc2626">推测根因</td>
+          <td style="padding:8px;color:#dc2626">缩放后城寨 &lt; 57×36 → 所有尺度都匹配不到</td>
+        </tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="section">
+  <h3>三种方案</h3>
+
+  <div class="options">
+    <div class="option" data-choice="a" onclick="toggleSelect(this)">
+      <div class="letter">A</div>
+      <div class="content">
+        <h3>扩大尺度 + 降阈值</h3>
+        <p>尺度改为 [0.35, 0.45, 0.55, 0.65, 0.75, 0.85, 0.95, 1.05]<br>
+        阈值降到 0.60</p>
+        <div class="pros-cons">
+          <div class="pros"><h4>Pros</h4><ul>
+            <li>不依赖用户提供素材</li>
+            <li>8 档尺度覆盖 35%-105%，什么缩放都匹配</li>
+          </ul></div>
+          <div class="cons"><h4>Cons</h4><ul>
+            <li>8 档尺度 = 8 倍扫描，每次搜索变慢</li>
+            <li>尺度越低越容易误匹配</li>
+          </ul></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="option" data-choice="b" onclick="toggleSelect(this)">
+      <div class="letter">B</div>
+      <div class="content">
+        <h3>用户提供新模板</h3>
+        <p>缩放后手动截一张城寨图标，替换 ChengZhai.png</p>
+        <div class="pros-cons">
+          <div class="pros"><h4>Pros</h4><ul>
+            <li>最准确，尺度只需 [0.9, 1.0, 1.1]</li>
+            <li>匹配速度快</li>
+          </ul></div>
+          <div class="cons"><h4>Cons</h4><ul>
+            <li>需要用户操作</li>
+            <li>缩放级别改变后要重新截</li>
+          </ul></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="option" data-choice="c" onclick="toggleSelect(this)">
+      <div class="letter">C</div>
+      <div class="content">
+        <h3>先诊断再决定（推荐）</h3>
+        <p>保存缩放后的<b>全屏截图</b>到 D:\SLG\temp\，<br>
+        从截图中测量城寨实际大小，再精确设定参数</p>
+        <div class="pros-cons">
+          <div class="pros"><h4>Pros</h4><ul>
+            <li>有数据支撑，不盲调</li>
+            <li>一步到位</li>
+            <li>后续截图可供 OCR 调优</li>
+          </ul></div>
+          <div class="cons"><h4>Cons</h4><ul>
+            <li>多一步诊断步骤</li>
+          </ul></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
