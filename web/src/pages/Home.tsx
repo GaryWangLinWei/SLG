@@ -356,6 +356,7 @@ export function HomePage() {
       features.autoExplore ||
       (features.autoWorldChat && features.worldChatMessages.some((m: string) => m.trim())) ||
       (features.autoRallyFort && features.rallyFortLevel > 0) ||
+      (features.gemGatherEnabled && features.gemGatherTeams.some((t: number) => t)) ||
       features.helpTeammates ||
       features.collectResources;
     if (!hasAnyFeature) {
@@ -578,6 +579,44 @@ export function HomePage() {
           } else {
             // 未开启城寨功能，长时间休眠避免空转
             await sleep(60);
+          }
+        }
+      })();
+
+      // 宝石采集独立循环
+      (async () => {
+        let first = true;
+        while (!loopStopped) {
+          if (first) { first = false; await sleep(10); continue; }
+          if (features.gemGatherEnabled && features.gemGatherTeams.length > 0) {
+            if (loopStopped) break;
+            if (!await acquireLock()) break;
+            try {
+              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'gem-gather', { teams: features.gemGatherTeams });
+              if (createResult.success) {
+                runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
+                setRunningTaskIds([...runningTaskIdsRef.current]);
+                const runResult = await api.tasks.run(createResult.task.id);
+                runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
+                setRunningTaskIds([...runningTaskIdsRef.current]);
+                const logs = runResult.task?.logs ?? [];
+                const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
+                if (hasExpiredLog) {
+                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
+                  loopStopped = true;
+                  setExpiredMessage('激活码已到期，请重新激活');
+                  refreshStatus();
+                } else {
+                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💎 宝石采集完成`]);
+                }
+              }
+            } catch {} finally { releaseLock(); }
+            if (loopStopped) break;
+          }
+          const gemInterval = 600 * (0.85 + Math.random() * 0.3);
+          const startWait = Date.now();
+          while (!loopStopped && (Date.now() - startWait) < gemInterval * 1000) {
+            await sleep(1);
           }
         }
       })();
@@ -1335,14 +1374,12 @@ export function HomePage() {
             </div>
 
             {/* 智能采集宝石 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative overflow-hidden ${features.gemGatherEnabled ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
-              <div className="absolute inset-0 bg-white/20 backdrop-blur-[1px] rounded-lg flex items-center justify-center z-10">
-                <span className="bg-white border border-slate-200 px-3 py-1.5 rounded-full text-xs text-slate-500 font-semibold shadow-sm flex items-center gap-1.5">🔒 即将上线</span>
-              </div>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.gemGatherEnabled ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center text-base">💎</span>智能采集宝石</span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.gemGatherEnabled} disabled
+                  <input type="checkbox" checked={features.gemGatherEnabled} disabled={features.autoExplore || features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, gemGatherEnabled: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.gemGatherEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                   <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.gemGatherEnabled ? 'translate-x-[18px]' : ''}`} />
@@ -1354,9 +1391,15 @@ export function HomePage() {
                   <label key={teamNum} className="flex items-center gap-1 cursor-pointer">
                     <input type="checkbox"
                       checked={features.gemGatherTeams.includes(teamNum)}
-                      disabled
+                      disabled={features.autoExplore || features.autoWorldChat || !features.gemGatherEnabled}
+                      onChange={(e) => {
+                        const next = e.target.checked
+                          ? [...features.gemGatherTeams, teamNum].sort((a, b) => a - b)
+                          : features.gemGatherTeams.filter((t: number) => t !== teamNum);
+                        setFeatures({ ...features, gemGatherTeams: next.length === 0 ? [teamNum] : next });
+                      }}
                       className="sr-only" />
-                    <span className={`w-6 h-6 rounded flex items-center justify-center text-xs border ${features.gemGatherTeams.includes(teamNum) ? 'bg-cyan-500 border-cyan-600 text-white' : 'bg-white border-slate-200 text-slate-400'}`}>
+                    <span className={`w-6 h-6 rounded flex items-center justify-center text-xs border ${features.gemGatherTeams.includes(teamNum) ? 'bg-cyan-500 border-cyan-600 text-white' : 'bg-white border-slate-200 text-slate-400'} ${!features.gemGatherEnabled ? 'opacity-50' : ''}`}>
                       {teamNum}
                     </span>
                   </label>
