@@ -537,17 +537,24 @@ export function HomePage() {
 
                 const logs = runResult.task?.logs ?? [];
                 const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
-                // 根据集结结果确定 CD：成功 10 分钟，失败 2 分钟
+                // 根据集结结果确定 CD：成功 10 分钟，行动力不足 75 分钟，其他失败 2 分钟
                 const isSuccess = logs.some((l: string) => l.includes('→ success'));
-                cd = isSuccess ? 600 : 120;
+                const isStamina = logs.some((l: string) => l.includes('→ stamina_insufficient'));
+                if (isStamina) {
+                  cd = 4500; // 75 分钟
+                } else if (isSuccess) {
+                  cd = 600;
+                } else {
+                  cd = 120;
+                }
                 if (hasExpiredLog) {
                   setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
                   loopStopped = true;
                   setExpiredMessage('激活码已到期，请重新激活');
                   refreshStatus();
                 } else {
-                  const cdLabel = isSuccess ? '10分钟' : '2分钟';
-                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${isSuccess ? '✅' : '⚠️'} 城寨 Lv.${features.rallyFortLevel} 队伍${features.rallyFortTeam} ${isSuccess ? '集结成功' : '未找到城寨'}，CD ${cdLabel}`]);
+                  const cdLabel = isStamina ? '75分钟' : isSuccess ? '10分钟' : '2分钟';
+                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${isSuccess ? '✅' : isStamina ? '🔋' : '⚠️'} 城寨 Lv.${features.rallyFortLevel} 队伍${features.rallyFortTeam} ${isSuccess ? '集结成功' : isStamina ? '行动力不足' : '未找到城寨'}，CD ${cdLabel}`]);
                 }
               }
             } catch {} finally { releaseLock(); }

@@ -228,11 +228,14 @@ export class Vision {
 
       // Black out found area with margin to prevent re-matching the same spot
       const screenshotBuffer = await fs.readFile(currentScreenshot);
+      const screenshotMeta = await sharp(currentScreenshot).metadata();
+      const screenW = screenshotMeta.width!;
+      const screenH = screenshotMeta.height!;
       const margin = 10;
       const maskLeft = Math.max(0, result.rect.x - margin);
       const maskTop = Math.max(0, result.rect.y - margin);
-      const maskW = result.rect.width + margin * 2;
-      const maskH = result.rect.height + margin * 2;
+      const maskW = Math.min(result.rect.width + margin * 2, screenW - maskLeft);
+      const maskH = Math.min(result.rect.height + margin * 2, screenH - maskTop);
 
       const blackOverlay = Buffer.alloc(maskW * maskH * 3, 0);
       const overlay = await sharp(blackOverlay, {

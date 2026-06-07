@@ -19,10 +19,12 @@ const TEAM_BUTTONS_PAGED: Record<number, { x: number; y: number }> = {
 };
 const MARCH_BUTTON = { x: 1154, y: 791 };
 const CLOSE_POPUP_BUTTON = { x: 1392, y: 57 };
+const CLOSE_TEAM_PANEL_BUTTON = { x: 1394, y: 60 };
 const CONFIRM_TIME_BUTTON = { x: 1177, y: 396 };
+const CLOSE_BTN_TEMPLATE = path.join(TEMPLATE_DIR, 'closeBtn.png');
 
 export interface RallyFortOutcome {
-  result: 'success' | 'not_found' | 'team_unavailable' | 'rally_full';
+  result: 'success' | 'not_found' | 'team_unavailable' | 'rally_full' | 'stamina_insufficient';
   dispatched: number;
   foundLevel?: number;
 }
@@ -164,6 +166,21 @@ export async function rallyFort(
   ctx.log(`  点击行军按钮 (${MARCH_BUTTON.x}, ${MARCH_BUTTON.y})`);
   await ctx.tap(MARCH_BUTTON.x, MARCH_BUTTON.y);
   await ctx.sleep(1);
+
+  // 检测行动力不足弹窗：在 (1365,103) 附近查找 closeBtn
+  const staminaResults = await ctx.findAllImages(CLOSE_BTN_TEMPLATE, 0.9, {
+    x: 1340, y: 78, width: 50, height: 50
+  });
+  if (staminaResults.length > 0) {
+    ctx.log(`  ⚠️ 行动力不足，关闭弹窗并返回城内`);
+    await ctx.tap(1363, 103);  // 关闭行动力不足弹窗
+    await ctx.sleep(0.5);
+    await ctx.tap(CLOSE_TEAM_PANEL_BUTTON.x, CLOSE_TEAM_PANEL_BUTTON.y);  // 关闭队伍面板
+    await ctx.sleep(0.5);
+    await ctx.tap(worldBtn.x, worldBtn.y);  // 切换到城内
+    await ctx.sleep(2);
+    return { result: 'stamina_insufficient', dispatched: 0, foundLevel: currentLevel };
+  }
 
   ctx.log(`  ✅ 队伍${team} 已发起 Lv.${currentLevel} 城寨集结`);
   return { result: 'success', dispatched: 1, foundLevel: currentLevel };
