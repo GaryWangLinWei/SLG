@@ -9,6 +9,7 @@ import { idleDrag } from './actions/idleDrag';
 import { helpTeammates } from './actions/helpTeammates';
 import { readQueueOverview, resetQueueFilters } from './actions/readQueueOverview';
 import { rallyFort } from './actions/rallyFort';
+import { gatherGem } from './actions/gatherGem';
 import { sendWorldChat, sendWorldChatFirstRun } from './actions/sendWorldChat';
 import { ensureInCity, ensureBottomBarCollapsed } from './utils/location';
 import { ocrService } from '../../core/ocr/OcrService';
@@ -112,6 +113,22 @@ export interface RokConfig {
     plusButton: { x: number; y: number };
     searchActionButton: { x: number; y: number };
     rallyButton: { x: number; y: number };
+  };
+
+  // ========== 宝石采集 ==========
+  gemGather: {
+    baoshiTemplate: string;
+    caijiBtnTemplate: string;
+    pinchedGemTapPoint: { x: number; y: number };
+    pinch: {
+      from1: { x: number; y: number };
+      from2: { x: number; y: number };
+      to1: { x: number; y: number };
+      to2: { x: number; y: number };
+      duration: number;
+    };
+    searchMaxAttempts: number;
+    spiralSwipeLength: number;
   };
 
   homeFeatures?: HomeFeatures;
@@ -224,6 +241,22 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
     plusButton: { x: 559, y: 481 },
     searchActionButton: { x: 336, y: 593 },
     rallyButton: { x: 1181, y: 615 },
+  },
+
+  // ========== 宝石采集 ==========
+  gemGather: {
+    baoshiTemplate: 'baoshi.png',
+    caijiBtnTemplate: 'btn_caiji.png',
+    pinchedGemTapPoint: { x: 791, y: 423 },
+    pinch: {
+      from1: { x: 300, y: 960 },
+      from2: { x: 780, y: 960 },
+      to1: { x: 500, y: 960 },
+      to2: { x: 580, y: 960 },
+      duration: 800,
+    },
+    searchMaxAttempts: 20,
+    spiralSwipeLength: 600,
   },
 
   homeFeatures: DEFAULT_HOME_FEATURES,
@@ -573,6 +606,43 @@ export const RiseOfKingdomsPlugin: Plugin = {
 
         const outcome = await rallyFort(ctx, config, level, team, downgrade);
         ctx.log(`城寨集结: Lv.${outcome.foundLevel || level} 队伍${team} → ${outcome.result}`);
+      }
+    },
+    {
+      id: 'gem-gather',
+      name: '智能采集宝石',
+      description: '使用图像识别螺旋搜索宝石矿并派出队伍采集',
+      run: async (ctx, params: { teams?: number[] } = {}) => {
+        const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
+        const teams = params.teams || [1];
+
+        // Pre-check: OCR team count
+        ctx.log('[预备] OCR 检测空闲队伍数...');
+        const regionPath = await ctx.captureRegion(1507, 169, 55, 31);
+        const teamCountText = await ocrService.readText(regionPath);
+        await fs.unlink(regionPath).catch(() => {});
+        ctx.log(`[预备] OCR 结果: "${teamCountText}"`);
+
+        const match = teamCountText.match(/(\d+)\s*\/\s*(\d+)/);
+        if (match) {
+          const used = parseInt(match[1], 10);
+          const total = parseInt(match[2], 10);
+          if (used === total) {
+            ctx.log(`⏭️ 无空闲队伍 (${used}/${total})，跳过宝石采集`);
+            return;
+          }
+          ctx.log(`有空闲队伍 (${used}/${total})，继续宝石采集`);
+        } else {
+          const digitsOnly = teamCountText.replace(/\D/g, '');
+          if (digitsOnly.length >= 2 && /^(\d)\1+$/.test(digitsOnly)) {
+            ctx.log(`⏭️ 无空闲队伍 (OCR识别为 "${digitsOnly}"，推测全部忙碌)，跳过宝石采集`);
+            return;
+          }
+          ctx.log('⚠️ 未识别到队伍计数，继续宝石采集');
+        }
+
+        const outcome = await gatherGem(ctx, config, teams);
+        ctx.log(`宝石采集: 队伍[${teams.join(', ')}] → ${outcome.result}，派出 ${outcome.dispatched} 队`);
       }
     },
   ],
