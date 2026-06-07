@@ -1334,16 +1334,36 @@ export function HomePage() {
               )}
             </div>
 
-            {/* 智慧采集宝石 — coming soon */}
-            <div className="flex flex-col gap-0 p-4 rounded-lg bg-slate-100 border border-dashed border-slate-200 relative overflow-hidden">
+            {/* 智能采集宝石 */}
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative overflow-hidden ${features.gemGatherEnabled ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="absolute inset-0 bg-white/20 backdrop-blur-[1px] rounded-lg flex items-center justify-center z-10">
                 <span className="bg-white border border-slate-200 px-3 py-1.5 rounded-full text-xs text-slate-500 font-semibold shadow-sm flex items-center gap-1.5">🔒 即将上线</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 font-semibold text-sm text-slate-400"><span className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center text-base opacity-50">💎</span>智慧采集宝石</span>
-                <span className="relative w-10 h-[22px] flex-shrink-0"><span className="absolute inset-0 rounded-full bg-slate-200" /><span className="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm" /></span>
+                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center text-base">💎</span>智能采集宝石</span>
+                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+                  <input type="checkbox" checked={features.gemGatherEnabled} disabled
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.gemGatherEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.gemGatherEnabled ? 'translate-x-[18px]' : ''}`} />
+                </label>
               </div>
-              <p className="text-xs text-slate-400 mt-1.5">智能识别并采集高价值宝石矿</p>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-xs text-slate-400 whitespace-nowrap">派遣</span>
+                {[1,2,3,4,5].map(teamNum => (
+                  <label key={teamNum} className="flex items-center gap-1 cursor-pointer">
+                    <input type="checkbox"
+                      checked={features.gemGatherTeams.includes(teamNum)}
+                      disabled
+                      className="sr-only" />
+                    <span className={`w-6 h-6 rounded flex items-center justify-center text-xs border ${features.gemGatherTeams.includes(teamNum) ? 'bg-cyan-500 border-cyan-600 text-white' : 'bg-white border-slate-200 text-slate-400'}`}>
+                      {teamNum}
+                    </span>
+                  </label>
+                ))}
+                <span className="text-xs text-slate-400 whitespace-nowrap">队伍</span>
+              </div>
+              <p className="text-xs text-slate-400 mt-1.5">选择队伍请勿与采集队伍冲突</p>
             </div>
           </div>
         </div>
