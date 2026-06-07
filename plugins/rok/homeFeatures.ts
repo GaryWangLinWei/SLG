@@ -18,6 +18,8 @@ export interface HomeFeatures {
   rallyFortLevel: number;
   rallyFortTeam: number;
   rallyFortDowngrade: boolean;
+  gemGatherEnabled: boolean;
+  gemGatherTeams: number[];
   loopInterval: number;
 }
 
@@ -47,5 +49,7 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   rallyFortLevel: 0,
   rallyFortTeam: 1,
   rallyFortDowngrade: true,
+  gemGatherEnabled: false,
+  gemGatherTeams: [1],
   loopInterval: 300,
 };
