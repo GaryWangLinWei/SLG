@@ -28,9 +28,6 @@ const TEAM_BUTTONS_PAGED: Record<number, { x: number; y: number }> = {
 };
 const MARCH_BUTTON = { x: 1154, y: 791 };
 
-// 螺旋搜索参数（从 git 历史 3883738 恢复）
-const SEARCH_MAX_ATTEMPTS = 20;
-const SPIRAL_SWIPE_LENGTH = 600;
 const SPIRAL_DIRECTIONS = [
   { dx: 1, dy: 0 },   // 右
   { dx: 0, dy: 1 },   // 下
@@ -87,7 +84,6 @@ export async function gatherGem(
   ctx.log(`=== 智能采集宝石 队伍[${teams.join(', ')}] ===`);
 
   const gg = config.gemGather;
-  const baoshiTemplate = path.join(TEMPLATE_DIR, gg.baoshiTemplate);
   const caijiBtnTemplate = path.join(TEMPLATE_DIR, gg.caijiBtnTemplate);
   const worldBtn = config.resourceCollect.worldSwitchButton;
 
@@ -107,38 +103,39 @@ export async function gatherGem(
     await ctx.pinch(p.from1.x, p.from1.y, p.from2.x, p.from2.y, p.to1.x, p.to1.y, p.to2.x, p.to2.y, p.duration);
     await ctx.sleep(1);
 
-    // [3/7] 螺旋搜索 baoshi.png
-    ctx.log(`  [3/7] 螺旋搜索宝石矿（上限 ${SEARCH_MAX_ATTEMPTS} 次）`);
+    // [3/7] 螺旋搜索宝石矿（YOLO 单次推理 <1s）
+    ctx.log(`  [3/7] 螺旋搜索宝石矿（YOLO 检测, 上限 ${gg.searchMaxAttempts} 次）`);
     let gemFound = false;
     let gemX = 0;
     let gemY = 0;
-    const screenX = 540;
-    const screenY = 960;
 
-    for (let attempt = 0; attempt < SEARCH_MAX_ATTEMPTS && !gemFound; attempt++) {
-      const result = await ctx.findImageWithLocation(baoshiTemplate, 0.7, [0.7, 0.8, 0.9, 1.0, 1.1]);
+    for (let attempt = 0; attempt < gg.searchMaxAttempts && !gemFound; attempt++) {
+      // YOLO 检测（单次推理 <1s，替代 3 模板 × 3 尺度并行模板匹配）
+      const detections = await ctx.detectWithScreenshot(0.5);
+      ctx.log(`  [搜索] 找到 ${detections.length} 个宝石候选`);
 
-      if (result.found) {
-        gemX = result.x;
-        gemY = result.y;
-        ctx.log(`  找到宝石矿 (${gemX}, ${gemY}) confidence: ${result.confidence.toFixed(3)}`);
+      if (detections.length > 0) {
+        const best = detections[0];
+        gemX = best.x;
+        gemY = best.y;
+        ctx.log(`  找到宝石矿 (${gemX}, ${gemY}) confidence: ${best.confidence.toFixed(3)}`);
         gemFound = true;
-      } else if (attempt < SEARCH_MAX_ATTEMPTS - 1) {
+      } else if (attempt < gg.searchMaxAttempts - 1) {
         // 螺旋滑动
         const dir = SPIRAL_DIRECTIONS[attempt % 4];
-        const armLen = SPIRAL_SWIPE_LENGTH * (Math.floor(attempt / 4) + 1);
-        const fromX = screenX;
-        const fromY = screenY;
-        const toX = screenX + dir.dx * armLen;
-        const toY = screenY + dir.dy * armLen;
-        ctx.log(`  未找到，滑动 ${dir.dx > 0 ? '→' : dir.dx < 0 ? '←' : dir.dy > 0 ? '↓' : '↑'} ${armLen}px (${attempt + 1}/${SEARCH_MAX_ATTEMPTS})`);
+        const armLen = gg.spiralSwipeLength * (Math.floor(attempt / 4) + 1);
+        const fromX = gg.spiralCenterX;
+        const fromY = gg.spiralCenterY;
+        const toX = gg.spiralCenterX + dir.dx * armLen;
+        const toY = gg.spiralCenterY + dir.dy * armLen;
+        ctx.log(`  未找到，滑动 ${dir.dx > 0 ? '→' : dir.dx < 0 ? '←' : dir.dy > 0 ? '↓' : '↑'} ${armLen}px (${attempt + 1}/${gg.searchMaxAttempts})`);
         await ctx.swipe(fromX, fromY, toX, toY, 500);
         await ctx.sleep(1);
       }
     }
 
     if (!gemFound) {
-      ctx.log(`  ❌ 搜索 ${SEARCH_MAX_ATTEMPTS} 次后未找到宝石矿，停止后续队伍`);
+      ctx.log(`  ❌ 搜索 ${gg.searchMaxAttempts} 次后未找到宝石矿，停止后续队伍`);
       break;
     }
 
