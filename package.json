@@ -11,8 +11,8 @@
     "test": "jest",
     "lint": "eslint src/**/*.ts",
     "electron:dev": "concurrently \"cd web && npm run dev\" \"wait-on http://localhost:5173 && tsc && electron .\"",
-    "electron:build": "cd web && npm run build && cd .. && tsc && node -e \"const f=require('fs');f.cpSync('assets','dist/assets',{recursive:true});f.cpSync('plugins/rok/templates','dist/plugins/rok/templates',{recursive:true})\" && electron-builder",
-    "electron:build:win": "cd web && npm run build && cd .. && tsc && node -e \"const f=require('fs');f.cpSync('assets','dist/assets',{recursive:true});f.cpSync('plugins/rok/templates','dist/plugins/rok/templates',{recursive:true})\" && electron-builder --win",
+    "electron:build": "cd web && npm run build && cd .. && tsc && node -e \"const f=require('fs');f.cpSync('assets','dist/assets',{recursive:true});f.cpSync('plugins/rok/templates','dist/plugins/rok/templates',{recursive:true});f.cpSync('plugins/rok/models','dist/plugins/rok/models',{recursive:true})\" && electron-builder",
+    "electron:build:win": "cd web && npm run build && cd .. && tsc && node -e \"const f=require('fs');f.cpSync('assets','dist/assets',{recursive:true});f.cpSync('plugins/rok/templates','dist/plugins/rok/templates',{recursive:true});f.cpSync('plugins/rok/models','dist/plugins/rok/models',{recursive:true})\" && electron-builder --win",
     "postinstall": "electron-builder install-app-deps"
   },
   "build": {
@@ -42,6 +42,10 @@
       {
         "from": "traineddata",
         "to": "traineddata"
+      },
+      {
+        "from": "plugins/rok/models",
+        "to": "models"
       }
     ],
     "win": {
@@ -102,6 +106,7 @@
     "koa-bodyparser": "^4.4.0",
     "koa-router": "^12.0.0",
     "koa-static": "^5.0.0",
+    "onnxruntime-node": "^1.26.0",
     "sharp": "^0.34.5",
     "tesseract.js": "^7.0.0"
   }

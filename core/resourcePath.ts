@@ -2,10 +2,12 @@ import * as path from 'path';
 
 let templatesDir: string | null = null;
 let traineddataDir: string | null = null;
+let modelsDir: string | null = null;
 
 export function initResourcePaths(resourcesPath: string): void {
   templatesDir = path.join(resourcesPath, 'templates');
   traineddataDir = path.join(resourcesPath, 'traineddata');
+  modelsDir = path.join(resourcesPath, 'models');
 }
 
 export function getTemplatesDir(): string {
@@ -16,4 +18,9 @@ export function getTemplatesDir(): string {
 export function getTraineddataDir(): string {
   if (traineddataDir) return traineddataDir;
   return path.join(__dirname, '../traineddata');
+}
+
+export function getModelsDir(): string {
+  if (modelsDir) return modelsDir;
+  return path.join(__dirname, '../plugins/rok/models');
 }
