@@ -4,6 +4,7 @@ import * as os from 'os';
 import sharp from 'sharp';
 import { Device } from '../device';
 import { Vision } from '../vision';
+import { YoloDetector, Detection } from '../vision/YoloDetector';
 
 export class PluginContext {
   private logOutput: (msg: string) => void;
@@ -13,7 +14,8 @@ export class PluginContext {
     private vision: Vision,
     private config: Record<string, any> = {},
     private checkStop?: () => void,
-    logCallback?: (msg: string) => void
+    logCallback?: (msg: string) => void,
+    private yoloDetector?: YoloDetector
   ) {
     this.logOutput = logCallback ?? ((msg: string) => console.log(msg));
   }
@@ -344,5 +346,24 @@ export class PluginContext {
    */
   setCachedLocation(key: string, x: number, y: number): void {
     this.cache.set(key, { x, y });
+  }
+
+  /**
+   * 截图并用 YOLO 检测目标，自动清理临时文件。
+   * 返回按置信度降序排列的检测框。
+   */
+  async detectWithScreenshot(threshold: number = 0.5): Promise<Detection[]> {
+    this.checkCancellation();
+    if (!this.yoloDetector) return [];
+
+    const screenshotBuffer = await this.device.screenshot();
+    const tempPath = path.join(os.tmpdir(), `yolo-${Date.now()}.png`);
+    await fs.writeFile(tempPath, screenshotBuffer);
+
+    try {
+      return await this.yoloDetector.detect(tempPath, threshold);
+    } finally {
+      await fs.unlink(tempPath).catch(() => {});
+    }
   }
 }

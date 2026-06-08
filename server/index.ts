@@ -14,6 +14,7 @@ import accountsRouter from './routes/accounts';
 import licenseRouter from './routes/license';
 import { licenseGuard } from './middleware/licenseGuard';
 import { migrateLegacyConfig } from './services/ConfigService';
+import { pluginService } from './services/PluginService';
 import { licenseService } from '../core/license';
 
 const APP_VERSION: string = (() => {
@@ -68,6 +69,7 @@ app.use(router.routes()).use(router.allowedMethods());
 // 启动前迁移老配置 + 初始化许可证服务
 migrateLegacyConfig().catch(e => console.error('迁移失败:', e));
 licenseService.init().catch(e => console.error('许可证初始化失败:', e));
+pluginService.initYoloDetector().catch(e => console.warn('YOLO 初始化失败:', e.message));
 
 app.listen(CONFIG.PORT, CONFIG.HOST, () => {
   console.log(`========================================`);

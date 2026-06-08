@@ -2,15 +2,18 @@ import { Plugin } from './types';
 import { PluginContext } from './PluginContext';
 import { Device } from '../device';
 import { Vision } from '../vision';
+import { YoloDetector } from '../vision/YoloDetector';
 
 export class PluginManager {
   private plugins: Map<string, Plugin> = new Map();
   private device: Device;
   private vision: Vision;
+  private yoloDetector?: YoloDetector;
 
-  constructor(device: Device, vision: Vision) {
+  constructor(device: Device, vision: Vision, yoloDetector?: YoloDetector) {
     this.device = device;
     this.vision = vision;
+    this.yoloDetector = yoloDetector;
   }
 
   register(plugin: Plugin): void {
@@ -49,7 +52,7 @@ export class PluginManager {
     const action = plugin.actions.find(a => a.id === actionId);
     if (!action) throw new Error(`Action ${actionId} not found in plugin ${pluginId}`);
 
-    const ctx = new PluginContext(this.device, this.vision, config, checkStop, logCallback);
+    const ctx = new PluginContext(this.device, this.vision, config, checkStop, logCallback, this.yoloDetector);
     await action.run(ctx, config);
   }
 }
