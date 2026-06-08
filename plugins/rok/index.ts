@@ -9,6 +9,7 @@ import { idleDrag } from './actions/idleDrag';
 import { helpTeammates } from './actions/helpTeammates';
 import { readQueueOverview, resetQueueFilters } from './actions/readQueueOverview';
 import { rallyFort } from './actions/rallyFort';
+import { rallyFortSpiral } from './actions/rallyFortSpiral';
 import { gatherGem } from './actions/gatherGem';
 import { sendWorldChat, sendWorldChatFirstRun } from './actions/sendWorldChat';
 import { ensureInCity, ensureBottomBarCollapsed } from './utils/location';
@@ -115,9 +116,26 @@ export interface RokConfig {
     rallyButton: { x: number; y: number };
   };
 
+  // ========== 城寨螺旋搜索 ==========
+  fortSpiral: {
+    pinch: {
+      from1: { x: number; y: number };
+      from2: { x: number; y: number };
+      to1: { x: number; y: number };
+      to2: { x: number; y: number };
+      duration: number;
+    };
+    spiralCenterX: number;
+    spiralCenterY: number;
+    searchMaxAttempts: number;
+    spiralSwipeLength: number;
+    searchScales: number[];
+    searchThreshold: number;
+  };
+
   // ========== 宝石采集 ==========
   gemGather: {
-    baoshiTemplate: string;
+    baoshiTemplates: string[];
     caijiBtnTemplate: string;
     pinchedGemTapPoint: { x: number; y: number };
     pinch: {
@@ -127,8 +145,11 @@ export interface RokConfig {
       to2: { x: number; y: number };
       duration: number;
     };
+    spiralCenterX: number;
+    spiralCenterY: number;
     searchMaxAttempts: number;
     spiralSwipeLength: number;
+    searchScales: number[];
   };
 
   homeFeatures?: HomeFeatures;
@@ -243,20 +264,40 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
     rallyButton: { x: 1181, y: 615 },
   },
 
+  // ========== 城寨螺旋搜索 ==========
+  fortSpiral: {
+    pinch: {
+      from1: { x: 350, y: 550 },
+      from2: { x: 850, y: 550 },
+      to1: { x: 500, y: 550 },
+      to2: { x: 700, y: 550 },
+      duration: 600,
+    },
+    spiralCenterX: 800,
+    spiralCenterY: 450,
+    searchMaxAttempts: 20,
+    spiralSwipeLength: 600,
+    searchScales: [0.8, 0.9, 1.0],
+    searchThreshold: 0.7,
+  },
+
   // ========== 宝石采集 ==========
   gemGather: {
-    baoshiTemplate: 'baoshi.png',
+    baoshiTemplates: ['baoshi.png', 'baoshi_night.png', 'baoshi_afternoon.png'],
     caijiBtnTemplate: 'btn_caiji.png',
     pinchedGemTapPoint: { x: 791, y: 423 },
     pinch: {
-      from1: { x: 300, y: 960 },
-      from2: { x: 780, y: 960 },
-      to1: { x: 500, y: 960 },
-      to2: { x: 580, y: 960 },
-      duration: 800,
+      from1: { x: 350, y: 550 },
+      from2: { x: 850, y: 550 },
+      to1: { x: 500, y: 550 },
+      to2: { x: 700, y: 550 },
+      duration: 600,
     },
+    spiralCenterX: 800,
+    spiralCenterY: 450,
     searchMaxAttempts: 20,
     spiralSwipeLength: 600,
+    searchScales: [0.8, 0.9, 1.0],
   },
 
   homeFeatures: DEFAULT_HOME_FEATURES,
@@ -606,6 +647,44 @@ export const RiseOfKingdomsPlugin: Plugin = {
 
         const outcome = await rallyFort(ctx, config, level, team, downgrade);
         ctx.log(`城寨集结: Lv.${outcome.foundLevel || level} 队伍${team} → ${outcome.result}`);
+      }
+    },
+    {
+      id: 'rally-fort-spiral',
+      name: '攻打城寨（螺旋搜索）',
+      description: '使用图像识别螺旋搜索城寨图标并发起集结',
+      run: async (ctx, params: { level?: number; team?: number } = {}) => {
+        const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
+        const level = params.level || 5;
+        const team = params.team || 1;
+
+        // Pre-check: OCR team count
+        ctx.log('[预备] OCR 检测空闲队伍数...');
+        const regionPath = await ctx.captureRegion(1507, 169, 55, 31);
+        const teamCountText = await ocrService.readText(regionPath);
+        await fs.unlink(regionPath).catch(() => {});
+        ctx.log(`[预备] OCR 结果: "${teamCountText}"`);
+
+        const match = teamCountText.match(/(\d+)\s*\/\s*(\d+)/);
+        if (match) {
+          const used = parseInt(match[1], 10);
+          const total = parseInt(match[2], 10);
+          if (used === total) {
+            ctx.log(`⏭️ 无空闲队伍 (${used}/${total})，跳过城寨集结`);
+            return;
+          }
+          ctx.log(`有空闲队伍 (${used}/${total})，继续城寨集结`);
+        } else {
+          const digitsOnly = teamCountText.replace(/\D/g, '');
+          if (digitsOnly.length >= 2 && /^(\d)\1+$/.test(digitsOnly)) {
+            ctx.log(`⏭️ 无空闲队伍 (OCR识别为 "${digitsOnly}"，推测全部忙碌)，跳过城寨集结`);
+            return;
+          }
+          ctx.log('⚠️ 未识别到队伍计数，继续城寨集结');
+        }
+
+        const outcome = await rallyFortSpiral(ctx, config, level, team);
+        ctx.log(`城寨集结（螺旋）: Lv.${outcome.foundLevel || level} 队伍${team} → ${outcome.result}`);
       }
     },
     {
