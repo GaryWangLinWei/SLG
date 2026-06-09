@@ -406,11 +406,16 @@ export const RiseOfKingdomsPlugin: Plugin = {
         }
 
         // 二次验证：检测采集状态图标，若已派出队伍数 ≥ 配置任务数则跳过
+        // 检测前先拖动并保持，展开采集状态面板
+        ctx.log('[预备] 拖动展开采集状态面板...');
+        await ctx.swipeAndHold(1485, 271, 1486, 234);
         const CAIJI_STATE_TEMPLATE = path.join(getTemplatesDir(), 'CaiJiState_result.png');
         const activeTaskCount = params.gatherTasks.filter(t => t.type).length;
         const caiJiResults = await ctx.findAllImages(CAIJI_STATE_TEMPLATE, 0.75, {
           x: 1476, y: 206, width: 114, height: 472
         }, [0.7, 0.8, 0.9, 1.0, 1.1]);
+        await ctx.releaseHold();
+        ctx.log('[预备] 采集状态面板检测完成，已松手');
         ctx.log(`[预备] 检测到 ${caiJiResults.length} 个采集状态图标（配置任务数: ${activeTaskCount}）`);
         if (caiJiResults.length >= activeTaskCount && activeTaskCount > 0) {
           ctx.log(`⏭️ 已派出队伍数 (${caiJiResults.length}) ≥ 配置任务数 (${activeTaskCount})，认为无空闲采集队伍，跳过本轮采集`);
