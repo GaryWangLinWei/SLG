@@ -394,11 +394,18 @@ export class AdbDevice implements Device {
   }
 
   /**
-   * 清理 swipeAndHold 的本地 spawn 进程引用。
-   * 单次 swipe 会在设备端自然结束，无需强制释放。
+   * 释放 swipeAndHold 的按住状态。
+   * 等待 ADB swipe 进程结束，确保触摸已完全释放后再返回，
+   * 避免后续 tap/swipe 与尚未结束的 hold 手势冲突。
    */
   async releaseHold(): Promise<void> {
     if (this.holdProcess) {
+      // 等待 ADB 进程退出（swipe 在设备端自然结束、手指释放）
+      if (this.holdProcess.exitCode === null) {
+        await new Promise<void>((resolve) => {
+          this.holdProcess!.once('close', () => resolve());
+        });
+      }
       this.holdProcess = null;
     }
   }
