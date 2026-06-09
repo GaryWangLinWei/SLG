@@ -9,7 +9,6 @@ import { ensureInWorld } from '../utils/location';
 const TEMPLATE_DIR = getTemplatesDir();
 const PAGE_INDICATOR_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_page_indicator.png');
 const ADD_TEAM_BTN_TEMPLATE = path.join(TEMPLATE_DIR, 'AddTeamBtn.png');
-const CAIJI_STATE_TEMPLATE = path.join(TEMPLATE_DIR, 'CaiJiState_result.png');
 
 export interface GatherTask {
   type: string;
@@ -128,15 +127,6 @@ export async function gatherSingleResource(
   ctx.log(`  [6/9] 点击采集按钮 (1193, 604)`);
   await ctx.tap(1193, 604);
   await ctx.sleep(1.5);
-
-  // Step 6.3: Drag-hold detect collection state icon before idle team check
-  ctx.log(`  [6.3/9] 拖动检测采集状态图标...`);
-  await ctx.swipeAndHold(1485, 271, 1486, 234);
-  ctx.log(`  按住状态下检测采集状态图标...`);
-  const caijiStateFound = await ctx.findImage(CAIJI_STATE_TEMPLATE, 0.7);
-  ctx.log(`  采集状态图标: ${caijiStateFound ? '检测到' : '未检测到'}`);
-  await ctx.releaseHold();
-  ctx.log(`  已松手`);
 
   // Step 6.5: Check if there are idle teams by detecting AddTeamBtn at (1517, 130)
   ctx.log(`  [6.5/9] 检测是否有空闲队伍...`);

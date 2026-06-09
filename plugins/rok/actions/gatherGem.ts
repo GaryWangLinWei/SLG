@@ -8,7 +8,6 @@ import sharp from 'sharp';
 
 const TEMPLATE_DIR = getTemplatesDir();
 const ADD_TEAM_BTN_TEMPLATE = path.join(TEMPLATE_DIR, 'AddTeamBtn.png');
-const CAIJI_STATE_TEMPLATE = path.join(TEMPLATE_DIR, 'CaiJiState_result.png');
 const PAGE_INDICATOR_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_page_indicator.png');
 
 // 队伍选择坐标（复用 gatherResources）
@@ -165,26 +164,8 @@ export async function gatherGem(
     await ctx.tap(caijiResult.x, caijiResult.y);
     await ctx.sleep(1.5);
 
-    // [5/7] 拖动后检测采集状态图标，二次验证已派出队伍数
-    ctx.log(`  [5/7] 拖动检测采集状态图标...`);
-    ctx.log(`  拖动并保持 (1485,271)→(1486,234)...`);
-    await ctx.swipeAndHold(1485, 271, 1486, 234);
-    ctx.log(`  按住状态下检测采集状态图标...`);
-    const caijiStateFound = await ctx.findImage(CAIJI_STATE_TEMPLATE, 0.7);
-    ctx.log(`  采集状态图标: ${caijiStateFound ? '检测到' : '未检测到'}`);
-    await ctx.releaseHold();
-    ctx.log(`  已松手`);
-
-    // 若已派出队伍数 ≥ 配置队伍数，停止后续
-    if (dispatched >= teams.length) {
-      ctx.log(`  ⚠️ 已派出 ${dispatched} 队 ≥ 配置 ${teams.length} 队，停止采集`);
-      await ctx.tap(worldBtn.x, worldBtn.y);
-      await ctx.sleep(2);
-      break;
-    }
-
-    // [6/7] 检测空闲队伍
-    ctx.log(`  [6/7] 检测是否有空闲队伍...`);
+    // [5/7] 检测空闲队伍
+    ctx.log(`  [5/7] 检测是否有空闲队伍...`);
     const { width: addTeamW = 80, height: addTeamH = 80 } = await sharp(ADD_TEAM_BTN_TEMPLATE).metadata();
     const addTeamRegionX = 1517 - Math.floor(addTeamW! / 2);
     const addTeamRegionY = 130 - Math.floor(addTeamH! / 2);
@@ -202,12 +183,12 @@ export async function gatherGem(
     await fs.unlink(addTeamRegionPath).catch(() => {});
     ctx.log(`  有空闲队伍，继续`);
 
-    // [7/7] 检测分页
+    // [6/7] 检测分页
     const hasPaging = await ctx.findImage(PAGE_INDICATOR_TEMPLATE, 0.8);
-    ctx.log(`  [7/7] 换页按钮: ${hasPaging ? '存在 (>7组)' : '不存在 (≤7组)'}`);
+    ctx.log(`  [6/7] 换页按钮: ${hasPaging ? '存在 (>7组)' : '不存在 (≤7组)'}`);
 
-    // [8/7] 选择队伍 + 行军
-    ctx.log(`  [8/7] 选择队伍 ${team} 并派出`);
+    // [7/7] 选择队伍 + 行军
+    ctx.log(`  [7/7] 选择队伍 ${team} 并派出`);
     const outcome = await dispatchGemTeam(ctx, team, hasPaging);
     if (outcome === 'success') {
       dispatched++;
