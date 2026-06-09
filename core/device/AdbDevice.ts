@@ -1,6 +1,6 @@
 import { Device } from './Device';
 import { Point } from '../types';
-import { exec, spawn } from 'child_process';
+import { exec, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
 
@@ -370,5 +370,39 @@ export class AdbDevice implements Device {
     }
     const actual = this.jitter(base);
     return new Promise(resolve => setTimeout(resolve, actual * 1000));
+  }
+
+  private holdProcess: ChildProcess | null = null;
+
+  /**
+   * 拖动到目标位置并保持按住（不松手）。
+   * 先快速滑动到目标位置（100ms），然后启动长按保持。
+   * 使用 spawn 不阻塞，调用后等待 ~0.2s 让手指到达目标位置即可截图/检测。
+   */
+  async swipeAndHold(
+    x1: number, y1: number,
+    x2: number, y2: number,
+    holdMs: number = 2000
+  ): Promise<void> {
+    // 快速拖动 + 长按保持（单条 shell 命令链式执行，最小化间隔）
+    const cmd = `"${getAdbPath()}" -s ${this.deviceId} shell "input swipe ${x1} ${y1} ${x2} ${y2} 100; input swipe ${x2} ${y2} ${x2} ${y2} ${holdMs}"`;
+    this.holdProcess = spawn(cmd, [], { shell: true, stdio: 'ignore' });
+    this.holdProcess.on('error', () => {});
+
+    // 等待快速拖动完成 + 长按已开始（100ms swipe + buffer）
+    await new Promise(resolve => setTimeout(resolve, 150));
+  }
+
+  /**
+   * 释放 swipeAndHold 的按住状态。
+   * 通过杀死本地 spawn 进程来提前终止 on-device 的长按 swipe。
+   */
+  async releaseHold(): Promise<void> {
+    if (this.holdProcess) {
+      this.holdProcess.kill('SIGTERM');
+      this.holdProcess = null;
+    }
+    // 额外等一小帧让设备处理释放
+    await new Promise(resolve => setTimeout(resolve, 100));
   }
 }

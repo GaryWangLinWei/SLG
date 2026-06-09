@@ -179,6 +179,26 @@ export class PluginContext {
     await this.device.swipe(x1, y1, x2, y2, duration);
   }
 
+  /**
+   * 拖动到目标位置并保持按住（不松手）。
+   * 用于需要在按住状态下截图检测的场景。
+   */
+  async swipeAndHold(x1: number, y1: number, x2: number, y2: number, holdMs: number = 2000): Promise<void> {
+    this.checkCancellation();
+    if (this.device.swipeAndHold) {
+      await this.device.swipeAndHold(x1, y1, x2, y2, holdMs);
+    }
+  }
+
+  /**
+   * 释放 swipeAndHold 的按住状态。
+   */
+  async releaseHold(): Promise<void> {
+    if (this.device.releaseHold) {
+      await this.device.releaseHold();
+    }
+  }
+
   async pinch(x1: number, y1: number, x2: number, y2: number, toX1: number, toY1: number, toX2: number, toY2: number, duration: number = 500): Promise<void> {
     this.checkCancellation();
     await this.device.pinch(x1, y1, x2, y2, toX1, toY1, toX2, toY2, duration);
