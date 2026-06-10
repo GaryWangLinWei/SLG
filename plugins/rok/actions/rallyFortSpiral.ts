@@ -73,6 +73,8 @@ export async function rallyFortSpiral(
   let fortX = 0;
   let fortY = 0;
   let foundLevel = 0;
+  let curX = spiralCfg.spiralCenterX;
+  let curY = spiralCfg.spiralCenterY;
 
   for (let attempt = 0; attempt < spiralCfg.searchMaxAttempts && !fortFound; attempt++) {
     // 并行搜索所有城寨模板
@@ -86,9 +88,15 @@ export async function rallyFortSpiral(
     if (best) {
       fortX = best.x;
       fortY = best.y;
-      ctx.log(`  找到城寨图标 (${fortX}, ${fortY}) confidence: ${best.confidence.toFixed(3)}`);
 
-      // OCR 识别等级
+      // 排除聊天窗口区域 (0,794)-(814,900)
+      if (fortX >= 0 && fortX <= 814 && fortY >= 794 && fortY <= 900) {
+        ctx.log(`  忽略聊天窗口区域的城寨图标 (${fortX}, ${fortY})`);
+        // 跳过本次，继续搜索
+      } else {
+        ctx.log(`  找到城寨图标 (${fortX}, ${fortY}) confidence: ${best.confidence.toFixed(3)}`);
+
+        // OCR 识别等级
       const ocrX = fortX - 15;
       const ocrY = fortY + 12;
       const ocrRegionPath = await ctx.captureRegion(ocrX, ocrY, 30, 13);
@@ -106,20 +114,25 @@ export async function rallyFortSpiral(
         } else {
           ctx.log(`  等级不匹配（期望 Lv.${targetLevel}，实际 Lv.${foundLevel}），跳过`);
         }
-      } else {
-        ctx.log(`  OCR 未识别到数字，跳过`);
+        } else {
+          ctx.log(`  OCR 未识别到数字，跳过`);
+        }
       }
     }
 
     if (!fortFound && attempt < spiralCfg.searchMaxAttempts - 1) {
+      // 接续螺旋：从上次终点继续往外滑，每次滑约 0.8 屏
       const dir = SPIRAL_DIRECTIONS[attempt % 4];
-      const armLen = spiralCfg.spiralSwipeLength * (Math.floor(attempt / 4) + 1);
-      const fromX = spiralCfg.spiralCenterX;
-      const fromY = spiralCfg.spiralCenterY;
-      const toX = spiralCfg.spiralCenterX + dir.dx * armLen;
-      const toY = spiralCfg.spiralCenterY + dir.dy * armLen;
+      const baseLen = dir.dx !== 0
+        ? Math.round(1600 * spiralCfg.spiralSwipeRatio)   // 横向 1280px
+        : Math.round(900 * spiralCfg.spiralSwipeRatio);   // 竖向 720px
+      const armLen = baseLen * (Math.floor(attempt / 4) + 1);
+      const toX = curX + dir.dx * armLen;
+      const toY = curY + dir.dy * armLen;
       ctx.log(`  未找到，滑动 ${dir.dx > 0 ? '→' : dir.dx < 0 ? '←' : dir.dy > 0 ? '↓' : '↑'} ${armLen}px (${attempt + 1}/${spiralCfg.searchMaxAttempts})`);
-      await ctx.swipe(fromX, fromY, toX, toY, 500);
+      await ctx.swipe(curX, curY, toX, toY, 500);
+      curX = toX;
+      curY = toY;
       await ctx.sleep(1);
     }
   }

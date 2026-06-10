@@ -108,6 +108,8 @@ export async function gatherGem(
     let gemFound = false;
     let gemX = 0;
     let gemY = 0;
+    let curX = gg.spiralCenterX;
+    let curY = gg.spiralCenterY;
 
     for (let attempt = 0; attempt < gg.searchMaxAttempts && !gemFound; attempt++) {
       // YOLO 检测（单次推理 <1s，替代 3 模板 × 3 尺度并行模板匹配）
@@ -115,21 +117,31 @@ export async function gatherGem(
       ctx.log(`  [搜索] 找到 ${detections.length} 个宝石候选`);
 
       if (detections.length > 0) {
-        const best = detections[0];
-        gemX = best.x;
-        gemY = best.y;
-        ctx.log(`  找到宝石矿 (${gemX}, ${gemY}) confidence: ${best.confidence.toFixed(3)}`);
-        gemFound = true;
+        // 排除聊天窗口区域 (0,794)-(814,900)，取第一个不在聊天区的检出
+        const validDet = detections.find(
+          d => !(d.x >= 0 && d.x <= 814 && d.y >= 794 && d.y <= 900)
+        );
+        if (validDet) {
+          gemX = validDet.x;
+          gemY = validDet.y;
+          ctx.log(`  找到宝石矿 (${gemX}, ${gemY}) confidence: ${validDet.confidence.toFixed(3)}`);
+          gemFound = true;
+        } else {
+          ctx.log(`  所有检出均在聊天窗口区域，跳过本次截图`);
+        }
       } else if (attempt < gg.searchMaxAttempts - 1) {
-        // 螺旋滑动
+        // 接续螺旋：从上次终点继续往外滑，每次滑约 0.8 屏
         const dir = SPIRAL_DIRECTIONS[attempt % 4];
-        const armLen = gg.spiralSwipeLength * (Math.floor(attempt / 4) + 1);
-        const fromX = gg.spiralCenterX;
-        const fromY = gg.spiralCenterY;
-        const toX = gg.spiralCenterX + dir.dx * armLen;
-        const toY = gg.spiralCenterY + dir.dy * armLen;
+        const baseLen = dir.dx !== 0
+          ? Math.round(1600 * gg.spiralSwipeRatio)   // 横向 1280px
+          : Math.round(900 * gg.spiralSwipeRatio);   // 竖向 720px
+        const armLen = baseLen * (Math.floor(attempt / 4) + 1);
+        const toX = curX + dir.dx * armLen;
+        const toY = curY + dir.dy * armLen;
         ctx.log(`  未找到，滑动 ${dir.dx > 0 ? '→' : dir.dx < 0 ? '←' : dir.dy > 0 ? '↓' : '↑'} ${armLen}px (${attempt + 1}/${gg.searchMaxAttempts})`);
-        await ctx.swipe(fromX, fromY, toX, toY, 500);
+        await ctx.swipe(curX, curY, toX, toY, 500);
+        curX = toX;
+        curY = toY;
         await ctx.sleep(1);
       }
     }

@@ -128,7 +128,7 @@ export interface RokConfig {
     spiralCenterX: number;
     spiralCenterY: number;
     searchMaxAttempts: number;
-    spiralSwipeLength: number;
+    spiralSwipeRatio: number;
     searchScales: number[];
     searchThreshold: number;
   };
@@ -148,7 +148,7 @@ export interface RokConfig {
     spiralCenterX: number;
     spiralCenterY: number;
     searchMaxAttempts: number;
-    spiralSwipeLength: number;
+    spiralSwipeRatio: number;
     searchScales: number[];
   };
 
@@ -275,8 +275,8 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
     },
     spiralCenterX: 800,
     spiralCenterY: 450,
-    searchMaxAttempts: 20,
-    spiralSwipeLength: 600,
+    searchMaxAttempts: 16,
+    spiralSwipeRatio: 0.8,
     searchScales: [0.8, 0.9, 1.0],
     searchThreshold: 0.7,
   },
@@ -287,16 +287,16 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
     caijiBtnTemplate: 'btn_caiji.png',
     pinchedGemTapPoint: { x: 791, y: 423 },
     pinch: {
-      from1: { x: 350, y: 550 },
-      from2: { x: 850, y: 550 },
-      to1: { x: 500, y: 550 },
-      to2: { x: 700, y: 550 },
+      from1: { x: 300, y: 450 },
+      from2: { x: 1300, y: 450 },
+      to1: { x: 550, y: 450 },
+      to2: { x: 1050, y: 450 },
       duration: 600,
     },
     spiralCenterX: 800,
     spiralCenterY: 450,
-    searchMaxAttempts: 20,
-    spiralSwipeLength: 600,
+    searchMaxAttempts: 16,
+    spiralSwipeRatio: 0.8,
     searchScales: [0.8, 0.9, 1.0],
   },
 
