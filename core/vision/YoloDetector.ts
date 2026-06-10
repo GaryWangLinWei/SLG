@@ -99,9 +99,32 @@ export class YoloDetector {
     const results = await this.session.run(feeds);
     const outputName = this.session.outputNames[0];
     const output = results[outputName];
+    const rawData = output.data as Float32Array;
+
+    // YOLO ONNX 输出的是 model space 像素坐标（0~640），归一化 spatial 通道到 [0,1]
+    // 输出布局: (1, features, anchors) features=[x, y, w, h, objectness]
+    // objectness 已是 [0,1]，不需要归一化
+    const numAnchors = output.dims[2];
+
+    // ONNX (1, channels, numAnchors) 在 C 序内存中是 channel-major:
+    // [ch0_all_anchors, ch1_all_anchors, ...]
+    // 对 (1,5,8400): [x_0..x_8399, y_0..y_8399, w_0..w_8399, h_0..h_8399, obj_0..obj_8399]
+    const normalized = new Float32Array(rawData.length);
+    // 归一化 spatial 通道（0~3: x, y, w, h），保留 objectness（通道 4）不变
+    for (let ch = 0; ch < 4; ch++) {
+      const chOffset = ch * numAnchors;
+      for (let i = 0; i < numAnchors; i++) {
+        normalized[chOffset + i] = rawData[chOffset + i] / this.modelSize;
+      }
+    }
+    // 复制 objectness 通道（保持不变）
+    const objOffset = 4 * numAnchors;
+    for (let i = 0; i < numAnchors; i++) {
+      normalized[objOffset + i] = rawData[objOffset + i];
+    }
 
     return postProcess(
-      output.data as Float32Array,
+      normalized,
       output.dims,
       imgWidth,
       imgHeight,
@@ -110,7 +133,7 @@ export class YoloDetector {
       padY / this.modelSize,
       threshold,
       iouThreshold,
-      1  // 单类
+      0  // numClasses=0: 单类模型，无独立 class score 通道
     );
   }
 }

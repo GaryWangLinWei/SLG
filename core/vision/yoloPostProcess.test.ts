@@ -50,13 +50,18 @@ describe('nms', () => {
 });
 
 describe('parseYoloOutput', () => {
-  it('should parse valid detections from tensor', () => {
-    // 模拟 (1, 6, 2) tensor — 1 class, 2 anchors
-    // anchor 0: (0.5, 0.5, 0.1, 0.1, 0.9, 0.8) → conf=0.9*0.8=0.72, above 0.5
-    // anchor 1: (0.3, 0.3, 0.05, 0.05, 0.4, 0.3) → conf=0.4*0.3=0.12, below 0.5
+  it('should parse valid detections from multi-class tensor', () => {
+    // (1, 6, 2) channel-major: [ch0_a0, ch0_a1, ch1_a0, ch1_a1, ...]
+    // ch0=x, ch1=y, ch2=w, ch3=h, ch4=obj, ch5=cls
+    // anchor 0: x=0.5,y=0.5,w=0.1,h=0.1,obj=0.9,cls=0.8 → conf=0.72
+    // anchor 1: x=0.3,y=0.3,w=0.05,h=0.05,obj=0.4,cls=0.3 → conf=0.12
     const tensor = new Float32Array([
-      0.5, 0.5, 0.1, 0.1, 0.9, 0.8,
-      0.3, 0.3, 0.05, 0.05, 0.4, 0.3,
+      0.5, 0.3,  // ch0: x for anchors 0,1
+      0.5, 0.3,  // ch1: y
+      0.1, 0.05, // ch2: w
+      0.1, 0.05, // ch3: h
+      0.9, 0.4,  // ch4: obj
+      0.8, 0.3,  // ch5: cls
     ]);
     const result = parseYoloOutput(tensor, [1, 6, 2], 0.5, 1);
     expect(result.length).toBe(1);
@@ -64,9 +69,32 @@ describe('parseYoloOutput', () => {
     expect(result[0].classIndex).toBe(0);
   });
 
-  it('should return empty when none meet threshold', () => {
+  it('should handle single-class (numClasses=0) output', () => {
+    // (1, 5, 2) 单类模型: channel-major [x0,x1, y0,y1, w0,w1, h0,h1, obj0,obj1]
     const tensor = new Float32Array([
-      0.5, 0.5, 0.1, 0.1, 0.2, 0.3,
+      0.5, 0.3,  // ch0: x  → anchor0 x=0.5, anchor1 x=0.3
+      0.6, 0.4,  // ch1: y
+      0.1, 0.2,  // ch2: w
+      0.1, 0.2,  // ch3: h
+      0.9, 0.4,  // ch4: obj → anchor0 conf=0.9, anchor1 conf=0.4
+    ]);
+    const result = parseYoloOutput(tensor, [1, 5, 2], 0.5, 0);
+    expect(result.length).toBe(1);
+    expect(result[0].confidence).toBeCloseTo(0.9, 5);
+    expect(result[0].x).toBeCloseTo(0.5, 5);
+    expect(result[0].y).toBeCloseTo(0.6, 5);
+    expect(result[0].classIndex).toBe(0);
+  });
+
+  it('should return empty when none meet threshold', () => {
+    // (1, 6, 1) channel-major: single anchor, all below threshold
+    const tensor = new Float32Array([
+      0.5,   // x
+      0.5,   // y
+      0.1,   // w
+      0.1,   // h
+      0.2,   // obj
+      0.3,   // cls → conf=0.06
     ]);
     const result = parseYoloOutput(tensor, [1, 6, 1], 0.5, 1);
     expect(result.length).toBe(0);
@@ -75,68 +103,63 @@ describe('parseYoloOutput', () => {
 
 describe('scaleToOriginal', () => {
   it('should map coordinates from model space to original image (no padding)', () => {
-    // 原图 1600×900, scale=0.4 (model 640), no pad
-    // 目标在模型空间: (0.5, 0.5) 中心 → 原图 (0.5/0.4, 0.5/0.4) = (1.25, 1.25) in normalized...
-    // Actually (0.5, 0.5) normalized → 原图 (0.5/0.4)*原图 = 800,450
-    // w=0.1 → 原图 w=0.1/0.4 = 0.25 → 1600*0.25 = 400px...
-    // Let me use simpler values
+    // 模型空间 640×640 → 归一化 [0,1] 坐标
+    // 公式: orig = (d - padN) * max(imgW, imgH)
+    // max(1600,900) = 1600
     const dets: RawDetection[] = [
       { x: 0.5, y: 0.5, w: 0.1, h: 0.1, confidence: 0.9, classIndex: 0 },
     ];
-    const result = scaleToOriginal(dets, 1600, 900, 1.0, 0, 0);
-    // scale=1, no pad → coordinates are directly proportional
-    // x=0.5 * 1600 = 800, y=0.5 * 900 = 450
-    // w=0.1 * 1600 = 160, h=0.1 * 900 = 90
+    const result = scaleToOriginal(dets, 1600, 900, 0.4, 0, 0);
+    // x=0.5*1600=800, y=0.5*1600=800, w=0.1*1600=160, h=0.1*1600=160
     expect(result[0].x).toBe(800);
-    expect(result[0].y).toBe(450);
+    expect(result[0].y).toBe(800);
     expect(result[0].width).toBe(160);
-    expect(result[0].height).toBe(90);
+    expect(result[0].height).toBe(160);
   });
 
   it('should handle padding offset', () => {
-    // 有 padding 的情况：padX=0.1, padY=0.05 (normalized)
-    const dets: RawDetection[] = [
+    // max(800,600) = 800
+    var dets: RawDetection[] = [
       { x: 0.6, y: 0.55, w: 0.1, h: 0.1, confidence: 0.9, classIndex: 0 },
     ];
-    const result = scaleToOriginal(dets, 800, 600, 0.5, 0.1, 0.05);
-    // After removing pad: sx=0.6-0.1=0.5, sy=0.55-0.05=0.5
-    // Scale to original: ox=0.5/0.5=1.0, oy=0.5/0.5=1.0
-    // In pixels: x=1.0*800=800, y=1.0*600=600
-    // w=0.1/0.5=0.2 → 0.2*800=160, h=0.1/0.5=0.2 → 0.2*600=120
-    expect(result[0].x).toBe(800);
-    expect(result[0].y).toBe(600);
-    expect(result[0].width).toBe(160);
-    expect(result[0].height).toBe(120);
+    var result = scaleToOriginal(dets, 800, 600, 0.5, 0.1, 0.05);
+    // sx=0.6-0.1=0.5, sy=0.55-0.05=0.5
+    // x=0.5*800=400, y=0.5*800=400, w=0.1*800=80, h=0.1*800=80
+    expect(result[0].x).toBe(400);
+    expect(result[0].y).toBe(400);
+    expect(result[0].width).toBe(80);
+    expect(result[0].height).toBe(80);
   });
 });
 
 describe('postProcess', () => {
   it('should run full pipeline end to end', () => {
     // 1 anchor, (x=0.5, y=0.5, w=0.1, h=0.1, obj=0.9, cls=0.95) → conf=0.855
-    const tensor = new Float32Array([
+    var tensor = new Float32Array([
       0.5, 0.5, 0.1, 0.1, 0.9, 0.95,
     ]);
-    const result = postProcess(
+    var result = postProcess(
       tensor, [1, 6, 1],
       1600, 900,   // 原图尺寸
-      1.0, 0, 0,   // scale=1, no pad
+      0.4, 0, 0,   // scale=0.4 (max=1600), no pad
       0.5, 0.45, 1
     );
+    // max(1600,900)=1600, x=0.5*1600=800, y=0.5*1600=800
     expect(result.length).toBe(1);
     expect(result[0].confidence).toBeCloseTo(0.855, 3);
     expect(result[0].x).toBe(800);
-    expect(result[0].y).toBe(450);
+    expect(result[0].y).toBe(800);
   });
 
   it('should filter below threshold in full pipeline', () => {
     // conf=0.4*0.3=0.12 < 0.5
-    const tensor = new Float32Array([
+    var tensor = new Float32Array([
       0.5, 0.5, 0.1, 0.1, 0.4, 0.3,
     ]);
-    const result = postProcess(
+    var result = postProcess(
       tensor, [1, 6, 1],
       1600, 900,
-      1.0, 0, 0,
+      0.4, 0, 0,
       0.5, 0.45, 1
     );
     expect(result.length).toBe(0);

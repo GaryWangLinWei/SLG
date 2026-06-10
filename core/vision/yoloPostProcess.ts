@@ -73,34 +73,42 @@ export function parseYoloOutput(
   threshold: number = 0.5,
   numClasses: number = 1
 ): RawDetection[] {
-  // YOLOv8 输出格式: (1, 4 + 1 + numClasses, numAnchors)
-  // channels: [x_center, y_center, width, height, objectness, class_0, class_1, ...]
+  // YOLOv8 ONNX 输出: (1, channels, numAnchors)
+  // C 序（row-major）内存布局下，最内层维度是 numAnchors。
+  // 所以内存中是 [所有 anchor 的 ch0, 所有 anchor 的 ch1, ...]
+  // 对单类 (1,5,8400): ch0=x, ch1=y, ch2=w, ch3=h, ch4=objectness
   const features = dims[1];          // 每个 anchor 的特征数
   const numAnchors = dims[2];
 
   const detections: RawDetection[] = [];
 
   for (let i = 0; i < numAnchors; i++) {
-    const offset = i * features;
+    // 数据布局: channel-major — 同一 channel 的所有 anchor 连续存放
+    const x = output[i];
+    const y = output[numAnchors + i];
+    const w = output[2 * numAnchors + i];
+    const h = output[3 * numAnchors + i];
+    const objectness = output[4 * numAnchors + i];
 
-    const x = output[offset + 0];
-    const y = output[offset + 1];
-    const w = output[offset + 2];
-    const h = output[offset + 3];
-    const objectness = output[offset + 4];
-
-    // 找最高分的类别
+    let confidence: number;
     let bestClass = 0;
-    let bestClassScore = 0;
-    for (let c = 0; c < numClasses; c++) {
-      const score = output[offset + 5 + c];
-      if (score > bestClassScore) {
-        bestClassScore = score;
-        bestClass = c;
+
+    if (numClasses === 0) {
+      // 单类模型，无独立 class score
+      confidence = objectness;
+    } else {
+      // 多类模型：找最高分的类别
+      let bestClassScore = 0;
+      for (let c = 0; c < numClasses; c++) {
+        const score = output[(5 + c) * numAnchors + i];
+        if (score > bestClassScore) {
+          bestClassScore = score;
+          bestClass = c;
+        }
       }
+      confidence = objectness * bestClassScore;
     }
 
-    const confidence = objectness * bestClassScore;
     if (confidence >= threshold) {
       detections.push({ x, y, w, h, confidence, classIndex: bestClass });
     }
@@ -110,12 +118,18 @@ export function parseYoloOutput(
 }
 
 /**
- * 将模型空间坐标映射回原图坐标。
+ * 将模型空间归一化坐标映射回原图坐标。
  *
- * @param detections — 0~1 归一化坐标
+ * 公式推导：
+ *   MODEL_SIZE / scale = max(imgW, imgH)
+ *   orig_px = (d.x * MODEL_SIZE - padX_px) / scale
+ *           = (d.x - padXN) * MODEL_SIZE / scale
+ *           = (d.x - padXN) * Math.max(imgWidth, imgHeight)
+ *
+ * @param detections — 0~1 归一化坐标（相对于模型输入空间）
  * @param imgWidth   — 原图宽度
  * @param imgHeight  — 原图高度
- * @param letterboxScale — letterbox 缩放比例
+ * @param _letterboxScale — 保留兼容，不再使用
  * @param padXN      — 水平 padding（归一化，0~1）
  * @param padYN      — 垂直 padding（归一化，0~1）
  */
@@ -123,20 +137,22 @@ export function scaleToOriginal(
   detections: RawDetection[],
   imgWidth: number,
   imgHeight: number,
-  letterboxScale: number,
+  _letterboxScale: number,
   padXN: number,
   padYN: number
 ): Detection[] {
+  const maxDim = Math.max(imgWidth, imgHeight);
+
   return detections.map(d => {
     // 去除 letterbox pad 的影响
     const sx = d.x - padXN;
     const sy = d.y - padYN;
 
     // 还原到原图像素坐标
-    const ox = (sx / letterboxScale) * imgWidth;
-    const oy = (sy / letterboxScale) * imgHeight;
-    const ow = (d.w / letterboxScale) * imgWidth;
-    const oh = (d.h / letterboxScale) * imgHeight;
+    const ox = sx * maxDim;
+    const oy = sy * maxDim;
+    const ow = d.w * maxDim;
+    const oh = d.h * maxDim;
 
     return {
       x: Math.round(ox),
