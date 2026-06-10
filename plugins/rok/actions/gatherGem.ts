@@ -27,6 +27,7 @@ const TEAM_BUTTONS_PAGED: Record<number, { x: number; y: number }> = {
   5: { x: 1378, y: 595 },
 };
 const MARCH_BUTTON = { x: 1154, y: 791 };
+const CLOSE_POPUP_BUTTON = { x: 1392, y: 57 };
 
 const SPIRAL_DIRECTIONS = [
   { dx: 0, dy: -1 },  // 上
@@ -57,6 +58,7 @@ export async function gatherGem(
   const worldBtn = config.resourceCollect.worldSwitchButton;
 
   let dispatched = 0;
+  let hasPaging: boolean | null = null;
 
   for (let teamIdx = 0; teamIdx < teams.length; teamIdx++) {
     const team = teams[teamIdx];
@@ -177,13 +179,15 @@ export async function gatherGem(
     await ctx.tap(SELECT_TEAM_BUTTON.x, SELECT_TEAM_BUTTON.y);
     await ctx.sleep(1);
 
-    // 检测分页
-    const hasPaging = await ctx.findImage(PAGE_INDICATOR_TEMPLATE, 0.8);
-    ctx.log(`  [检测] 换页按钮: ${hasPaging ? '存在 (>7组)' : '不存在 (≤7组)'}`);
+    // 检测分页（仅首轮）
+    if (hasPaging === null) {
+      hasPaging = await ctx.findImage(PAGE_INDICATOR_TEMPLATE, 0.8);
+      ctx.log(`  [检测] 换页按钮: ${hasPaging ? '存在 (>7组)' : '不存在 (≤7组)'}`);
+    }
 
     // [7/7] 选择队伍 + 行军
     ctx.log(`  [7/7] 选择队伍 ${team} 并检测状态变化...`);
-    const teamButtons = hasPaging ? TEAM_BUTTONS_PAGED : TEAM_BUTTONS_NO_PAGE;
+    const teamButtons = (hasPaging ?? false) ? TEAM_BUTTONS_PAGED : TEAM_BUTTONS_NO_PAGE;
     const teamBtn = teamButtons[team];
     if (!teamBtn) {
       ctx.log(`  ❌ 无效的队伍序号: ${team}`);
@@ -195,6 +199,8 @@ export async function gatherGem(
 
     if (!stateResult.changed) {
       ctx.log(`  ⚠️ 队伍${team}不可用，按钮无选中状态变化，跳过`);
+      await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
+      await ctx.sleep(0.5);
       continue;
     }
 
