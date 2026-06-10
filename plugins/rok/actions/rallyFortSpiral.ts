@@ -33,11 +33,47 @@ const SWITCH_IN_CITY_TEMPLATE = path.join(TEMPLATE_DIR, 'switch_in_city.png');
 const SWITCH_IN_WORLD_TEMPLATE = path.join(TEMPLATE_DIR, 'switch_in_world.png');
 
 const SPIRAL_DIRECTIONS = [
+  { dx: 0, dy: -1 },  // 上
   { dx: 1, dy: 0 },   // 右
   { dx: 0, dy: 1 },   // 下
   { dx: -1, dy: 0 },  // 左
-  { dx: 0, dy: -1 },  // 上
 ];
+const SPIRAL_DIR_NAMES = ['↑', '→', '↓', '←'];
+
+function isInChatZone(x: number, y: number): boolean {
+  return x >= 0 && x <= 814 && y >= 794 && y <= 900;
+}
+
+interface FortMatch { x: number; y: number; confidence: number; }
+
+async function trySelectFort(
+  ctx: PluginContext,
+  match: FortMatch,
+  targetLevel: number
+): Promise<{ matched: boolean; level: number }> {
+  ctx.log(`  找到城寨图标 (${match.x}, ${match.y}) confidence: ${match.confidence.toFixed(3)}`);
+
+  const ocrX = match.x - 15;
+  const ocrY = match.y + 12;
+  const ocrRegionPath = await ctx.captureRegion(ocrX, ocrY, 30, 13);
+  const ocrText = await ocrService.readText(ocrRegionPath);
+  await fs.unlink(ocrRegionPath).catch(() => {});
+  ctx.log(`  OCR 识别等级: "${ocrText}"`);
+
+  const levelMatch = ocrText.match(/(\d+)/);
+  if (levelMatch) {
+    const level = parseInt(levelMatch[1], 10);
+    ctx.log(`  识别到 Lv.${level} 城寨`);
+    if (level === targetLevel) {
+      ctx.log(`  等级匹配 Lv.${targetLevel}，选择该城寨`);
+      return { matched: true, level };
+    }
+    ctx.log(`  等级不匹配（期望 Lv.${targetLevel}，实际 Lv.${level}），跳过`);
+    return { matched: false, level };
+  }
+  ctx.log(`  OCR 未识别到数字，跳过`);
+  return { matched: false, level: 0 };
+}
 
 export interface RallyFortSpiralOutcome {
   result: 'success' | 'not_found' | 'no_idle_teams' | 'team_unavailable' | 'stamina_insufficient';
@@ -66,75 +102,63 @@ export async function rallyFortSpiral(
   await ctx.pinch(p.from1.x, p.from1.y, p.from2.x, p.from2.y, p.to1.x, p.to1.y, p.to2.x, p.to2.y, p.duration);
   await ctx.sleep(1);
 
-  // [3/8] 螺旋搜索城寨（多模板并行）
+  // [3/8] 方形螺旋搜索城寨（九宫格逐格推进）
   const scales = spiralCfg.searchScales;
-  ctx.log(`  [3/8] 螺旋搜索 Lv.${targetLevel} 城寨（上限 ${spiralCfg.searchMaxAttempts} 次, 模板${CHENG_ZHAI_TEMPLATES.length}个, 缩放${scales.join(',')}）`);
+  ctx.log(`  [3/8] 方形螺旋搜索 Lv.${targetLevel} 城寨（上限 ${spiralCfg.searchMaxAttempts} 步, 模板${CHENG_ZHAI_TEMPLATES.length}个, 缩放${scales.join(',')}）`);
   let fortFound = false;
   let fortX = 0;
   let fortY = 0;
   let foundLevel = 0;
-  let curX = spiralCfg.spiralCenterX;
-  let curY = spiralCfg.spiralCenterY;
+  let step = 1;       // 当前方向上的移动次数，每两方向递增
+  let dirIndex = 0;   // 0=上, 1=右, 2=下, 3=左
+  let moveCount = 0;
 
-  for (let attempt = 0; attempt < spiralCfg.searchMaxAttempts && !fortFound; attempt++) {
-    // 并行搜索所有城寨模板
-    const matchResults = await Promise.all(
-      CHENG_ZHAI_TEMPLATES.map(t => ctx.findImageWithLocation(t, spiralCfg.searchThreshold, scales))
-    );
-    const best = matchResults
-      .filter(r => r.found)
-      .sort((a, b) => b.confidence - a.confidence)[0];
+  const halfW = Math.round(1600 * spiralCfg.spiralSwipeRatio / 2);
+  const halfH = Math.round(900 * spiralCfg.spiralSwipeRatio / 2);
 
-    if (best) {
-      fortX = best.x;
-      fortY = best.y;
+  // 先检测中心 5 号位
+  const initResults = await Promise.all(
+    CHENG_ZHAI_TEMPLATES.map(t => ctx.findImageWithLocation(t, spiralCfg.searchThreshold, scales))
+  );
+  const initBest = initResults.filter(r => r.found).sort((a, b) => b.confidence - a.confidence)[0];
+  if (initBest && !isInChatZone(initBest.x, initBest.y)) {
+    const result = await trySelectFort(ctx, initBest, targetLevel);
+    if (result.matched) { fortFound = true; fortX = initBest.x; fortY = initBest.y; foundLevel = result.level; }
+  }
 
-      // 排除聊天窗口区域 (0,794)-(814,900)
-      if (fortX >= 0 && fortX <= 814 && fortY >= 794 && fortY <= 900) {
-        ctx.log(`  忽略聊天窗口区域的城寨图标 (${fortX}, ${fortY})`);
-        // 跳过本次，继续搜索
-      } else {
-        ctx.log(`  找到城寨图标 (${fortX}, ${fortY}) confidence: ${best.confidence.toFixed(3)}`);
+  while (!fortFound && moveCount < spiralCfg.searchMaxAttempts) {
+    const dir = SPIRAL_DIRECTIONS[dirIndex % 4];
 
-        // OCR 识别等级
-      const ocrX = fortX - 15;
-      const ocrY = fortY + 12;
-      const ocrRegionPath = await ctx.captureRegion(ocrX, ocrY, 30, 13);
-      const ocrText = await ocrService.readText(ocrRegionPath);
-      await fs.unlink(ocrRegionPath).catch(() => {});
-      ctx.log(`  OCR 识别等级: "${ocrText}"`);
+    for (let s = 0; s < step && !fortFound && moveCount < spiralCfg.searchMaxAttempts; s++) {
+      // 固定屏内坐标：竖直滑动 x=850 避开聊天窗口，水平滑动 y=450
+      const fromX = dir.dx !== 0 ? (800 + dir.dx * halfW) : 850;
+      const fromY = dir.dy !== 0 ? (450 + dir.dy * halfH) : 450;
+      const toX   = dir.dx !== 0 ? (800 - dir.dx * halfW) : 850;
+      const toY   = dir.dy !== 0 ? (450 - dir.dy * halfH) : 450;
+      moveCount++;
+      await ctx.swipe(fromX, fromY, toX, toY, 500);
+      await ctx.sleep(1);
 
-      const levelMatch = ocrText.match(/(\d+)/);
-      if (levelMatch) {
-        foundLevel = parseInt(levelMatch[1], 10);
-        ctx.log(`  识别到 Lv.${foundLevel} 城寨`);
-        if (foundLevel === targetLevel) {
-          fortFound = true;
-          ctx.log(`  等级匹配 Lv.${targetLevel}，选择该城寨`);
+      const matchResults = await Promise.all(
+        CHENG_ZHAI_TEMPLATES.map(t => ctx.findImageWithLocation(t, spiralCfg.searchThreshold, scales))
+      );
+      const best = matchResults.filter(r => r.found).sort((a, b) => b.confidence - a.confidence)[0];
+      if (best) {
+        ctx.log(`  ${SPIRAL_DIR_NAMES[dirIndex % 4]}(${moveCount}): ${best.confidence.toFixed(3)}`);
+        if (isInChatZone(best.x, best.y)) {
+          ctx.log(`  忽略聊天窗口区域的城寨图标 (${best.x}, ${best.y})`);
         } else {
-          ctx.log(`  等级不匹配（期望 Lv.${targetLevel}，实际 Lv.${foundLevel}），跳过`);
-        }
-        } else {
-          ctx.log(`  OCR 未识别到数字，跳过`);
+          const result = await trySelectFort(ctx, best, targetLevel);
+          if (result.matched) {
+            fortFound = true; fortX = best.x; fortY = best.y; foundLevel = result.level;
+            break;
+          }
         }
       }
     }
 
-    if (!fortFound && attempt < spiralCfg.searchMaxAttempts - 1) {
-      // 接续螺旋：从上次终点继续往外滑，每次滑约 0.8 屏
-      const dir = SPIRAL_DIRECTIONS[attempt % 4];
-      const baseLen = dir.dx !== 0
-        ? Math.round(1600 * spiralCfg.spiralSwipeRatio)   // 横向 1280px
-        : Math.round(900 * spiralCfg.spiralSwipeRatio);   // 竖向 720px
-      const armLen = baseLen * (Math.floor(attempt / 4) + 1);
-      const toX = curX + dir.dx * armLen;
-      const toY = curY + dir.dy * armLen;
-      ctx.log(`  未找到，滑动 ${dir.dx > 0 ? '→' : dir.dx < 0 ? '←' : dir.dy > 0 ? '↓' : '↑'} ${armLen}px (${attempt + 1}/${spiralCfg.searchMaxAttempts})`);
-      await ctx.swipe(curX, curY, toX, toY, 500);
-      curX = toX;
-      curY = toY;
-      await ctx.sleep(1);
-    }
+    if (dirIndex % 2 === 1) step++;
+    dirIndex++;
   }
 
   if (!fortFound) {
