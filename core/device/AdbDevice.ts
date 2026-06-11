@@ -36,6 +36,7 @@ export class AdbDevice implements Device {
   private maxReconnectAttempts = 3; // 最多重连 3 次
   private reconnectDelayMs = 3000; // 重连间隔 3 秒
   private randConfig: RandomizationConfig = { ...DEFAULT_RAND_CONFIG };
+  private touchCalibration: { maxX: number; maxY: number } | null = null;
 
   private jitter(n: number): number {
     if (!this.randConfig.enabled) return n;
@@ -241,12 +242,42 @@ export class AdbDevice implements Device {
     }
   }
 
+  /** 将屏幕坐标（1600×900 游戏坐标系）转换为触摸设备原始坐标 */
+  private screenToTouch(screenX: number, screenY: number): { x: number; y: number } {
+    const cal = this.touchCalibration;
+    if (!cal) return { x: screenX, y: screenY };
+
+    // 比较触摸轴比例与屏幕比例判断是否 XY 交换
+    const touchRatio = cal.maxX / cal.maxY;       // 900/1600 = 0.5625
+    const screenRatio = 1600 / 900;                // ≈ 1.778
+    const swapped = Math.abs(touchRatio - 900 / 1600) < Math.abs(touchRatio - 1600 / 900);
+
+    if (swapped) {
+      // 触摸 X 对应屏幕 Y，触摸 Y 对应屏幕 X
+      return {
+        x: Math.round(screenY * cal.maxX / 900),
+        y: Math.round(screenX * cal.maxY / 1600),
+      };
+    } else {
+      return {
+        x: Math.round(screenX * cal.maxX / 1600),
+        y: Math.round(screenY * cal.maxY / 900),
+      };
+    }
+  }
+
   async pinch(x1: number, y1: number, x2: number, y2: number, toX1: number, toY1: number, toX2: number, toY2: number, duration: number = 500): Promise<void> {
     if (!this.connected) throw new Error('Device not connected');
 
     // Use sendevent with Protocol B (ABS_MT_SLOT) — the only reliable multi-touch method on older Android
     const touchDev = await this.getTouchDevice();
     if (!touchDev) throw new Error('Cannot find touch input device for pinch gesture');
+
+    // Convert screen coordinates to touch device raw coordinates
+    const s1 = this.screenToTouch(x1, y1);
+    const e1 = this.screenToTouch(toX1, toY1);
+    const s2 = this.screenToTouch(x2, y2);
+    const e2 = this.screenToTouch(toX2, toY2);
 
     // Event codes:
     //   3  = EV_ABS,    47 = ABS_MT_SLOT,  53 = ABS_MT_POSITION_X
@@ -259,10 +290,10 @@ export class AdbDevice implements Device {
     try {
       for (let i = 0; i <= steps; i++) {
         const t = i / steps;
-        const cx1 = Math.round(x1 + (toX1 - x1) * t);
-        const cy1 = Math.round(y1 + (toY1 - y1) * t);
-        const cx2 = Math.round(x2 + (toX2 - x2) * t);
-        const cy2 = Math.round(y2 + (toY2 - y2) * t);
+        const cx1 = Math.round(s1.x + (e1.x - s1.x) * t);
+        const cy1 = Math.round(s1.y + (e1.y - s1.y) * t);
+        const cx2 = Math.round(s2.x + (e2.x - s2.x) * t);
+        const cy2 = Math.round(s2.y + (e2.y - s2.y) * t);
 
         if (i === 0) {
           // First frame: two fingers down on slot 0 and slot 1
@@ -319,6 +350,7 @@ export class AdbDevice implements Device {
             const dev = `/dev/input/${m[1]}`;
             console.log(`[AdbDevice] Found touch device: ${dev} (via /proc match)`);
             (this as any).__touchDevice = dev;
+            await this.calibrateTouchAxes(dev);
             return dev;
           }
         }
@@ -336,6 +368,7 @@ export class AdbDevice implements Device {
         const dev = lines[0].trim();
         console.log(`[AdbDevice] Found touch device: ${dev} (via getevent -i)`);
         (this as any).__touchDevice = dev;
+        await this.calibrateTouchAxes(dev);
         return dev;
       }
     } catch (e: any) { console.log(`[AdbDevice] getevent search failed: ${e.message}`); }
@@ -348,11 +381,35 @@ export class AdbDevice implements Device {
         );
         console.log(`[AdbDevice] sendevent probe OK on ${dev}, using as touch device`);
         (this as any).__touchDevice = dev;
+        await this.calibrateTouchAxes(dev);
         return dev;
       } catch { /* continue */ }
     }
 
     throw new Error('Cannot find touch input device. Run: adb shell cat /proc/bus/input/devices | grep -i touch');
+  }
+
+  /** Query touch device axis ranges and cache calibration data */
+  private async calibrateTouchAxes(dev: string): Promise<void> {
+    try {
+      const { stdout } = await this.execAsync(
+        `"${getAdbPath()}" -s ${this.deviceId} shell getevent -p ${dev} 2>&1`
+      );
+      // getevent -p 输出十六进制事件码: 0035=ABS_MT_POSITION_X, 0036=ABS_MT_POSITION_Y
+      const xMatch = stdout.match(/0035\s*:.*?max\s+(\d+)/);
+      const yMatch = stdout.match(/0036\s*:.*?max\s+(\d+)/);
+      if (xMatch && yMatch) {
+        this.touchCalibration = {
+          maxX: parseInt(xMatch[1], 10),
+          maxY: parseInt(yMatch[1], 10),
+        };
+        const swapped = Math.abs(this.touchCalibration.maxX / this.touchCalibration.maxY - 900 / 1600)
+                      < Math.abs(this.touchCalibration.maxX / this.touchCalibration.maxY - 1600 / 900);
+        console.log(`[AdbDevice] Touch calibration: maxX=${this.touchCalibration.maxX}, maxY=${this.touchCalibration.maxY}, swapped=${swapped}`);
+      }
+    } catch (e: any) {
+      console.log(`[AdbDevice] Touch calibration failed: ${e.message}`);
+    }
   }
 
   async inputText(text: string): Promise<void> {

@@ -2,13 +2,21 @@ import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import { ensureInWorld } from '../utils/location';
+import { Vision } from '../../../core/vision';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import sharp from 'sharp';
+import { ocrService } from '../../../core/ocr/OcrService';
 
+const vision = new Vision();
 const TEMPLATE_DIR = getTemplatesDir();
 const ADD_TEAM_BTN_TEMPLATE = path.join(TEMPLATE_DIR, 'AddTeamBtn.png');
 const PAGE_INDICATOR_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_page_indicator.png');
+const PICKAXE_TEMPLATES = [
+  path.join(TEMPLATE_DIR, '红色锄头.png'),
+  path.join(TEMPLATE_DIR, '蓝色锄头.png'),
+  path.join(TEMPLATE_DIR, '黄色锄头.png'),
+];
 
 // 队伍选择坐标（复用 gatherResources）
 const SELECT_TEAM_BUTTON = { x: 1259, y: 180 };
@@ -29,6 +37,27 @@ const TEAM_BUTTONS_PAGED: Record<number, { x: number; y: number }> = {
 const MARCH_BUTTON = { x: 1154, y: 791 };
 const CLOSE_POPUP_BUTTON = { x: 1392, y: 57 };
 
+// 中心坐标显示区域 (400,11)-(537,43)，格式 X:1023 Y:290
+const COORD_REGION = { x: 400, y: 11, w: 137, h: 32 };
+const COORD_TOLERANCE = 5;
+
+/** 从 OCR 文本解析坐标，如 "X:1023 Y:290" */
+function parseCoord(text: string): { x: number; y: number } | null {
+  const match = text.match(/X:\s*(\d+)\s*Y:\s*(\d+)/i);
+  if (!match) return null;
+  return { x: parseInt(match[1], 10), y: parseInt(match[2], 10) };
+}
+
+/** 检查坐标是否与已采集记录重合（容差 ±COORD_TOLERANCE） */
+function isCoordRecorded(
+  x: number, y: number,
+  recorded: Array<{ x: number; y: number }>
+): boolean {
+  return recorded.some(r =>
+    Math.abs(r.x - x) <= COORD_TOLERANCE && Math.abs(r.y - y) <= COORD_TOLERANCE
+  );
+}
+
 const SPIRAL_DIRECTIONS = [
   { dx: 0, dy: -1 },  // 上
   { dx: 1, dy: 0 },   // 右
@@ -39,6 +68,30 @@ const SPIRAL_DIR_NAMES = ['↑', '→', '↓', '←'];
 
 function isInChatZone(x: number, y: number): boolean {
   return x >= 0 && x <= 814 && y >= 794 && y <= 900;
+}
+
+/** 检测宝石上方 60x60 区域是否有锄头图标（有人正在采集） */
+async function isGemOccupied(
+  ctx: PluginContext,
+  gemX: number,
+  gemY: number
+): Promise<boolean> {
+  // 裁剪到屏幕范围内（1600×900）
+  let rx = Math.max(0, Math.min(1600 - 60, gemX - 30));
+  let ry = Math.max(0, Math.min(900 - 60, gemY - 60));
+  const regionPath = await ctx.captureRegion(Math.round(rx), Math.round(ry), 60, 60);
+  try {
+    for (const template of PICKAXE_TEMPLATES) {
+      const result = await vision.findImage(regionPath, template, 0.65);
+      if (result.found) {
+        ctx.log(`  检测到锄头图标 (confidence: ${result.confidence.toFixed(3)})，宝石已被占用`);
+        return true;
+      }
+    }
+    return false;
+  } finally {
+    await fs.unlink(regionPath).catch(() => {});
+  }
 }
 
 export interface GemGatherOutcome {
@@ -59,101 +112,180 @@ export async function gatherGem(
 
   let dispatched = 0;
   let hasPaging: boolean | null = null;
+  const collectedCoords: Array<{ x: number; y: number }> = [];
+
+  // [1/7] 重置城外默认视角（所有队伍共一次）
+  ctx.log('[1/7] 重置城外默认视角');
+  await ensureInWorld(ctx, config);
+
+  // [2/7] 缩小地图（所有队伍共一次，后续在每队结束后缩地接续）
+  ctx.log('[2/7] 缩小地图');
+  const p = gg.pinch;
+  // 缩放角度抖动：保持中心 (800,450) 和缩放比例不变，仅旋转捏合轴线
+  const pinchAngleJitter = 15 * Math.PI / 180; // ±15°
+  const doPinch = () => {
+    const angle = (Math.random() * 2 - 1) * pinchAngleJitter;
+    const cos = Math.cos(angle), sin = Math.sin(angle);
+    const cx = 800, cy = 450;
+    const startR = 500, endR = 250;
+    // 手指1: 中心左侧, 手指2: 中心右侧，绕中心旋转 angle
+    const f1sx = cx - startR * cos, f1sy = cy - startR * sin;
+    const f1ex = cx - endR * cos,   f1ey = cy - endR * sin;
+    const f2sx = cx + startR * cos, f2sy = cy + startR * sin;
+    const f2ex = cx + endR * cos,   f2ey = cy + endR * sin;
+    return ctx.pinch(
+      Math.round(f1sx), Math.round(f1sy),
+      Math.round(f2sx), Math.round(f2sy),
+      Math.round(f1ex), Math.round(f1ey),
+      Math.round(f2ex), Math.round(f2ey),
+      p.duration
+    );
+  };
+  await doPinch();
+  await ctx.sleep(1);
+
+  // 螺旋搜索状态（全程接续，不因换队重置）
+  const halfW = Math.round(1600 * gg.spiralSwipeRatio / 2);
+  const halfH = Math.round(900 * gg.spiralSwipeRatio / 2);
+  let step = 1;
+  let dirIndex = 0;
+  let moveCount = 0;
+  let checkedCenter = false;
+
+  ctx.log(`[3/7] 方形螺旋搜索宝石矿（YOLO 检测, 上限 ${gg.searchMaxAttempts} 步）`);
 
   for (let teamIdx = 0; teamIdx < teams.length; teamIdx++) {
     const team = teams[teamIdx];
     ctx.log(`--- 派队伍 ${team} (第${teamIdx + 1}/${teams.length}颗矿) ---`);
 
-    // [1/7] 重置城外默认视角
-    ctx.log('  [1/7] 重置城外默认视角');
-    await ensureInWorld(ctx, config);
-
-    // [2/7] 缩小地图
-    ctx.log('  [2/7] 缩小地图');
-    const p = gg.pinch;
-    await ctx.pinch(p.from1.x, p.from1.y, p.from2.x, p.from2.y, p.to1.x, p.to1.y, p.to2.x, p.to2.y, p.duration);
-    await ctx.sleep(1);
-
-    // [3/7] 方形螺旋搜索宝石矿（九宫格逐格推进）
-    ctx.log(`  [3/7] 方形螺旋搜索宝石矿（YOLO 检测, 上限 ${gg.searchMaxAttempts} 步）`);
+    // [4/7] 搜索 → 点击采集（找不到采集按钮时缩地重搜，最多 3 次）
+    const maxCaijiRetries = 3;
+    let caijiFound = false;
     let gemFound = false;
     let gemX = 0;
     let gemY = 0;
-    let step = 1;       // 当前方向上的移动次数，每两方向递增
-    let dirIndex = 0;   // 0=上, 1=右, 2=下, 3=左
-    let moveCount = 0;
 
-    const halfW = Math.round(1600 * gg.spiralSwipeRatio / 2);  // 640
-    const halfH = Math.round(900 * gg.spiralSwipeRatio / 2);   // 360
+    for (let caijiRetry = 0; caijiRetry < maxCaijiRetries && !caijiFound; caijiRetry++) {
+      if (caijiRetry > 0) {
+        ctx.log(`  未找到采集按钮，缩地接续搜索 (${caijiRetry + 1}/${maxCaijiRetries})`);
+        // 缩地已在上一轮末尾执行
+      }
 
-    // 先检测中心 5 号位
-    const initDets = await ctx.detectWithScreenshot(0.5);
-    ctx.log(`  [搜索] 中心(5) 找到 ${initDets.length} 个宝石候选`);
-    const initValid = initDets.find(d => !isInChatZone(d.x, d.y));
-    if (initValid) {
-      gemX = initValid.x; gemY = initValid.y;
-      ctx.log(`  找到宝石矿 (${gemX}, ${gemY}) confidence: ${initValid.confidence.toFixed(3)}`);
-      gemFound = true;
-    }
+      gemFound = false;
 
-    while (!gemFound && moveCount < gg.searchMaxAttempts) {
-      const dir = SPIRAL_DIRECTIONS[dirIndex % 4];
-
-      for (let s = 0; s < step && !gemFound && moveCount < gg.searchMaxAttempts; s++) {
-        // 固定屏内坐标：竖直滑动 x=850 避开聊天窗口，水平滑动 y=450
-        const fromX = dir.dx !== 0 ? (800 + dir.dx * halfW) : 850;
-        const fromY = dir.dy !== 0 ? (450 + dir.dy * halfH) : 450;
-        const toX   = dir.dx !== 0 ? (800 - dir.dx * halfW) : 850;
-        const toY   = dir.dy !== 0 ? (450 - dir.dy * halfH) : 450;
-        moveCount++;
-        await ctx.swipe(fromX, fromY, toX, toY, 500);
-        await ctx.sleep(1);
-
-        const detections = await ctx.detectWithScreenshot(0.5);
-        ctx.log(`  [搜索] ${SPIRAL_DIR_NAMES[dirIndex % 4]}(${moveCount}) 找到 ${detections.length} 个宝石候选`);
-        const validDet = detections.find(d => !isInChatZone(d.x, d.y));
-        if (validDet) {
-          gemX = validDet.x; gemY = validDet.y;
-          ctx.log(`  找到宝石矿 (${gemX}, ${gemY}) confidence: ${validDet.confidence.toFixed(3)}`);
-          gemFound = true;
-          break;
+      // 仅在首次搜索时检测中心，之后从螺旋位置继续
+      if (!checkedCenter) {
+        checkedCenter = true;
+        const initDets = await ctx.detectWithScreenshot(0.5);
+        ctx.log(`  [搜索] 中心(5) 找到 ${initDets.length} 个宝石候选`);
+        const initValid = initDets.find(d => !isInChatZone(d.x, d.y));
+        if (initValid) {
+          if (await isGemOccupied(ctx, initValid.x, initValid.y)) {
+            ctx.log(`  宝石 (${initValid.x}, ${initValid.y}) 已被占用，继续搜索`);
+          } else {
+            gemX = initValid.x; gemY = initValid.y;
+            ctx.log(`  找到空闲宝石矿 (${gemX}, ${gemY}) confidence: ${initValid.confidence.toFixed(3)}`);
+            gemFound = true;
+          }
         }
       }
 
-      // 每两个方向后 step 递增
-      if (dirIndex % 2 === 1) step++;
-      dirIndex++;
+      while (!gemFound && moveCount < gg.searchMaxAttempts) {
+        const dir = SPIRAL_DIRECTIONS[dirIndex % 4];
+
+        for (let s = 0; s < step && !gemFound && moveCount < gg.searchMaxAttempts; s++) {
+          const fromX = dir.dx !== 0 ? (800 + dir.dx * halfW) : 850;
+          const fromY = dir.dy !== 0 ? (450 + dir.dy * halfH) : 450;
+          const toX   = dir.dx !== 0 ? (800 - dir.dx * halfW) : 850;
+          const toY   = dir.dy !== 0 ? (450 - dir.dy * halfH) : 450;
+          moveCount++;
+          await ctx.swipe(fromX, fromY, toX, toY, 500);
+          await ctx.sleep(1 + Math.random() * 0.5);  // 1-1.5s 随机间隔
+
+          const detections = await ctx.detectWithScreenshot(0.5);
+          ctx.log(`  [搜索] ${SPIRAL_DIR_NAMES[dirIndex % 4]}(${moveCount}) 找到 ${detections.length} 个宝石候选`);
+          const validDet = detections.find(d => !isInChatZone(d.x, d.y));
+          if (validDet) {
+            if (await isGemOccupied(ctx, validDet.x, validDet.y)) {
+              ctx.log(`  宝石 (${validDet.x}, ${validDet.y}) 已被占用，继续搜索`);
+            } else {
+              gemX = validDet.x; gemY = validDet.y;
+              ctx.log(`  找到空闲宝石矿 (${gemX}, ${gemY}) confidence: ${validDet.confidence.toFixed(3)}`);
+              gemFound = true;
+              break;
+            }
+          }
+        }
+
+        if (gemFound) break;
+        if (dirIndex % 2 === 1) step++;
+        dirIndex++;
+      }
+
+      if (!gemFound) break;  // 搜索不到宝石矿，退出重试循环
+
+      // [4/7] 点击宝石矿
+      ctx.log(`  [4/7] 点击宝石矿 (${gemX}, ${gemY})`);
+      await ctx.tap(gemX, gemY);
+      await ctx.sleep(1.5);
+
+      ctx.log(`  点击放大后的目标 (${gg.pinchedGemTapPoint.x}, ${gg.pinchedGemTapPoint.y})`);
+      await ctx.tap(gg.pinchedGemTapPoint.x, gg.pinchedGemTapPoint.y);
+      await ctx.sleep(1);
+
+      // 检测当前中心坐标，与已采集记录比对，避免重复采集
+      if (collectedCoords.length > 0) {
+        const coordRegionPath = await ctx.captureRegion(
+          COORD_REGION.x, COORD_REGION.y, COORD_REGION.w, COORD_REGION.h
+        );
+        try {
+          const coordText = await ocrService.readText(coordRegionPath);
+          const curCoord = parseCoord(coordText);
+          const recorded = collectedCoords.map(c => `(${c.x},${c.y})`).join(', ');
+          ctx.log(`  [坐标] 当前: ${coordText} → ${curCoord ? `(${curCoord.x},${curCoord.y})` : '解析失败'} | 已采集: [${recorded}]`);
+          if (curCoord && isCoordRecorded(curCoord.x, curCoord.y, collectedCoords)) {
+            ctx.log(`  ⚠️ 该宝石已采集过，缩地后继续螺旋`);
+            await doPinch();
+            await ctx.sleep(1);
+            continue;  // 回到 caijiRetry 循环，继续螺旋搜索
+          }
+        } finally {
+          await fs.unlink(coordRegionPath).catch(() => {});
+        }
+      }
+
+      // 识别采集按钮
+      ctx.log(`  搜索采集按钮 ${gg.caijiBtnTemplate}`);
+      const caijiResult = await ctx.findImageWithLocation(caijiBtnTemplate, 0.7);
+      if (caijiResult.found) {
+        ctx.log(`  点击采集按钮 (${caijiResult.x}, ${caijiResult.y})`);
+        await ctx.tap(caijiResult.x, caijiResult.y);
+        await ctx.sleep(1.5);
+        caijiFound = true;
+      } else {
+        ctx.log(`  ❌ 未找到采集按钮 (confidence: ${caijiResult.confidence.toFixed(3)})，缩地后继续螺旋`);
+        await doPinch();
+        await ctx.sleep(1);
+      }
     }
 
     if (!gemFound) {
-      ctx.log(`  ❌ 搜索 ${gg.searchMaxAttempts} 次后未找到宝石矿，停止后续队伍`);
-      break;
-    }
-
-    // [4/7] 点击宝石矿
-    ctx.log(`  [4/7] 点击宝石矿 (${gemX}, ${gemY})`);
-    await ctx.tap(gemX, gemY);
-    await ctx.sleep(1.5);
-
-    // 点击放大后的宝石矿
-    ctx.log(`  点击放大后的目标 (${gg.pinchedGemTapPoint.x}, ${gg.pinchedGemTapPoint.y})`);
-    await ctx.tap(gg.pinchedGemTapPoint.x, gg.pinchedGemTapPoint.y);
-    await ctx.sleep(1);
-
-    // 识别采集按钮
-    ctx.log(`  搜索采集按钮 ${gg.caijiBtnTemplate}`);
-    const caijiResult = await ctx.findImageWithLocation(caijiBtnTemplate, 0.7);
-    if (!caijiResult.found) {
-      ctx.log(`  ❌ 未找到采集按钮 (confidence: ${caijiResult.confidence.toFixed(3)})，跳过`);
+      ctx.log(`  ❌ 搜索耗尽(${moveCount}步)，未找到空闲宝石矿，跳过该队伍`);
       await ctx.tap(worldBtn.x, worldBtn.y);
-      await ctx.sleep(1.5);
+      await ctx.sleep(0.8 + Math.random() * 0.7);   // 0.8-1.5s
       await ctx.tap(worldBtn.x, worldBtn.y);
-      await ctx.sleep(2);
+      await ctx.sleep(1.5 + Math.random() * 1.0);   // 1.5-2.5s
       continue;
     }
-    ctx.log(`  点击采集按钮 (${caijiResult.x}, ${caijiResult.y})`);
-    await ctx.tap(caijiResult.x, caijiResult.y);
-    await ctx.sleep(1.5);
+
+    if (!caijiFound) {
+      ctx.log(`  ❌ 重试${maxCaijiRetries}次仍未找到采集按钮，跳过该队伍`);
+      await ctx.tap(worldBtn.x, worldBtn.y);
+      await ctx.sleep(0.8 + Math.random() * 0.7);   // 0.8-1.5s
+      await ctx.tap(worldBtn.x, worldBtn.y);
+      await ctx.sleep(1.5 + Math.random() * 1.0);   // 1.5-2.5s
+      continue;
+    }
 
     // [5/7] 检测空闲队伍
     ctx.log(`  [5/7] 检测是否有空闲队伍...`);
@@ -168,7 +300,7 @@ export async function gatherGem(
       ctx.log(`  ⚠️ 没有空闲队伍，停止采集，切换回城内`);
       await fs.unlink(addTeamRegionPath).catch(() => {});
       await ctx.tap(worldBtn.x, worldBtn.y);
-      await ctx.sleep(2);
+      await ctx.sleep(1.5 + Math.random() * 1.0);   // 1.5-2.5s
       break;
     }
     await fs.unlink(addTeamRegionPath).catch(() => {});
@@ -205,13 +337,46 @@ export async function gatherGem(
     }
 
     // 点击行军
-    await ctx.sleep(0.5);
+    await ctx.sleep(0.3 + Math.random() * 0.4);  // 0.3-0.7s
     ctx.log(`  点击行军按钮 (${MARCH_BUTTON.x}, ${MARCH_BUTTON.y})`);
     await ctx.tap(MARCH_BUTTON.x, MARCH_BUTTON.y);
-    await ctx.sleep(1);
+    await ctx.sleep(0.8 + Math.random() * 0.7);   // 0.8-1.5s
 
     dispatched++;
     ctx.log(`  ✅ 队伍${team} 已派出采集宝石矿（累计 ${dispatched} 队）`);
+
+    // 记录当前中心坐标，避免后续重复采集
+    {
+      const coordRegionPath = await ctx.captureRegion(
+        COORD_REGION.x, COORD_REGION.y, COORD_REGION.w, COORD_REGION.h
+      );
+      try {
+        const coordText = await ocrService.readText(coordRegionPath);
+        ctx.log(`  [坐标] 记录已采集: ${coordText}`);
+        const curCoord = parseCoord(coordText);
+        if (curCoord) {
+          collectedCoords.push(curCoord);
+        } else {
+          ctx.log(`  [坐标] 解析失败，跳过记录`);
+        }
+      } finally {
+        await fs.unlink(coordRegionPath).catch(() => {});
+      }
+    }
+
+    // 螺旋进位：跳出当前找到矿的位置，下一队从新方向继续
+    if (moveCount > 0) {
+      // 宝石在螺旋途中找到 → 推进到下一方向
+      if (dirIndex % 2 === 1) step++;
+      dirIndex++;
+    }
+    // moveCount === 0 表示在中心找到 → dirIndex=0 (UP) 就是正确接续位置，无需调整
+
+    // 缩地后接续螺旋搜索下一颗矿
+    if (dispatched > 0 && teamIdx < teams.length - 1) {
+      await doPinch();
+      await ctx.sleep(1);
+    }
   }
 
   ctx.log(`=== 宝石采集完成：派出 ${dispatched} 队 ===`);

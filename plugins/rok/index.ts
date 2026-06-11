@@ -295,7 +295,7 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
     },
     spiralCenterX: 800,
     spiralCenterY: 450,
-    searchMaxAttempts: 16,
+    searchMaxAttempts: 40,
     spiralSwipeRatio: 0.8,
     searchScales: [0.8, 0.9, 1.0],
   },
