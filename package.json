@@ -27,6 +27,10 @@
       "node_modules/**/*",
       "package.json"
     ],
+    "asarUnpack": [
+      "node_modules/onnxruntime-node/**/*",
+      "node_modules/@img/**/*"
+    ],
     "extraResources": [
       {
         "from": "tools/platform-tools/platform-tools",
