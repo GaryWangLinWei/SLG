@@ -40,6 +40,7 @@ class LicenseService {
       isOffline: isExpired ? false : isOffline,
       graceRemainingMinutes: isOffline ? 0 : Math.ceil(graceRemainingMs / 60000),
       deviceFingerprint: stored.fingerprint,
+      tier: stored.tier || 'basic',
     };
   }
 
@@ -87,6 +88,7 @@ class LicenseService {
         fingerprint,
         activatedAt: existing?.activatedAt || Date.now(),
         lastHeartbeatAt: Date.now(),
+        tier: data.tier || 'basic',
       };
 
       await saveLicense(licenseData);
@@ -143,7 +145,8 @@ class LicenseService {
         const data = await response.json() as any;
         const updatedExpiresAt = data?.expiresAt && data.expiresAt > stored.expiresAt
           ? data.expiresAt : stored.expiresAt;
-        await saveLicense({ ...stored, lastHeartbeatAt: Date.now(), expiresAt: updatedExpiresAt });
+        const updatedTier = (data?.tier || data?.status?.tier) as ('basic' | 'pro') | undefined;
+        await saveLicense({ ...stored, lastHeartbeatAt: Date.now(), expiresAt: updatedExpiresAt, ...(updatedTier ? { tier: updatedTier } : {}) });
         return { success: true, isOffline: false, expiresAt: updatedExpiresAt };
       }
 

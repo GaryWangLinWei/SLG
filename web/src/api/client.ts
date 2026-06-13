@@ -183,14 +183,14 @@ export const api = {
 
   license: {
     getStatus: () =>
-      request<{ success: boolean; status: any }>('/license/status'),
+      request<{ success: boolean; status: { activated: boolean; expiresAt?: number; isExpired: boolean; isOffline: boolean; graceRemainingMinutes?: number; deviceFingerprint?: string; tier?: 'basic' | 'pro' } }>('/license/status'),
     activate: (code: string, inviteCode?: string) =>
-      request<{ success: boolean; error?: string; expiresAt?: number; inviteBonus?: boolean; inviteError?: string; inviterBonusDays?: number; inviteeBonusDays?: number }>('/license/activate', {
+      request<{ success: boolean; error?: string; expiresAt?: number; tier?: 'basic' | 'pro'; inviteBonus?: boolean; inviteError?: string; inviterBonusDays?: number; inviteeBonusDays?: number }>('/license/activate', {
         method: 'POST',
         body: JSON.stringify({ code, inviteCode })
       }),
     preview: (code: string) =>
-      request<{ success: boolean; durationDays?: number; error?: string }>('/license/preview', {
+      request<{ success: boolean; durationDays?: number; tier?: 'basic' | 'pro'; error?: string }>('/license/preview', {
         method: 'POST',
         body: JSON.stringify({ code })
       }),

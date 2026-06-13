@@ -5,6 +5,7 @@ export interface LicenseStatus {
   isOffline: boolean;
   graceRemainingMinutes?: number;
   deviceFingerprint?: string;
+  tier?: 'basic' | 'pro';
 }
 
 export interface ActivationData {
@@ -39,4 +40,5 @@ export interface StoredLicenseData {
   fingerprint: string;
   activatedAt: number;
   lastHeartbeatAt: number;
+  tier: 'basic' | 'pro';
 }

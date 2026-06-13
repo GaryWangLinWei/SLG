@@ -7,6 +7,7 @@ export interface ActivationCode {
   duration_days: number;
   status: 'unused' | 'used' | 'revoked' | 'exported';
   type?: 'normal' | 'invite' | 'trial';
+  tier?: 'basic' | 'pro';
   created_at: number;
   used_at?: number;
   expires_at?: number;
@@ -28,11 +29,11 @@ export function generateInviteCode(): string {
   return result;
 }
 
-export function generateCodes(count: number, durationDays: number = 30): ActivationCode[] {
+export function generateCodes(count: number, durationDays: number = 30, tier: 'basic' | 'pro' = 'basic'): ActivationCode[] {
   const db = getDb();
   const insert = db.prepare(`
-    INSERT INTO activation_codes (code, duration_days, status, created_at, created_by)
-    VALUES (?, ?, 'unused', ?, 'admin')
+    INSERT INTO activation_codes (code, duration_days, status, tier, created_at, created_by)
+    VALUES (?, ?, 'unused', ?, ?, 'admin')
   `);
 
   const codes: ActivationCode[] = [];
@@ -42,12 +43,13 @@ export function generateCodes(count: number, durationDays: number = 30): Activat
     const now = Date.now();
 
     try {
-      const result = insert.run(code, durationDays, now);
+      const result = insert.run(code, durationDays, tier, now);
       codes.push({
         id: result.lastInsertRowid as number,
         code,
         duration_days: durationDays,
         status: 'unused',
+        tier,
         created_at: now,
         created_by: 'admin'
       });
@@ -92,7 +94,7 @@ export function revokeCode(id: number): boolean {
 const TRIAL_CODE = 'TRIAL-7DAYS';
 const TRIAL_DAYS = 7;
 
-export function useCode(code: string, deviceFingerprint: string): { success: boolean; expiresAt?: number; error?: string; renewType?: string; code?: string } {
+export function useCode(code: string, deviceFingerprint: string): { success: boolean; expiresAt?: number; error?: string; renewType?: string; tier?: 'basic' | 'pro'; code?: string } {
   const db = getDb();
   const now = Date.now();
 
@@ -133,7 +135,7 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
 
     try {
       transaction();
-      return { success: true, expiresAt, code: trialCode };
+      return { success: true, expiresAt, tier: 'basic', code: trialCode };
     } catch (e: any) {
       return { success: false, error: e.message };
     }
@@ -162,14 +164,20 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
         return { success: false, error: '该激活码已绑定到其他设备' };
       }
 
-      // 时间累加
-      const remainingMs = Math.max(0, existingBinding.expires_at - now);
+      // 获取旧激活码的 tier
+      const oldCode = db.prepare('SELECT tier FROM activation_codes WHERE id = ?').get(existingBinding.activation_code_id) as { tier?: string } | undefined;
+      const oldTier = oldCode?.tier || 'basic';
+      const newTier = activationCode.tier || 'basic';
+      const sameTier = oldTier === newTier;
+
+      // 同 tier 累加，不同 tier 重置
+      const remainingMs = sameTier ? Math.max(0, existingBinding.expires_at - now) : 0;
       const newExpiresAt = now + remainingMs + activationCode.duration_days * 24 * 60 * 60 * 1000;
 
       db.prepare(`UPDATE device_bindings SET activation_code_id = ?, last_heartbeat_at = ? WHERE device_fingerprint = ?`)
         .run(activationCode.id, now, deviceFingerprint);
 
-      return { success: true, expiresAt: newExpiresAt, renewType: 'same' };
+      return { success: true, expiresAt: newExpiresAt, renewType: sameTier ? 'same' : (newTier === 'pro' ? 'up' : 'down'), tier: newTier };
     }
 
     return { success: false, error: '激活码已被使用' };
@@ -178,17 +186,22 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
   // 首次激活：绑定设备
   // Check for existing device bindings to accumulate remaining time (renewal with new code)
   const existingBinding = db.prepare(`
-    SELECT ac.expires_at
+    SELECT ac.expires_at, ac.tier
     FROM device_bindings db
     JOIN activation_codes ac ON db.activation_code_id = ac.id
     WHERE db.device_fingerprint = ?
     ORDER BY ac.expires_at DESC
     LIMIT 1
-  `).get(deviceFingerprint) as { expires_at?: number } | undefined;
+  `).get(deviceFingerprint) as { expires_at?: number; tier?: string } | undefined;
 
+  const newTier = activationCode.tier || 'basic';
   let remainingMs = 0;
   if (existingBinding?.expires_at) {
-    remainingMs = Math.max(0, existingBinding.expires_at - now);
+    const oldTier = existingBinding.tier || 'basic';
+    // 同 tier 累加，不同 tier 重置
+    if (oldTier === newTier) {
+      remainingMs = Math.max(0, existingBinding.expires_at - now);
+    }
   }
 
   const expiresAt = now + remainingMs + activationCode.duration_days * 24 * 60 * 60 * 1000;
@@ -219,7 +232,7 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
 
   try {
     transaction();
-    return { success: true, expiresAt };
+    return { success: true, expiresAt, tier: newTier };
   } catch (e: any) {
     return { success: false, error: e.message };
   }
@@ -268,6 +281,7 @@ export function previewCode(code: string) {
   return {
     success: true,
     durationDays: activationCode.duration_days || 30,
+    tier: activationCode.tier || 'basic',
   };
 }
 

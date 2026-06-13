@@ -36,7 +36,7 @@ router.get('/codes', async (ctx) => {
 });
 
 router.post('/codes/generate', async (ctx) => {
-  const { count, durationDays } = ctx.request.body as { count?: number; durationDays?: number };
+  const { count, durationDays, tier } = ctx.request.body as { count?: number; durationDays?: number; tier?: 'basic' | 'pro' };
 
   if (!count || count < 1 || count > 1000) {
     ctx.status = 400;
@@ -44,7 +44,7 @@ router.post('/codes/generate', async (ctx) => {
     return;
   }
 
-  const codes = generateCodes(count, durationDays || 30);
+  const codes = generateCodes(count, durationDays || 30, tier || 'basic');
   ctx.body = {
     success: true,
     count: codes.length,

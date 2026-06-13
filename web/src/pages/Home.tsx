@@ -114,7 +114,10 @@ function TechSelect({ value, onChange, excludeValues, economicTechs, militaryTec
 
 export function HomePage() {
   const { currentAccountId } = useAccount();
-  const { refreshStatus, setExpiredMessage } = useLicense();
+  const { status: licenseStatus, refreshStatus, setExpiredMessage } = useLicense();
+  const isPro = licenseStatus?.tier === 'pro';
+  const PRO_FEATURES = ['gemGather'];
+  const isFeatureLocked = (featureId: string) => !isPro && PRO_FEATURES.includes(featureId);
   const [activeConfigName, setActiveConfigName] = useState('');
   const [deviceConnected, setDeviceConnected] = useState(false);
   const [deviceLoading, setDeviceLoading] = useState(false);
@@ -1408,9 +1411,22 @@ export function HomePage() {
             </div>
 
             {/* 智能采集宝石 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.gemGatherEnabled ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : isFeatureLocked('gemGather') ? 'bg-slate-50 border-slate-200 opacity-80' : features.gemGatherEnabled ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center text-base">💎</span>智能采集宝石</span>
+                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800">
+                  <span className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center text-base">💎</span>
+                  智能采集宝石
+                  {isFeatureLocked('gemGather') && (
+                    <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 border border-amber-300"
+                      title="升级到 Pro 解锁">PRO</span>
+                  )}
+                </span>
+                {isFeatureLocked('gemGather') ? (
+                  <span className="relative w-10 h-[22px] flex-shrink-0 cursor-not-allowed" title="升级到 Pro 解锁">
+                    <span className="absolute inset-0 rounded-full bg-slate-200" />
+                    <span className="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm" />
+                  </span>
+                ) : (
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
                   <input type="checkbox" checked={features.gemGatherEnabled} disabled={features.autoExplore || features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, gemGatherEnabled: e.target.checked })}
@@ -1418,6 +1434,7 @@ export function HomePage() {
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.gemGatherEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                   <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.gemGatherEnabled ? 'translate-x-[18px]' : ''}`} />
                 </label>
+                )}
               </div>
               <div className="flex items-center gap-2 mt-2">
                 <span className="text-xs text-slate-400 whitespace-nowrap">派遣</span>
@@ -1425,7 +1442,7 @@ export function HomePage() {
                   <label key={teamNum} className="flex items-center gap-1 cursor-pointer">
                     <input type="checkbox"
                       checked={features.gemGatherTeams.includes(teamNum)}
-                      disabled={features.autoExplore || features.autoWorldChat || !features.gemGatherEnabled}
+                      disabled={features.autoExplore || features.autoWorldChat || !features.gemGatherEnabled || isFeatureLocked('gemGather')}
                       onChange={(e) => {
                         const next = e.target.checked
                           ? [...features.gemGatherTeams, teamNum].sort((a, b) => a - b)
@@ -1444,13 +1461,13 @@ export function HomePage() {
                 <span className="text-xs text-slate-400 whitespace-nowrap">采集</span>
                 <input type="number" value={features.gemGatherActiveHours ?? 2}
                   onChange={(e) => setFeatures({ ...features, gemGatherActiveHours: Number(e.target.value) })}
-                  disabled={!features.gemGatherEnabled}
+                  disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
                   min={1} max={24}
                   className="w-12 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
                 <span className="text-xs text-slate-400">小时，休息</span>
                 <input type="number" value={features.gemGatherRestHours ?? 1}
                   onChange={(e) => setFeatures({ ...features, gemGatherRestHours: Number(e.target.value) })}
-                  disabled={!features.gemGatherEnabled}
+                  disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
                   min={1} max={24}
                   className="w-12 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
                 <span className="text-xs text-slate-400">小时</span>

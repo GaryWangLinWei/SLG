@@ -74,6 +74,11 @@ function initTables() {
     database.exec(`ALTER TABLE activation_codes ADD COLUMN type TEXT NOT NULL DEFAULT 'normal'`);
   } catch { /* 字段已存在，忽略 */ }
 
+  // activation_codes 新增 tier 字段
+  try {
+    database.exec(`ALTER TABLE activation_codes ADD COLUMN tier TEXT NOT NULL DEFAULT 'basic'`);
+  } catch { /* 字段已存在，忽略 */ }
+
   database.exec('CREATE INDEX IF NOT EXISTS idx_codes_status ON activation_codes(status)');
   database.exec('CREATE INDEX IF NOT EXISTS idx_codes_code ON activation_codes(code)');
   database.exec('CREATE INDEX IF NOT EXISTS idx_bindings_fingerprint ON device_bindings(device_fingerprint)');

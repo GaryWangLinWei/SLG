@@ -8,6 +8,7 @@ export interface LicenseStatus {
   isOffline: boolean;
   graceRemainingMinutes?: number;
   deviceFingerprint?: string;
+  tier?: 'basic' | 'pro';
 }
 
 interface LicenseContextType {

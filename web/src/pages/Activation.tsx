@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useLicense } from '../contexts/LicenseContext';
 
 export default function ActivationPage() {
-  const { activate, loading, activateError, clearActivateError, expiredMessage, setExpiredMessage } = useLicense();
+  const { status, activate, loading, activateError, clearActivateError, expiredMessage, setExpiredMessage } = useLicense();
   const [code, setCode] = useState('');
   const [inviteCode, setInviteCode] = useState('');
   const [inviteResult, setInviteResult] = useState<{ success: boolean; inviterBonusDays?: number; inviteeBonusDays?: number; error?: string } | null>(null);
@@ -31,6 +31,7 @@ export default function ActivationPage() {
     const result = await activate(code.trim(), inviteCode.trim() || undefined);
     if (result.success) {
       setSuccess(true);
+      // tier 会在 activate 内部的 refreshStatus 后自动更新到 status
       if (result.inviteBonus) {
         setInviteResult({ success: true, inviterBonusDays: result.inviterBonusDays, inviteeBonusDays: result.inviteeBonusDays });
       }
@@ -112,8 +113,13 @@ export default function ActivationPage() {
             )}
 
             {success && (
-              <div className="mb-4 p-3 bg-green-50 border border-green-300 rounded-xl text-green-700 text-sm">
-                激活成功！正在加载...
+              <div className="mb-4 p-3 bg-green-50 border border-green-300 rounded-xl text-green-700 text-sm text-center">
+                <p>激活成功！</p>
+                {status?.tier === 'pro' ? (
+                  <p className="mt-1 font-bold text-amber-600">🏆 Pro 版</p>
+                ) : status?.tier === 'basic' ? (
+                  <p className="mt-1 text-slate-600">基础版</p>
+                ) : null}
               </div>
             )}
 
