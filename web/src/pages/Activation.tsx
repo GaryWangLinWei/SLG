@@ -2,13 +2,23 @@ import React, { useState, useEffect } from 'react';
 import { useLicense } from '../contexts/LicenseContext';
 
 export default function ActivationPage() {
-  const { status, activate, loading, activateError, clearActivateError, expiredMessage, setExpiredMessage } = useLicense();
+  const { status, activate, preview, loading, activateError, clearActivateError, expiredMessage, setExpiredMessage } = useLicense();
   const [code, setCode] = useState('');
   const [inviteCode, setInviteCode] = useState('');
   const [inviteResult, setInviteResult] = useState<{ success: boolean; inviterBonusDays?: number; inviteeBonusDays?: number; error?: string } | null>(null);
   const [success, setSuccess] = useState(false);
   const [showExpired, setShowExpired] = useState(!!expiredMessage);
   const isElectron = typeof window !== 'undefined' && 'electronAPI' in window;
+
+  // 预览确认弹窗状态
+  const [confirmInfo, setConfirmInfo] = useState<{
+    code: string;
+    inviteCode: string;
+    newTier: 'basic' | 'pro';
+    durationDays: number;
+    sameTier: boolean;
+    isUpgrade: boolean;
+  } | null>(null);
 
   useEffect(() => {
     if (expiredMessage) {
@@ -21,17 +31,49 @@ export default function ActivationPage() {
     e.preventDefault();
     e.stopPropagation();
 
-    if (!code.trim()) {
-      return;
-    }
+    if (!code.trim()) return;
 
     clearActivateError();
     setSuccess(false);
+    setInviteResult(null);
 
-    const result = await activate(code.trim(), inviteCode.trim() || undefined);
+    // 先预览，判断是否跨 tier
+    const previewResult = await preview(code.trim());
+    if (!previewResult.success) {
+      // preview 失败 → 可能是已使用的码，直接尝试激活
+      await doActivate(code.trim(), inviteCode.trim() || undefined);
+      return;
+    }
+
+    const newTier = previewResult.tier || 'basic';
+    const currentTier = status?.tier || 'basic';
+    const sameTier = newTier === currentTier;
+
+    // 是否已有激活（非新用户）
+    const hasExisting = status?.activated;
+
+    if (hasExisting && !sameTier) {
+      // 跨 tier → 弹确认窗
+      setConfirmInfo({
+        code: code.trim(),
+        inviteCode: inviteCode.trim() || undefined as any,
+        newTier,
+        durationDays: previewResult.durationDays || 30,
+        sameTier: false,
+        isUpgrade: newTier === 'pro',
+      });
+      return;
+    }
+
+    // 同 tier 或新用户 → 直接激活
+    await doActivate(code.trim(), inviteCode.trim() || undefined);
+  };
+
+  const doActivate = async (activationCode: string, invite?: string) => {
+    setConfirmInfo(null);
+    const result = await activate(activationCode, invite);
     if (result.success) {
       setSuccess(true);
-      // tier 会在 activate 内部的 refreshStatus 后自动更新到 status
       if (result.inviteBonus) {
         setInviteResult({ success: true, inviterBonusDays: result.inviterBonusDays, inviteeBonusDays: result.inviteeBonusDays });
       }
@@ -40,6 +82,10 @@ export default function ActivationPage() {
       }
     }
   };
+
+  // 当前 tier 标签
+  const currentTierLabel = status?.tier === 'pro' ? 'Pro 版' : '基础版';
+  const currentTierColor = status?.tier === 'pro' ? 'text-amber-600' : 'text-slate-500';
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-emerald-50 via-white to-slate-100 flex items-center justify-center p-4">
@@ -65,12 +111,45 @@ export default function ActivationPage() {
             </div>
             <h1 className="text-2xl font-bold text-slate-800 mb-2">ROK助手</h1>
             <p className="text-slate-500">请输入激活码以继续使用</p>
+            {status?.activated && (
+              <p className={`text-xs mt-1 ${currentTierColor}`}>当前：{currentTierLabel}</p>
+            )}
           </div>
 
           {showExpired && (
             <div className="mb-4 p-4 bg-red-50 border border-red-300 rounded-xl text-red-700 text-sm text-center">
               <p className="font-bold text-base mb-1">激活码已到期</p>
               <p className="text-red-600">请重新输入激活码以继续使用</p>
+            </div>
+          )}
+
+          {/* 跨 tier 确认弹窗 */}
+          {confirmInfo && (
+            <div className="mb-4 p-4 bg-amber-50 border border-amber-300 rounded-xl text-sm">
+              <p className="font-bold text-amber-800 mb-2">
+                {confirmInfo.isUpgrade ? '⬆ 升级' : '⬇ 降级'}确认
+              </p>
+              <div className="text-amber-700 space-y-1 mb-3">
+                <p>当前：<span className="font-semibold">{status?.tier === 'pro' ? '🏆 Pro 版' : '基础版'}</span></p>
+                <p>新激活码：<span className="font-semibold">{confirmInfo.newTier === 'pro' ? '🏆 Pro 版' : '基础版'}</span> · {confirmInfo.durationDays}天</p>
+                <p className="text-red-600 font-semibold mt-2">
+                  ⚠ 注意：跨版本激活将<b>重置到期时间</b>（不累加）
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => doActivate(confirmInfo.code, confirmInfo.inviteCode)}
+                  className="flex-1 py-2 px-3 bg-amber-500 hover:bg-amber-600 text-white font-medium rounded-lg text-sm transition-colors"
+                >
+                  确认激活
+                </button>
+                <button
+                  onClick={() => setConfirmInfo(null)}
+                  className="flex-1 py-2 px-3 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 font-medium rounded-lg text-sm transition-colors"
+                >
+                  取消
+                </button>
+              </div>
             </div>
           )}
 
@@ -136,7 +215,7 @@ export default function ActivationPage() {
 
             <button
               type="submit"
-              disabled={loading || success}
+              disabled={loading || success || !!confirmInfo}
               className="w-full py-3 px-4 bg-gradient-to-r from-emerald-500 to-emerald-400 hover:from-emerald-600 hover:to-emerald-500 disabled:from-slate-300 disabled:to-slate-300 text-white font-medium rounded-xl transition-all shadow-lg hover:shadow-xl disabled:cursor-not-allowed"
             >
               {loading ? '激活中...' : '激活'}
