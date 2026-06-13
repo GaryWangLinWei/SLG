@@ -76,9 +76,13 @@ class LicenseService {
         return { success: false, error: data?.error || '激活失败，请检查激活码' };
       }
 
-      // Safety: never let expiration go backward from existing license
+      // Safety: never let expiration go backward from existing license (same tier only)
       const existing = await loadLicense();
-      const safeExpiresAt = existing
+      const newTier = (data.tier || 'basic') as 'basic' | 'pro';
+      const oldTier = existing?.tier || 'basic';
+      const tierChanged = oldTier !== newTier;
+      // 同 tier 累加 → 保留更晚的到期时间；不同 tier → 用服务端返回的时间（可能重置）
+      const safeExpiresAt = (existing && !tierChanged)
         ? Math.max(data.expiresAt, existing.expiresAt)
         : data.expiresAt;
 
@@ -88,7 +92,7 @@ class LicenseService {
         fingerprint,
         activatedAt: existing?.activatedAt || Date.now(),
         lastHeartbeatAt: Date.now(),
-        tier: data.tier || 'basic',
+        tier: newTier,
       };
 
       await saveLicense(licenseData);
