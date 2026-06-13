@@ -113,6 +113,7 @@ export async function gatherGem(
 
   let dispatched = 0;
   let hasPaging: boolean | null = null;
+  let nextTeamIdx = 0;  // 下次从 teams[nextTeamIdx] 开始尝试
   const collectedCoords: Array<{ x: number; y: number }> = [];
 
   // [1/7] 重置城外默认视角（所有队伍共一次）
@@ -319,18 +320,27 @@ export async function gatherGem(
       ctx.log(`  [检测] 换页按钮: ${hasPaging ? '存在 (>7组)' : '不存在 (≤7组)'}`);
     }
 
-    // [7/7] 弹窗内逐个尝试队伍，不可用时直接试下一队
+    // [7/7] 弹窗内逐个尝试队伍，从上一次派出队伍的下一个开始
     const teamButtons = (hasPaging ?? false) ? TEAM_BUTTONS_PAGED : TEAM_BUTTONS_NO_PAGE;
     let dispatchedThisGem = false;
     let allTeamsBusy = false;
-    for (const tryTeam of teams) {
+
+    if (nextTeamIdx >= teams.length) {
+      ctx.log(`  所有配置队伍已派出（${teams.length}队），任务完成，关闭弹窗`);
+      await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
+      await ctx.sleep(0.5);
+      break;
+    }
+
+    for (let ti = nextTeamIdx; ti < teams.length; ti++) {
+      const tryTeam = teams[ti];
       const teamBtn = teamButtons[tryTeam];
       if (!teamBtn) {
         ctx.log(`  ❌ 无效的队伍序号: ${tryTeam}`);
         continue;
       }
 
-      ctx.log(`  [7/7] 尝试队伍 ${tryTeam} 并检测状态变化...`);
+      ctx.log(`  [7/7] 尝试队伍 ${tryTeam} (配置第${ti + 1}队) 并检测状态变化...`);
       const stateResult = await ctx.checkButtonStateChange(teamBtn.x, teamBtn.y, 150, 50, 0.1);
       ctx.log(`  [debug] 像素变化率: ${(stateResult.diffPercentage * 100).toFixed(1)}%, changed: ${stateResult.changed}`);
 
@@ -346,7 +356,8 @@ export async function gatherGem(
       await ctx.sleep(0.8 + Math.random() * 0.7);   // 0.8-1.5s
 
       dispatched++;
-      ctx.log(`  ✅ 队伍${tryTeam} 已派出采集宝石矿（累计 ${dispatched} 队）`);
+      nextTeamIdx = ti + 1;  // 下次从下一队开始
+      ctx.log(`  ✅ 队伍${tryTeam} 已派出采集宝石矿（累计 ${dispatched} 队，下次从第${nextTeamIdx + 1}队开始）`);
 
       // 记录当前中心坐标，避免后续重复采集
       {
