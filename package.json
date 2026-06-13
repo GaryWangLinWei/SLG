@@ -12,7 +12,7 @@
     "lint": "eslint src/**/*.ts",
     "electron:dev": "concurrently \"cd web && npm run dev\" \"wait-on http://localhost:5173 && tsc && electron .\"",
     "electron:build": "cd web && npm run build && cd .. && tsc && node -e \"const f=require('fs');f.cpSync('assets','dist/assets',{recursive:true});f.cpSync('plugins/rok/templates','dist/plugins/rok/templates',{recursive:true});f.cpSync('plugins/rok/models','dist/plugins/rok/models',{recursive:true})\" && electron-builder",
-    "electron:build:win": "cd web && npm run build && cd .. && tsc && node -e \"const f=require('fs');f.cpSync('assets','dist/assets',{recursive:true});f.cpSync('plugins/rok/templates','dist/plugins/rok/templates',{recursive:true});f.cpSync('plugins/rok/models','dist/plugins/rok/models',{recursive:true})\" && electron-builder --win",
+    "electron:build:win": "cd web && npm run build && cd .. && tsc && node -e \"const f=require('fs');f.cpSync('assets/vcredist','node_modules/onnxruntime-node/bin/napi-v6/win32/x64',{recursive:true});f.cpSync('assets','dist/assets',{recursive:true});f.cpSync('plugins/rok/templates','dist/plugins/rok/templates',{recursive:true});f.cpSync('plugins/rok/models','dist/plugins/rok/models',{recursive:true})\" && electron-builder --win",
     "postinstall": "electron-builder install-app-deps"
   },
   "build": {
@@ -50,10 +50,6 @@
       {
         "from": "plugins/rok/models",
         "to": "models"
-      },
-      {
-        "from": "assets/vcredist",
-        "to": "vcredist"
       }
     ],
     "win": {

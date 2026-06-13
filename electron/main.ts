@@ -97,7 +97,6 @@ function ensureNativeDlls(): void {
   const srcDirs = [
     path.join(unpackedDir, 'onnxruntime-node', 'bin', 'napi-v6', 'win32', 'x64'),
     path.join(unpackedDir, '@img', 'sharp-win32-x64', 'lib'),
-    path.join(process.resourcesPath, 'vcredist'),
   ];
 
   for (const srcDir of srcDirs) {
