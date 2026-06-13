@@ -12,6 +12,7 @@ const vision = new Vision();
 const TEMPLATE_DIR = getTemplatesDir();
 const ADD_TEAM_BTN_TEMPLATE = path.join(TEMPLATE_DIR, 'AddTeamBtn.png');
 const PAGE_INDICATOR_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_page_indicator.png');
+const CAIJI_STATE_TEMPLATE = path.join(TEMPLATE_DIR, 'CaiJiState_result.png');
 const PICKAXE_TEMPLATES = [
   path.join(TEMPLATE_DIR, '红色锄头.png'),
   path.join(TEMPLATE_DIR, '蓝色锄头.png'),
@@ -152,6 +153,7 @@ export async function gatherGem(
   let step = 1;
   let dirIndex = 0;
   let moveCount = 0;
+  let dirSwipes = 0;  // 当前方向已滑动次数，接续重试时不重置
   let checkedCenter = false;
 
   ctx.log(`[3/7] 方形螺旋搜索宝石矿（YOLO 检测, 上限 ${gg.searchMaxAttempts} 步）`);
@@ -196,12 +198,13 @@ export async function gatherGem(
       while (!gemFound && moveCount < gg.searchMaxAttempts) {
         const dir = SPIRAL_DIRECTIONS[dirIndex % 4];
 
-        for (let s = 0; s < step && !gemFound && moveCount < gg.searchMaxAttempts; s++) {
+        while (dirSwipes < step && !gemFound && moveCount < gg.searchMaxAttempts) {
           const fromX = dir.dx !== 0 ? (800 + dir.dx * halfW) : 850;
           const fromY = dir.dy !== 0 ? (450 + dir.dy * halfH) : 450;
           const toX   = dir.dx !== 0 ? (800 - dir.dx * halfW) : 850;
           const toY   = dir.dy !== 0 ? (450 - dir.dy * halfH) : 450;
           moveCount++;
+          dirSwipes++;
           await ctx.swipe(fromX, fromY, toX, toY, 500);
           await ctx.sleep(1 + Math.random() * 0.5);  // 1-1.5s 随机间隔
 
@@ -223,6 +226,7 @@ export async function gatherGem(
         if (gemFound) break;
         if (dirIndex % 2 === 1) step++;
         dirIndex++;
+        dirSwipes = 0;
       }
 
       if (!gemFound) break;  // 搜索不到宝石矿，退出重试循环
@@ -235,6 +239,23 @@ export async function gatherGem(
       ctx.log(`  点击放大后的目标 (${gg.pinchedGemTapPoint.x}, ${gg.pinchedGemTapPoint.y})`);
       await ctx.tap(gg.pinchedGemTapPoint.x, gg.pinchedGemTapPoint.y);
       await ctx.sleep(1);
+
+      // 检测 (768,388)-(808,427) 区域是否有采集状态标志，有说明已在采集，缩回继续找
+      {
+        const caiJiRegionPath = await ctx.captureRegion(768, 388, 40, 39);
+        try {
+          const caiJiResult = await vision.findImage(caiJiRegionPath, CAIJI_STATE_TEMPLATE, 0.7);
+          if (caiJiResult.found) {
+            ctx.log(`  🔄 该宝石已有队伍在采集 (confidence: ${caiJiResult.confidence.toFixed(3)})，缩地后继续螺旋`);
+            await fs.unlink(caiJiRegionPath).catch(() => {});
+            await doPinch();
+            await ctx.sleep(1);
+            continue;  // 回到 caijiRetry 循环，继续螺旋搜索
+          }
+        } finally {
+          await fs.unlink(caiJiRegionPath).catch(() => {});
+        }
+      }
 
       // 检测当前中心坐标，与已采集记录比对，避免重复采集
       if (collectedCoords.length > 0) {
@@ -356,7 +377,7 @@ export async function gatherGem(
       await ctx.sleep(0.8 + Math.random() * 0.7);   // 0.8-1.5s
 
       dispatched++;
-      nextTeamIdx = ti + 1;  // 下次从下一队开始
+      nextTeamIdx = (ti === teams.length - 1) ? 0 : ti + 1;
       ctx.log(`  ✅ 队伍${tryTeam} 已派出采集宝石矿（累计 ${dispatched} 队，下次从第${nextTeamIdx + 1}队开始）`);
 
       // 记录当前中心坐标，避免后续重复采集
@@ -404,13 +425,7 @@ export async function gatherGem(
         break;
       }
 
-      // 螺旋进位：跳出当前找到矿的位置，下一队从新方向继续
-      if (moveCount > 0) {
-        // 宝石在螺旋途中找到 → 推进到下一方向
-        if (dirIndex % 2 === 1) step++;
-        dirIndex++;
-      }
-      // moveCount === 0 表示在中心找到 → dirIndex=0 (UP) 就是正确接续位置，无需调整
+      // dirSwipes 已记录当前方向进度，恢复螺旋时自动从剩余次数接续，无需人为进位
 
       dispatchedThisGem = true;
       break;  // 队伍已派出，退出 for 循环

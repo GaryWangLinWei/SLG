@@ -290,8 +290,8 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
     pinch: {
       from1: { x: 300, y: 450 },
       from2: { x: 1300, y: 450 },
-      to1: { x: 550, y: 450 },
-      to2: { x: 1050, y: 450 },
+      to1: { x: 570, y: 450 },
+      to2: { x: 1030, y: 450 },
       duration: 600,
     },
     spiralCenterX: 800,
