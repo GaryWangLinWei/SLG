@@ -1422,7 +1422,7 @@ export function HomePage() {
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800">
                   <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-base ${isFeatureLocked('gemGather') ? 'bg-amber-100' : 'bg-cyan-100'}`}>💎</span>
-                  智能采集宝石
+                  自动采集宝石
                 </span>
                 {isFeatureLocked('gemGather') ? (
                   <span className="relative w-10 h-[22px] flex-shrink-0 cursor-not-allowed" title="升级到 Pro 解锁">
