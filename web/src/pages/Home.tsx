@@ -122,6 +122,7 @@ export function HomePage() {
   const runningTaskIdsRef = useRef<string[]>([]);
   const [_runningTaskIds, setRunningTaskIds] = useState<string[]>([]);
   const [logs, setLogs] = useState<string[]>(loopLogs);
+  const [gemRestCountdown, setGemRestCountdown] = useState<string>('');
   useEffect(() => { loopLogs = logs; }, [logs]);
   const logContainerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -583,12 +584,22 @@ export function HomePage() {
         }
       })();
 
-      // 宝石采集独立循环
+      // 宝石采集独立循环（采集/休息轮替）
       (async () => {
         let first = true;
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
-          if (features.gemGatherEnabled && features.gemGatherTeams.length > 0) {
+          if (!features.gemGatherEnabled || features.gemGatherTeams.length === 0) {
+            await sleep(30); continue;
+          }
+          const activeHours = features.gemGatherActiveHours || 2;
+          const restHours = features.gemGatherRestHours || 1;
+
+          // ── 采集阶段 ──
+          const activeEnd = Date.now() + activeHours * 3600 * 1000;
+          setGemRestCountdown('');
+          setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💎 采集阶段开始，持续 ${activeHours}h`]);
+          while (!loopStopped && Date.now() < activeEnd) {
             if (loopStopped) break;
             if (!await acquireLock()) break;
             try {
@@ -612,16 +623,39 @@ export function HomePage() {
               }
             } catch {} finally { releaseLock(); }
             if (loopStopped) break;
+            if (Date.now() >= activeEnd) break;
+            // 两次采集之间 5 分钟 CD
+            const gemInterval = 300 * (0.85 + Math.random() * 0.3);
+            const startWait = Date.now();
+            while (!loopStopped && (Date.now() - startWait) < gemInterval * 1000 && Date.now() < activeEnd) {
+              await sleep(1);
+            }
           }
-          const gemInterval = 600 * (0.85 + Math.random() * 0.3);
-          const startWait = Date.now();
-          while (!loopStopped && (Date.now() - startWait) < gemInterval * 1000) {
+
+          if (loopStopped) break;
+
+          // ── 休息阶段 ──
+          const restEnd = Date.now() + restHours * 3600 * 1000;
+          setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💤 宝石采集休息 ${restHours}h，${new Date(restEnd).toLocaleTimeString()} 恢复`]);
+          while (!loopStopped && Date.now() < restEnd) {
+            const remaining = Math.max(0, restEnd - Date.now());
+            const h = Math.floor(remaining / 3600000);
+            const m = Math.floor((remaining % 3600000) / 60000);
+            const s = Math.floor((remaining % 60000) / 1000);
+            const text = `${h}h ${m}m ${s}s`;
+            console.log('[gem rest]', text, 'gemRestCountdown:', gemRestCountdown);
+            setGemRestCountdown(text);
             await sleep(1);
           }
+          setGemRestCountdown('');
         }
       })();
 
-      while (!loopStopped) {
+      const hasMainWork = features.autoExplore || features.autoWorldChat || features.upgradeBuildings || features.autoResearch || features.trainTroops;
+      if (!hasMainWork) {
+        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ℹ️ 未启用建筑/科技/训练，主循环跳过`]);
+      }
+      while (!loopStopped && hasMainWork) {
         round++;
         setLogs(prev => { const next = [...prev, `[${new Date().toLocaleTimeString()}] 🔄 第${round}轮`]; saveLoopState(currentAccountId); return next; });
 
@@ -1406,6 +1440,24 @@ export function HomePage() {
                 ))}
                 <span className="text-xs text-slate-400 whitespace-nowrap">队伍</span>
               </div>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-xs text-slate-400 whitespace-nowrap">采集</span>
+                <input type="number" value={features.gemGatherActiveHours ?? 2}
+                  onChange={(e) => setFeatures({ ...features, gemGatherActiveHours: Number(e.target.value) })}
+                  disabled={!features.gemGatherEnabled}
+                  min={1} max={24}
+                  className="w-12 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
+                <span className="text-xs text-slate-400">小时，休息</span>
+                <input type="number" value={features.gemGatherRestHours ?? 1}
+                  onChange={(e) => setFeatures({ ...features, gemGatherRestHours: Number(e.target.value) })}
+                  disabled={!features.gemGatherEnabled}
+                  min={1} max={24}
+                  className="w-12 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
+                <span className="text-xs text-slate-400">小时</span>
+              </div>
+              {gemRestCountdown && (
+                <p className="text-xs text-amber-600 mt-1">💤 休息中 剩余 {gemRestCountdown}</p>
+              )}
               <p className="text-xs text-slate-400 mt-1.5">选择队伍请勿与采集队伍冲突</p>
             </div>
           </div>

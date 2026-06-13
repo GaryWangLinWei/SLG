@@ -154,9 +154,10 @@ export async function gatherGem(
 
   ctx.log(`[3/7] 方形螺旋搜索宝石矿（YOLO 检测, 上限 ${gg.searchMaxAttempts} 步）`);
 
-  for (let teamIdx = 0; teamIdx < teams.length; teamIdx++) {
-    const team = teams[teamIdx];
-    ctx.log(`--- 派队伍 ${team} (第${teamIdx + 1}/${teams.length}颗矿) ---`);
+  let gemCount = 0;
+  while (true) {
+    gemCount++;
+    ctx.log(`--- 搜索第 ${gemCount} 颗宝石矿 ---`);
 
     // [4/7] 搜索 → 点击采集（找不到采集按钮时缩地重搜，最多 3 次）
     const maxCaijiRetries = 3;
@@ -178,7 +179,7 @@ export async function gatherGem(
         checkedCenter = true;
         const initDets = await ctx.detectWithScreenshot(0.5);
         ctx.log(`  [搜索] 中心(5) 找到 ${initDets.length} 个宝石候选`);
-        const initValid = initDets.find(d => !isInChatZone(d.x, d.y));
+        const initValid = initDets.find(d => !isInChatZone(d.x, d.y) && d.width >= d.height * 0.9);
         if (initValid) {
           if (await isGemOccupied(ctx, initValid.x, initValid.y)) {
             ctx.log(`  宝石 (${initValid.x}, ${initValid.y}) 已被占用，继续搜索`);
@@ -204,7 +205,7 @@ export async function gatherGem(
 
           const detections = await ctx.detectWithScreenshot(0.5);
           ctx.log(`  [搜索] ${SPIRAL_DIR_NAMES[dirIndex % 4]}(${moveCount}) 找到 ${detections.length} 个宝石候选`);
-          const validDet = detections.find(d => !isInChatZone(d.x, d.y));
+          const validDet = detections.find(d => !isInChatZone(d.x, d.y) && d.width >= d.height * 0.9);
           if (validDet) {
             if (await isGemOccupied(ctx, validDet.x, validDet.y)) {
               ctx.log(`  宝石 (${validDet.x}, ${validDet.y}) 已被占用，继续搜索`);
@@ -270,21 +271,21 @@ export async function gatherGem(
     }
 
     if (!gemFound) {
-      ctx.log(`  ❌ 搜索耗尽(${moveCount}步)，未找到空闲宝石矿，跳过该队伍`);
+      ctx.log(`  ❌ 搜索耗尽(${moveCount}步)，未找到空闲宝石矿，任务完成`);
       await ctx.tap(worldBtn.x, worldBtn.y);
       await ctx.sleep(0.8 + Math.random() * 0.7);   // 0.8-1.5s
       await ctx.tap(worldBtn.x, worldBtn.y);
       await ctx.sleep(1.5 + Math.random() * 1.0);   // 1.5-2.5s
-      continue;
+      break;
     }
 
     if (!caijiFound) {
-      ctx.log(`  ❌ 重试${maxCaijiRetries}次仍未找到采集按钮，跳过该队伍`);
+      ctx.log(`  ❌ 重试${maxCaijiRetries}次仍未找到采集按钮，任务完成`);
       await ctx.tap(worldBtn.x, worldBtn.y);
       await ctx.sleep(0.8 + Math.random() * 0.7);   // 0.8-1.5s
       await ctx.tap(worldBtn.x, worldBtn.y);
       await ctx.sleep(1.5 + Math.random() * 1.0);   // 1.5-2.5s
-      continue;
+      break;
     }
 
     // [5/7] 检测空闲队伍
@@ -317,66 +318,107 @@ export async function gatherGem(
       ctx.log(`  [检测] 换页按钮: ${hasPaging ? '存在 (>7组)' : '不存在 (≤7组)'}`);
     }
 
-    // [7/7] 选择队伍 + 行军
-    ctx.log(`  [7/7] 选择队伍 ${team} 并检测状态变化...`);
+    // [7/7] 弹窗内逐个尝试队伍，不可用时直接试下一队
     const teamButtons = (hasPaging ?? false) ? TEAM_BUTTONS_PAGED : TEAM_BUTTONS_NO_PAGE;
-    const teamBtn = teamButtons[team];
-    if (!teamBtn) {
-      ctx.log(`  ❌ 无效的队伍序号: ${team}`);
-      continue;
-    }
+    let dispatchedThisGem = false;
+    let allTeamsBusy = false;
+    for (const tryTeam of teams) {
+      const teamBtn = teamButtons[tryTeam];
+      if (!teamBtn) {
+        ctx.log(`  ❌ 无效的队伍序号: ${tryTeam}`);
+        continue;
+      }
 
-    const stateResult = await ctx.checkButtonStateChange(teamBtn.x, teamBtn.y, 150, 50, 0.1);
-    ctx.log(`  [debug] 像素变化率: ${(stateResult.diffPercentage * 100).toFixed(1)}%, changed: ${stateResult.changed}`);
+      ctx.log(`  [7/7] 尝试队伍 ${tryTeam} 并检测状态变化...`);
+      const stateResult = await ctx.checkButtonStateChange(teamBtn.x, teamBtn.y, 150, 50, 0.1);
+      ctx.log(`  [debug] 像素变化率: ${(stateResult.diffPercentage * 100).toFixed(1)}%, changed: ${stateResult.changed}`);
 
-    if (!stateResult.changed) {
-      ctx.log(`  ⚠️ 队伍${team}不可用，按钮无选中状态变化，跳过`);
-      await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
-      await ctx.sleep(0.5);
-      continue;
-    }
+      if (!stateResult.changed) {
+        ctx.log(`  ⚠️ 队伍${tryTeam}不可用，尝试下一队`);
+        continue;
+      }
 
-    // 点击行军
-    await ctx.sleep(0.3 + Math.random() * 0.4);  // 0.3-0.7s
-    ctx.log(`  点击行军按钮 (${MARCH_BUTTON.x}, ${MARCH_BUTTON.y})`);
-    await ctx.tap(MARCH_BUTTON.x, MARCH_BUTTON.y);
-    await ctx.sleep(0.8 + Math.random() * 0.7);   // 0.8-1.5s
+      // 点击行军
+      await ctx.sleep(0.3 + Math.random() * 0.4);  // 0.3-0.7s
+      ctx.log(`  点击行军按钮 (${MARCH_BUTTON.x}, ${MARCH_BUTTON.y})`);
+      await ctx.tap(MARCH_BUTTON.x, MARCH_BUTTON.y);
+      await ctx.sleep(0.8 + Math.random() * 0.7);   // 0.8-1.5s
 
-    dispatched++;
-    ctx.log(`  ✅ 队伍${team} 已派出采集宝石矿（累计 ${dispatched} 队）`);
+      dispatched++;
+      ctx.log(`  ✅ 队伍${tryTeam} 已派出采集宝石矿（累计 ${dispatched} 队）`);
 
-    // 记录当前中心坐标，避免后续重复采集
-    {
-      const coordRegionPath = await ctx.captureRegion(
-        COORD_REGION.x, COORD_REGION.y, COORD_REGION.w, COORD_REGION.h
-      );
+      // 记录当前中心坐标，避免后续重复采集
+      {
+        const coordRegionPath = await ctx.captureRegion(
+          COORD_REGION.x, COORD_REGION.y, COORD_REGION.w, COORD_REGION.h
+        );
+        try {
+          const coordText = await ocrService.readText(coordRegionPath);
+          ctx.log(`  [坐标] 记录已采集: ${coordText}`);
+          const curCoord = parseCoord(coordText);
+          if (curCoord) {
+            collectedCoords.push(curCoord);
+          } else {
+            ctx.log(`  [坐标] 解析失败，跳过记录`);
+          }
+        } finally {
+          await fs.unlink(coordRegionPath).catch(() => {});
+        }
+      }
+
+      // OCR 检测剩余空闲队伍数（1507,169 - 1562,200）
+      ctx.log(`  [OCR] 检测剩余空闲队伍数...`);
+      const teamRegionPath = await ctx.captureRegion(1507, 169, 55, 31);
       try {
-        const coordText = await ocrService.readText(coordRegionPath);
-        ctx.log(`  [坐标] 记录已采集: ${coordText}`);
-        const curCoord = parseCoord(coordText);
-        if (curCoord) {
-          collectedCoords.push(curCoord);
-        } else {
-          ctx.log(`  [坐标] 解析失败，跳过记录`);
+        const teamText = await ocrService.readText(teamRegionPath);
+        ctx.log(`  [OCR] 结果: "${teamText}"`);
+        const tm = teamText.match(/(\d+)\s*\/\s*(\d+)/);
+        if (tm) {
+          const used = parseInt(tm[1], 10);
+          const total = parseInt(tm[2], 10);
+          if (used === total) {
+            ctx.log(`  ⏭️ 队伍已全部派出 (${used}/${total})，停止宝石采集`);
+            allTeamsBusy = true;
+          } else {
+            ctx.log(`  剩余空闲队伍: ${total - used} (${used}/${total})`);
+          }
         }
       } finally {
-        await fs.unlink(coordRegionPath).catch(() => {});
+        await fs.unlink(teamRegionPath).catch(() => {});
       }
+
+      if (allTeamsBusy) {
+        dispatchedThisGem = true;
+        break;
+      }
+
+      // 螺旋进位：跳出当前找到矿的位置，下一队从新方向继续
+      if (moveCount > 0) {
+        // 宝石在螺旋途中找到 → 推进到下一方向
+        if (dirIndex % 2 === 1) step++;
+        dirIndex++;
+      }
+      // moveCount === 0 表示在中心找到 → dirIndex=0 (UP) 就是正确接续位置，无需调整
+
+      dispatchedThisGem = true;
+      break;  // 队伍已派出，退出 for 循环
+    }  // end for (try teams in popup)
+
+    if (!dispatchedThisGem) {
+      ctx.log(`  所有队伍不可用，任务完成，关闭弹窗`);
+      await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
+      await ctx.sleep(0.5);
+      break;
     }
 
-    // 螺旋进位：跳出当前找到矿的位置，下一队从新方向继续
-    if (moveCount > 0) {
-      // 宝石在螺旋途中找到 → 推进到下一方向
-      if (dirIndex % 2 === 1) step++;
-      dirIndex++;
+    if (allTeamsBusy) {
+      ctx.log(`  队伍已全部派出，任务完成`);
+      break;
     }
-    // moveCount === 0 表示在中心找到 → dirIndex=0 (UP) 就是正确接续位置，无需调整
 
     // 缩地后接续螺旋搜索下一颗矿
-    if (dispatched > 0 && teamIdx < teams.length - 1) {
-      await doPinch();
-      await ctx.sleep(1);
-    }
+    await doPinch();
+    await ctx.sleep(1);
   }
 
   ctx.log(`=== 宝石采集完成：派出 ${dispatched} 队 ===`);
