@@ -190,7 +190,7 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
     FROM device_bindings db
     JOIN activation_codes ac ON db.activation_code_id = ac.id
     WHERE db.device_fingerprint = ?
-    ORDER BY ac.expires_at DESC
+    ORDER BY db.bound_at DESC
     LIMIT 1
   `).get(deviceFingerprint) as { expires_at?: number; tier?: string } | undefined;
 
@@ -210,14 +210,19 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
     UPDATE activation_codes SET status = 'used', used_at = ?, expires_at = ? WHERE id = ?
   `);
 
-  const insertBinding = db.prepare(`
-    INSERT INTO device_bindings (activation_code_id, device_fingerprint, bound_at, last_heartbeat_at)
-    VALUES (?, ?, ?, ?)
+  // Upsert device binding: update existing or insert new
+  const upsertBinding = db.prepare(`
+    UPDATE device_bindings SET activation_code_id = ?, last_heartbeat_at = ?, bound_at = ? WHERE device_fingerprint = ?
   `);
 
   const transaction = db.transaction(() => {
     updateCode.run(now, expiresAt, activationCode.id);
-    insertBinding.run(activationCode.id, deviceFingerprint, now, now);
+    const result = upsertBinding.run(activationCode.id, now, now, deviceFingerprint);
+    // 新用户首次激活：没有现有绑定时 INSERT
+    if (result.changes === 0) {
+      db.prepare('INSERT INTO device_bindings (activation_code_id, device_fingerprint, bound_at, last_heartbeat_at) VALUES (?, ?, ?, ?)')
+        .run(activationCode.id, deviceFingerprint, now, now);
+    }
 
     // 首次激活成功后自动生成邀请码
     const existingInvite = db.prepare(
