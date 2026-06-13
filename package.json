@@ -50,6 +50,10 @@
       {
         "from": "plugins/rok/models",
         "to": "models"
+      },
+      {
+        "from": "assets/vcredist",
+        "to": "vcredist"
       }
     ],
     "win": {
