@@ -149,6 +149,7 @@ export interface RokConfig {
     spiralCenterY: number;
     searchMaxAttempts: number;
     spiralSwipeRatio: number;
+    spiralSwipeRatioH?: number;
     searchScales: number[];
   };
 
@@ -297,6 +298,7 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
     spiralCenterY: 450,
     searchMaxAttempts: 81,
     spiralSwipeRatio: 0.8,
+    spiralSwipeRatioH: 0.7,
     searchScales: [0.8, 0.9, 1.0],
   },
 

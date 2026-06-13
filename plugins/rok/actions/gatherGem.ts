@@ -41,9 +41,10 @@ const CLOSE_POPUP_BUTTON = { x: 1392, y: 57 };
 const COORD_REGION = { x: 400, y: 11, w: 137, h: 32 };
 const COORD_TOLERANCE = 5;
 
-/** 从 OCR 文本解析坐标，如 "X:1023 Y:290" */
+/** 从 OCR 文本解析坐标，如 "X:1023 Y:290"，兼容 OCR 将 Y 误识别为 ¥ */
 function parseCoord(text: string): { x: number; y: number } | null {
-  const match = text.match(/X:\s*(\d+)\s*Y:\s*(\d+)/i);
+  const sanitized = text.replace(/¥/g, 'Y');
+  const match = sanitized.match(/X:\s*(\d+)\s*Y:\s*(\d+)/i);
   if (!match) return null;
   return { x: parseInt(match[1], 10), y: parseInt(match[2], 10) };
 }
@@ -145,7 +146,7 @@ export async function gatherGem(
   await ctx.sleep(1);
 
   // 螺旋搜索状态（全程接续，不因换队重置）
-  const halfW = Math.round(1600 * gg.spiralSwipeRatio / 2);
+  const halfW = Math.round(1600 * (gg.spiralSwipeRatioH ?? gg.spiralSwipeRatio) / 2);
   const halfH = Math.round(900 * gg.spiralSwipeRatio / 2);
   let step = 1;
   let dirIndex = 0;

@@ -1124,8 +1124,13 @@ export function HomePage() {
                     <input type="checkbox" checked={features.rallyFortDowngrade}
                       onChange={(e) => setFeatures({ ...features, rallyFortDowngrade: e.target.checked })}
                       className="sr-only peer" />
-                    <span className={`w-9 h-5 rounded-full transition-colors ${features.rallyFortDowngrade ? 'bg-emerald-500' : 'bg-slate-200'}`} />
-                    <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.rallyFortDowngrade ? 'translate-x-[18px]' : ''}`} />
+                    <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${features.rallyFortDowngrade ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
+                      {features.rallyFortDowngrade && (
+                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </span>
                   </label>
                 </div>
                 <p className="text-xs text-slate-400 mt-1">选择队伍请勿与采集队伍冲突</p>
