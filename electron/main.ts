@@ -84,6 +84,36 @@ const getResourcePath = (resourceName: string) => {
   return path.join(process.resourcesPath, 'app', resourceName);
 };
 
+// Copy native DLLs to app directory so Windows can find them.
+// Native .node files loaded via asar (even unpacked) may use \\?\ paths
+// that break DLL dependency search. The app directory is always in the
+// Windows DLL search path, so copying DLLs there guarantees they're found.
+function ensureNativeDlls(): void {
+  if (isDev) return;
+
+  const unpackedDir = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules');
+  const appDir = path.dirname(app.getPath('exe'));
+
+  const srcDirs = [
+    path.join(unpackedDir, 'onnxruntime-node', 'bin', 'napi-v6', 'win32', 'x64'),
+    path.join(unpackedDir, '@img', 'sharp-win32-x64', 'lib'),
+  ];
+
+  for (const srcDir of srcDirs) {
+    try {
+      const files = fs.readdirSync(srcDir).filter(f => f.endsWith('.dll'));
+      for (const file of files) {
+        const src = path.join(srcDir, file);
+        const dst = path.join(appDir, file);
+        if (!fs.existsSync(dst) || fs.statSync(src).mtimeMs > fs.statSync(dst).mtimeMs) {
+          fs.copyFileSync(src, dst);
+          console.log(`Copied ${file} to app directory`);
+        }
+      }
+    } catch { /* dir does not exist, skip */ }
+  }
+}
+
 // Start Koa backend server
 async function startServer() {
   try {
@@ -98,6 +128,9 @@ async function startServer() {
     if (!isDev) {
       initResourcePaths(path.join(process.resourcesPath));
     }
+
+    // Ensure native DLLs are accessible before loading backend
+    ensureNativeDlls();
 
     // In production, start the backend server from compiled JS
     if (!isDev) {
