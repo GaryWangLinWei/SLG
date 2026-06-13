@@ -35,7 +35,7 @@ function RemainingTime({ expiresAt }: { expiresAt: number }) {
 }
 
 function RenewButton() {
-  const { activate, preview } = useLicense();
+  const { activate, preview, status: licenseStatus } = useLicense();
   const [mode, setMode] = useState<'idle' | 'input' | 'loading' | 'msg'>('idle');
   const [code, setCode] = useState('');
   const [msg, setMsg] = useState('');
@@ -51,6 +51,18 @@ function RenewButton() {
       setMsgOk(false);
       setMode('msg');
       return;
+    }
+    // 跨 tier 确认
+    const newTier = (previewResult as any).tier || 'basic';
+    const currentTier = licenseStatus?.tier || 'basic';
+    if (newTier !== currentTier) {
+      const ok = window.confirm(
+        `${newTier === 'pro' ? '⬆ 升级' : '⬇ 降级'}确认\n\n` +
+        `当前：${currentTier === 'pro' ? 'Pro 版' : '基础版'}\n` +
+        `新激活码：${newTier === 'pro' ? 'Pro 版' : '基础版'} · ${previewResult.durationDays || 30}天\n\n` +
+        `⚠ 跨版本激活将重置到期时间（不累加）`
+      );
+      if (!ok) { setMode('idle'); setCode(''); return; }
     }
     const result = await activate(trimmed);
     if (result.success) {
@@ -83,7 +95,7 @@ function RenewButton() {
           className="text-sm text-slate-500 hover:text-red-500 px-1 py-0.5 rounded hover:bg-slate-100">
           取消
         </button>
-        <a href="https://pay.ldxp.cn/item/h86d8u" target="_blank" rel="noopener noreferrer"
+        <a href="https://pay.ldxp.cn/shop/LVBXLAH4" target="_blank" rel="noopener noreferrer"
           className="text-xs text-slate-400 hover:text-emerald-600 ml-2">
           购买
         </a>
@@ -179,9 +191,15 @@ function NavBar() {
         {/* License status */}
         {status?.activated && status.expiresAt && (
           <>
-            <span className="bg-emerald-100 text-emerald-500 px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> 已激活
-            </span>
+            {status.tier === 'pro' ? (
+              <span className="bg-amber-100 text-amber-600 px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" /> Pro 版
+              </span>
+            ) : (
+              <span className="bg-emerald-100 text-emerald-500 px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> 基础版
+              </span>
+            )}
             <RemainingTime expiresAt={status.expiresAt} />
             <button
               onClick={() => syncStatus()}

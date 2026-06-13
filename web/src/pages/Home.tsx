@@ -116,7 +116,7 @@ export function HomePage() {
   const { currentAccountId } = useAccount();
   const { status: licenseStatus, refreshStatus, setExpiredMessage } = useLicense();
   const isPro = licenseStatus?.tier === 'pro';
-  const PRO_FEATURES = ['gemGather'];
+  const PRO_FEATURES = ['gemGather', 'autoSwitch', 'joinRally'];
   const isFeatureLocked = (featureId: string) => !isPro && PRO_FEATURES.includes(featureId);
   const [activeConfigName, setActiveConfigName] = useState('');
   const [deviceConnected, setDeviceConnected] = useState(false);
@@ -1299,117 +1299,6 @@ export function HomePage() {
               <p className="text-xs text-slate-400 mt-1.5">需标记对应建筑坐标</p>
             </div>
 
-            {/* 自动帮助盟友 */}
-            <div className={`flex items-center justify-between p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.helpTeammates ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
-              <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center text-base">🤝</span>自动帮助盟友</span>
-              <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                <input type="checkbox" checked={features.helpTeammates} disabled={features.autoExplore || features.autoWorldChat}
-                  onChange={(e) => setFeatures({ ...features, helpTeammates: e.target.checked })}
-                  className="sr-only" />
-                <span className={`absolute inset-0 rounded-full transition-colors ${features.helpTeammates ? 'bg-emerald-500' : 'bg-slate-200'}`} />
-                <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.helpTeammates ? 'translate-x-[18px]' : ''}`} />
-              </label>
-            </div>
-
-            {/* 自动收集资源 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.collectResources ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center text-base">📦</span>自动收集资源</span>
-                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.collectResources} disabled={features.autoExplore || features.autoWorldChat}
-                    onChange={(e) => setFeatures({ ...features, collectResources: e.target.checked })}
-                    className="sr-only" />
-                  <span className={`absolute inset-0 rounded-full transition-colors ${features.collectResources ? 'bg-emerald-500' : 'bg-slate-200'}`} />
-                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.collectResources ? 'translate-x-[18px]' : ''}`} />
-                </label>
-              </div>
-              <p className="text-xs text-slate-400 mt-1.5">请先在配置页添加资源建筑坐标</p>
-            </div>
-
-            {/* 自动探索 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${features.autoExplore ? 'border-purple-500 bg-purple-50' : 'border-slate-200 hover:border-slate-300'}`}>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center text-base">🗺️</span>自动探索</span>
-                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.autoExplore}
-                    onChange={(e) => {
-                      if (e.target.checked && !buildingOptions.includes('斥候营地')) {
-                        alert('请在坐标配置页标记斥候营地位置');
-                        return;
-                      }
-                      setFeatures({ ...features, autoExplore: e.target.checked });
-                    }}
-                    className="sr-only" />
-                  <span className={`absolute inset-0 rounded-full transition-colors ${features.autoExplore ? 'bg-purple-500' : 'bg-slate-200'}`} />
-                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoExplore ? 'translate-x-[18px]' : ''}`} />
-                </label>
-              </div>
-              <div className="flex items-center gap-2 mt-2">
-                {features.autoExplore && <span className="text-xs px-1.5 py-0.5 bg-purple-500 text-white rounded-full font-medium">独立模式</span>}
-                <span className="text-xs text-slate-400">派出</span>
-                <select value={features.exploreCount} onChange={(e) => {
-                  setFeatures({ ...features, exploreCount: Number(e.target.value) });
-                }}
-                className="px-1 py-1 bg-white border border-slate-200 rounded text-xs w-12">
-                  {[1, 2, 3].map(n => (<option key={n} value={n}>{n}</option>))}
-                </select>
-                <span className="text-xs text-slate-400">个斥候</span>
-              </div>
-              <p className="text-xs text-slate-400 mt-1.5">需标记斥候营地坐标</p>
-              {features.autoExplore && (
-                <p className="text-xs text-slate-400 mt-1">⚠ 探索模式已开启，其他功能已暂停</p>
-              )}
-            </div>
-
-            {/* 自动喊话 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${features.autoWorldChat ? 'border-purple-500 bg-purple-50' : 'border-slate-200 hover:border-slate-300'}`}>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center text-base">📢</span>自动喊话</span>
-                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.autoWorldChat}
-                    onChange={(e) => setFeatures({ ...features, autoWorldChat: e.target.checked })}
-                    className="sr-only" />
-                  <span className={`absolute inset-0 rounded-full transition-colors ${features.autoWorldChat ? 'bg-purple-500' : 'bg-slate-200'}`} />
-                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoWorldChat ? 'translate-x-[18px]' : ''}`} />
-                </label>
-              </div>
-              <div className="flex flex-col gap-2 mt-2">
-                {features.autoWorldChat && <span className="text-xs px-1.5 py-0.5 bg-purple-500 text-white rounded-full font-medium w-fit">独立模式</span>}
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-xs text-slate-400">消息内容（轮换发送，空消息自动跳过）</span>
-                  {[0, 1, 2].map(i => (
-                    <input
-                      key={i}
-                      type="text"
-                      value={features.worldChatMessages?.[i] ?? ''}
-                      onChange={(e) => {
-                        const msgs = [...(features.worldChatMessages || ['', '', ''])];
-                        msgs[i] = e.target.value;
-                        setFeatures({ ...features, worldChatMessages: msgs });
-                      }}
-                      placeholder={`消息 ${i + 1}`}
-                      disabled={features.autoWorldChat}
-                      className="px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 focus:outline-none focus:border-purple-500 disabled:opacity-50"
-                    />
-                  ))}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400 whitespace-nowrap">间隔（秒）</span>
-                  <input
-                    type="number"
-                    value={features.worldChatInterval}
-                    onChange={(e) => setFeatures({ ...features, worldChatInterval: Number(e.target.value) })}
-                    disabled={features.autoWorldChat}
-                    min={15}
-                    className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 focus:outline-none focus:border-purple-500 disabled:opacity-50"
-                  />
-                </div>
-              </div>
-              {features.autoWorldChat && (
-                <p className="text-xs text-slate-400 mt-1">⚠ 喊话模式已开启，其他功能已暂停</p>
-              )}
-            </div>
-
             {/* 智能采集宝石 */}
             <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : isFeatureLocked('gemGather') ? 'bg-amber-50/60 border-amber-300 border-dashed' : features.gemGatherEnabled ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               {isFeatureLocked('gemGather') && (
@@ -1486,6 +1375,175 @@ export function HomePage() {
               ) : (
                 <p className="text-xs text-slate-400 mt-1.5">选择队伍请勿与采集队伍冲突</p>
               )}
+            </div>
+
+            {/* 社交与辅助 */}
+            <div className="flex flex-col gap-0 p-4 rounded-lg transition-colors border border-slate-200 hover:border-slate-300">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center text-base">📋</span>
+                <span className="font-semibold text-sm text-slate-800">社交与辅助</span>
+              </div>
+              {/* 自动帮助盟友 */}
+              <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0">
+                <span className="flex items-center gap-2 text-sm text-slate-700">
+                  <span className="w-6 h-6 bg-purple-100 rounded flex items-center justify-center text-xs">🤝</span>
+                  自动帮助盟友
+                </span>
+                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+                  <input type="checkbox" checked={features.helpTeammates} disabled={features.autoExplore || features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, helpTeammates: e.target.checked })}
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.helpTeammates ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.helpTeammates ? 'translate-x-[18px]' : ''}`} />
+                </label>
+              </div>
+              {/* 自动收集资源 */}
+              <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0">
+                <span className="flex items-center gap-2 text-sm text-slate-700">
+                  <span className="w-6 h-6 bg-emerald-100 rounded flex items-center justify-center text-xs">📦</span>
+                  自动收集资源
+                  <span className="text-xs text-slate-400">· 需标记资源建筑</span>
+                </span>
+                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+                  <input type="checkbox" checked={features.collectResources} disabled={features.autoExplore || features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, collectResources: e.target.checked })}
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.collectResources ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.collectResources ? 'translate-x-[18px]' : ''}`} />
+                </label>
+              </div>
+              {/* 自动探索 */}
+              <div className="flex items-center justify-between py-2">
+                <div className="flex flex-col gap-1">
+                  <span className="flex items-center gap-2 text-sm text-slate-700">
+                    <span className="w-6 h-6 bg-cyan-100 rounded flex items-center justify-center text-xs">🗺️</span>
+                    自动探索
+                  </span>
+                  <div className="flex items-center gap-2 ml-8">
+                    {features.autoExplore && <span className="text-xs px-1.5 py-0.5 bg-purple-500 text-white rounded-full font-medium">独立模式</span>}
+                    <span className="text-xs text-slate-400">派出</span>
+                    <select value={features.exploreCount} onChange={(e) => {
+                      setFeatures({ ...features, exploreCount: Number(e.target.value) });
+                    }}
+                    className="px-1 py-0.5 bg-white border border-slate-200 rounded text-xs w-12">
+                      {[1, 2, 3].map(n => (<option key={n} value={n}>{n}</option>))}
+                    </select>
+                    <span className="text-xs text-slate-400">个斥候</span>
+                    <span className="text-xs text-slate-400">· 需标记斥候营地坐标</span>
+                  </div>
+                </div>
+                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+                  <input type="checkbox" checked={features.autoExplore}
+                    onChange={(e) => {
+                      if (e.target.checked && !buildingOptions.includes('斥候营地')) {
+                        alert('请在坐标配置页标记斥候营地位置');
+                        return;
+                      }
+                      setFeatures({ ...features, autoExplore: e.target.checked });
+                    }}
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.autoExplore ? 'bg-purple-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoExplore ? 'translate-x-[18px]' : ''}`} />
+                </label>
+              </div>
+              {features.autoExplore && (
+                <p className="text-xs text-slate-400 mt-1 ml-8">⚠ 探索模式已开启，其他功能已暂停</p>
+              )}
+            </div>
+
+            {/* 自动喊话 */}
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${features.autoWorldChat ? 'border-purple-500 bg-purple-50' : 'border-slate-200 hover:border-slate-300'}`}>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center text-base">📢</span>自动喊话</span>
+                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+                  <input type="checkbox" checked={features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, autoWorldChat: e.target.checked })}
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.autoWorldChat ? 'bg-purple-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoWorldChat ? 'translate-x-[18px]' : ''}`} />
+                </label>
+              </div>
+              <div className="flex flex-col gap-2 mt-2">
+                {features.autoWorldChat && <span className="text-xs px-1.5 py-0.5 bg-purple-500 text-white rounded-full font-medium w-fit">独立模式</span>}
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs text-slate-400">消息内容（轮换发送，空消息自动跳过）</span>
+                  {[0, 1, 2].map(i => (
+                    <input
+                      key={i}
+                      type="text"
+                      value={features.worldChatMessages?.[i] ?? ''}
+                      onChange={(e) => {
+                        const msgs = [...(features.worldChatMessages || ['', '', ''])];
+                        msgs[i] = e.target.value;
+                        setFeatures({ ...features, worldChatMessages: msgs });
+                      }}
+                      placeholder={`消息 ${i + 1}`}
+                      disabled={features.autoWorldChat}
+                      className="px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 focus:outline-none focus:border-purple-500 disabled:opacity-50"
+                    />
+                  ))}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400 whitespace-nowrap">间隔（秒）</span>
+                  <input
+                    type="number"
+                    value={features.worldChatInterval}
+                    onChange={(e) => setFeatures({ ...features, worldChatInterval: Number(e.target.value) })}
+                    disabled={features.autoWorldChat}
+                    min={15}
+                    className="w-20 px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 focus:outline-none focus:border-purple-500 disabled:opacity-50"
+                  />
+                </div>
+              </div>
+              {features.autoWorldChat && (
+                <p className="text-xs text-slate-400 mt-1">⚠ 喊话模式已开启，其他功能已暂停</p>
+              )}
+            </div>
+
+            {/* 自动切号 */}
+            <div className="flex flex-col gap-0 p-4 rounded-lg transition-colors border relative bg-amber-50/60 border-amber-300 border-dashed">
+              <div className="absolute -top-1.5 right-3 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-md shadow-amber-200 flex items-center gap-1 z-20"
+                title="升级到 Pro 解锁">
+                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.957a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.37 2.448a1 1 0 00-.364 1.118l1.287 3.957c.3.921-.755 1.688-1.54 1.118l-3.37-2.448a1 1 0 00-1.176 0l-3.37 2.448c-.784.57-1.838-.197-1.539-1.118l1.287-3.957a1 1 0 00-.364-1.118L2.063 9.384c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.957z" /></svg>
+                PRO
+              </div>
+              <div className="absolute inset-0 bg-white/20 backdrop-blur-[1px] rounded-lg flex items-center justify-center z-10">
+                <span className="bg-white border border-slate-200 px-3 py-1.5 rounded-full text-xs text-slate-500 font-semibold shadow-sm flex items-center gap-1.5">🔒 即将上线</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800">
+                  <span className="w-8 h-8 rounded-lg flex items-center justify-center text-base bg-amber-100">🔄</span>
+                  自动切号
+                </span>
+                <span className="relative w-10 h-[22px] flex-shrink-0 cursor-not-allowed">
+                  <span className="absolute inset-0 rounded-full bg-slate-200" />
+                  <span className="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm" />
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-1.5">多账号自动切换，轮流执行任务</p>
+            </div>
+
+            {/* 加入城寨集结 */}
+            <div className="flex flex-col gap-0 p-4 rounded-lg transition-colors border relative bg-amber-50/60 border-amber-300 border-dashed">
+              <div className="absolute -top-1.5 right-3 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-md shadow-amber-200 flex items-center gap-1 z-20"
+                title="升级到 Pro 解锁">
+                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.957a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.37 2.448a1 1 0 00-.364 1.118l1.287 3.957c.3.921-.755 1.688-1.54 1.118l-3.37-2.448a1 1 0 00-1.176 0l-3.37 2.448c-.784.57-1.838-.197-1.539-1.118l1.287-3.957a1 1 0 00-.364-1.118L2.063 9.384c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.957z" /></svg>
+                PRO
+              </div>
+              <div className="absolute inset-0 bg-white/20 backdrop-blur-[1px] rounded-lg flex items-center justify-center z-10">
+                <span className="bg-white border border-slate-200 px-3 py-1.5 rounded-full text-xs text-slate-500 font-semibold shadow-sm flex items-center gap-1.5">🔒 即将上线</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800">
+                  <span className="w-8 h-8 rounded-lg flex items-center justify-center text-base bg-amber-100">🏰</span>
+                  加入城寨集结
+                </span>
+                <span className="relative w-10 h-[22px] flex-shrink-0 cursor-not-allowed">
+                  <span className="absolute inset-0 rounded-full bg-slate-200" />
+                  <span className="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm" />
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 mt-1.5">自动加入城寨集结，批量派兵</p>
             </div>
           </div>
         </div>

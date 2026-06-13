@@ -55,6 +55,7 @@ export default function ActivationPage() {
 
     if (previewResult.success && !sameTier) {
       // 跨 tier → 弹确认窗
+      window.alert(`跨版本激活确认\n当前: ${currentTier}\n新码: ${newTier}\n将重置到期时间`);
       setConfirmInfo({
         code: code.trim(),
         inviteCode: inviteCode.trim() || undefined as any,
@@ -68,6 +69,7 @@ export default function ActivationPage() {
 
     if (!previewResult.success) {
       // preview 失败（网络/已使用等）→ 弹通用确认窗
+      window.alert(`⚠ 无法预览激活码\n${previewResult.error || '未知错误'}\n将继续激活，可能重置到期时间`);
       setConfirmInfo({
         code: code.trim(),
         inviteCode: inviteCode.trim() || undefined as any,
@@ -242,7 +244,7 @@ export default function ActivationPage() {
 
             <p className="mt-4 text-center text-xs text-slate-400">
               还没有激活码？
-              <a href="https://pay.ldxp.cn/item/h86d8u" target="_blank" rel="noopener noreferrer"
+              <a href="https://pay.ldxp.cn/shop/LVBXLAH4" target="_blank" rel="noopener noreferrer"
                 className="text-emerald-600 hover:text-emerald-500 ml-1">
                 在线购买
               </a>

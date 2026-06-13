@@ -85,7 +85,11 @@ async function loadStats() {
     document.getElementById('totalCodes').textContent = data.stats.total;
     document.getElementById('unusedCodes').textContent = data.stats.unused;
     document.getElementById('usedCodes').textContent = data.stats.used;
-    document.getElementById('revokedCodes').textContent = data.stats.revoked;
+    document.getElementById('deviceCount').textContent = '-';
+    // 异步获取设备数量
+    apiRequest('/api/admin/devices?limit=1').then(d => {
+      document.getElementById('deviceCount').textContent = d.total;
+    }).catch(() => {});
   } catch (e) {
     console.error('Failed to load stats:', e);
   }
@@ -106,6 +110,7 @@ async function loadCodes(page = 1) {
       <tr>
         <td>${code.status === 'unused' ? `<input type="checkbox" class="code-checkbox" data-id="${code.id}" data-code="${code.code}">` : ''}</td>
         <td><code>${code.code}</code></td>
+        <td><span class="tier-badge tier-${code.tier || 'basic'}">${code.tier === 'pro' ? '🏆 Pro' : '基础'}</span></td>
         <td>${code.duration_days}天</td>
         <td><span class="status status-${code.status}">${renderStatus(code.status)}</span></td>
         <td>${formatDate(code.created_at)}</td>
@@ -217,11 +222,11 @@ async function loadDevices(page = 1) {
   }
 }
 
-async function generateCodes(count, durationDays) {
+async function generateCodes(count, durationDays, tier) {
   try {
     const data = await apiRequest('/api/admin/codes/generate', {
       method: 'POST',
-      body: JSON.stringify({ count, durationDays })
+      body: JSON.stringify({ count, durationDays, tier })
     });
 
     const codesText = data.codes.map(c => c.code).join('\n');
@@ -286,7 +291,8 @@ logoutBtn.addEventListener('click', logout);
 document.getElementById('generateBtn').addEventListener('click', () => {
   const count = parseInt(document.getElementById('generateCount').value);
   const duration = parseInt(document.getElementById('generateDuration').value);
-  generateCodes(count, duration);
+  const tier = document.getElementById('generateTier').value;
+  generateCodes(count, duration, tier);
 });
 
 document.getElementById('copyBtn').addEventListener('click', () => {

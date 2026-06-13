@@ -43,8 +43,8 @@
           <div class="stat-label">已激活</div>
         </div>
         <div class="stat-card">
-          <div class="stat-value" id="revokedCodes">0</div>
-          <div class="stat-label">已吊销</div>
+          <div class="stat-value" id="deviceCount">0</div>
+          <div class="stat-label">设备数量</div>
         </div>
       </div>
 
@@ -66,6 +66,13 @@
             <div class="form-group">
               <label>有效期（天）</label>
               <input type="number" id="generateDuration" value="30" min="1">
+            </div>
+            <div class="form-group">
+              <label>级别</label>
+              <select id="generateTier">
+                <option value="basic">基础版</option>
+                <option value="pro">Pro 版</option>
+              </select>
             </div>
             <div class="form-group" style="align-self: flex-end;">
               <button id="generateBtn" class="btn btn-primary">生成</button>
@@ -91,6 +98,7 @@
                 <tr>
                   <th style="width:40px;"><input type="checkbox" id="selectAllCheckbox"></th>
                   <th>激活码</th>
+                  <th>级别</th>
                   <th>有效期</th>
                   <th>状态</th>
                   <th>创建时间</th>
