@@ -19,7 +19,7 @@ interface LicenseContextType {
   expiredMessage: string | null; // 到期跳转时的一次性提示
   setExpiredMessage: (msg: string | null) => void;
   activate: (code: string, inviteCode?: string) => Promise<{ success: boolean; error?: string; inviteBonus?: boolean; inviteError?: string; inviterBonusDays?: number; inviteeBonusDays?: number }>;
-  preview: (code: string) => Promise<{ success: boolean; durationDays?: number; error?: string }>;
+  preview: (code: string) => Promise<{ success: boolean; durationDays?: number; tier?: 'basic' | 'pro'; error?: string }>;
   deactivate: () => Promise<void>;
   refreshStatus: () => Promise<void>;
   syncStatus: () => Promise<void>;   // 手动心跳同步

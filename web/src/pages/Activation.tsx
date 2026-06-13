@@ -18,6 +18,7 @@ export default function ActivationPage() {
     durationDays: number;
     sameTier: boolean;
     isUpgrade: boolean;
+    previewFailed?: boolean;
   } | null>(null);
 
   useEffect(() => {
@@ -37,22 +38,22 @@ export default function ActivationPage() {
     setSuccess(false);
     setInviteResult(null);
 
-    // 先预览，判断是否跨 tier
-    const previewResult = await preview(code.trim());
-    if (!previewResult.success) {
-      // preview 失败 → 可能是已使用的码，直接尝试激活
+    // 是否已有激活（非新用户）
+    const hasExisting = status?.activated;
+
+    // 新用户 → 直接激活
+    if (!hasExisting) {
       await doActivate(code.trim(), inviteCode.trim() || undefined);
       return;
     }
 
-    const newTier = previewResult.tier || 'basic';
-    const currentTier = status?.tier || 'basic';
+    // 先预览，判断是否跨 tier
+    const previewResult = await preview(code.trim());
+    const newTier = (previewResult.tier || 'basic') as 'basic' | 'pro';
+    const currentTier = (status?.tier || 'basic') as 'basic' | 'pro';
     const sameTier = newTier === currentTier;
 
-    // 是否已有激活（非新用户）
-    const hasExisting = status?.activated;
-
-    if (hasExisting && !sameTier) {
+    if (previewResult.success && !sameTier) {
       // 跨 tier → 弹确认窗
       setConfirmInfo({
         code: code.trim(),
@@ -65,7 +66,21 @@ export default function ActivationPage() {
       return;
     }
 
-    // 同 tier 或新用户 → 直接激活
+    if (!previewResult.success) {
+      // preview 失败（网络/已使用等）→ 弹通用确认窗
+      setConfirmInfo({
+        code: code.trim(),
+        inviteCode: inviteCode.trim() || undefined as any,
+        newTier: currentTier,
+        durationDays: 30,
+        sameTier: true,
+        isUpgrade: false,
+        previewFailed: true,
+      });
+      return;
+    }
+
+    // 同 tier 续费 → 直接激活
     await doActivate(code.trim(), inviteCode.trim() || undefined);
   };
 
@@ -123,17 +138,21 @@ export default function ActivationPage() {
             </div>
           )}
 
-          {/* 跨 tier 确认弹窗 */}
+          {/* 激活确认弹窗 */}
           {confirmInfo && (
             <div className="mb-4 p-4 bg-amber-50 border border-amber-300 rounded-xl text-sm">
               <p className="font-bold text-amber-800 mb-2">
-                {confirmInfo.isUpgrade ? '⬆ 升级' : '⬇ 降级'}确认
+                {confirmInfo.previewFailed ? '⚠ 激活确认' : (confirmInfo.isUpgrade ? '⬆ 升级确认' : '⬇ 降级确认')}
               </p>
               <div className="text-amber-700 space-y-1 mb-3">
                 <p>当前：<span className="font-semibold">{status?.tier === 'pro' ? '🏆 Pro 版' : '基础版'}</span></p>
-                <p>新激活码：<span className="font-semibold">{confirmInfo.newTier === 'pro' ? '🏆 Pro 版' : '基础版'}</span> · {confirmInfo.durationDays}天</p>
+                {!confirmInfo.previewFailed && (
+                  <p>新激活码：<span className="font-semibold">{confirmInfo.newTier === 'pro' ? '🏆 Pro 版' : '基础版'}</span> · {confirmInfo.durationDays}天</p>
+                )}
                 <p className="text-red-600 font-semibold mt-2">
-                  ⚠ 注意：跨版本激活将<b>重置到期时间</b>（不累加）
+                  {confirmInfo.previewFailed
+                    ? '⚠ 无法预览激活码信息，继续激活可能<b>重置到期时间</b>'
+                    : '⚠ 注意：跨版本激活将<b>重置到期时间</b>（不累加）'}
                 </p>
               </div>
               <div className="flex gap-2">
