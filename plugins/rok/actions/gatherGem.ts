@@ -7,8 +7,64 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import sharp from 'sharp';
 import { ocrService } from '../../../core/ocr/OcrService';
+import { Detection } from '../../../core/vision/YoloDetector';
 
 const vision = new Vision();
+
+// ---- 开发调试：保存宽高比不满足的宝石截图（仅 dev 模式，exe 不执行） ----
+const REJECTED_DIR = 'D:/SLG/temp/rejected_gems';
+
+function isDevEnv(): boolean {
+  try {
+    const { app } = require('electron');
+    return !app.isPackaged;
+  } catch {
+    return true; // 非 Electron 环境（纯 Node.js），视为 dev
+  }
+}
+
+async function saveRejectedGems(
+  screenshotBuf: Buffer,
+  rejected: Detection[],
+  label: string
+): Promise<void> {
+  if (!isDevEnv()) return;
+  try {
+    await fs.mkdir(REJECTED_DIR, { recursive: true });
+    const confPart = rejected.map(d => d.confidence.toFixed(2)).join(',');
+    const arPart = rejected.map(d => (d.width / d.height).toFixed(2)).join(',');
+    const filename = `${label}_c${confPart}_ar${arPart}_${Date.now()}.png`;
+    const outputPath = path.join(REJECTED_DIR, filename);
+
+    const metadata = await sharp(screenshotBuf).metadata();
+    const imgW = metadata.width!;
+    const imgH = metadata.height!;
+
+    let svg = `<svg width="${imgW}" height="${imgH}" xmlns="http://www.w3.org/2000/svg">`;
+    for (const d of rejected) {
+      const x1 = d.x - d.width / 2;
+      const y1 = d.y - d.height / 2;
+      const aspect = (d.width / d.height).toFixed(2);
+      const text = `${d.confidence.toFixed(2)} ${aspect}`;
+      const textW = text.length * 11 + 12;
+      svg += `
+        <rect x="${x1}" y="${y1}" width="${d.width}" height="${d.height}"
+              fill="none" stroke="orange" stroke-width="3" stroke-dasharray="8,4"/>
+        <rect x="${x1}" y="${y1 - 22}" width="${textW}" height="22"
+              fill="orange" rx="2"/>
+        <text x="${x1 + 6}" y="${y1 - 6}" font-family="Arial" font-size="14"
+              font-weight="bold" fill="white">${text}</text>`;
+    }
+    svg += '</svg>';
+
+    await sharp(screenshotBuf)
+      .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+      .toFile(outputPath);
+  } catch (e) {
+    // 静默忽略，不影响主流程
+  }
+}
+// ---- 调试保存 END ----
 const TEMPLATE_DIR = getTemplatesDir();
 const ADD_TEAM_BTN_TEMPLATE = path.join(TEMPLATE_DIR, 'AddTeamBtn.png');
 const PAGE_INDICATOR_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_page_indicator.png');
@@ -183,7 +239,15 @@ export async function gatherGem(
         checkedCenter = true;
         const initDets = await ctx.detectWithScreenshot(0.5);
         ctx.log(`  [搜索] 中心(5) 找到 ${initDets.length} 个宝石候选`);
-        const initValid = initDets.find(d => !isInChatZone(d.x, d.y) && d.width >= d.height * 0.9);
+        // dev 调试：保存宽高比不满足的宝石截图
+        {
+          const rejected = initDets.filter(d => !isInChatZone(d.x, d.y) && d.width < d.height * 0.96);
+          if (rejected.length > 0 && isDevEnv()) {
+            const buf = await ctx.getScreenshot();
+            await saveRejectedGems(buf, rejected, 'center');
+          }
+        }
+        const initValid = initDets.find(d => !isInChatZone(d.x, d.y) && d.width >= d.height * 0.96);
         if (initValid) {
           if (await isGemOccupied(ctx, initValid.x, initValid.y)) {
             ctx.log(`  宝石 (${initValid.x}, ${initValid.y}) 已被占用，继续搜索`);
@@ -210,7 +274,15 @@ export async function gatherGem(
 
           const detections = await ctx.detectWithScreenshot(0.5);
           ctx.log(`  [搜索] ${SPIRAL_DIR_NAMES[dirIndex % 4]}(${moveCount}) 找到 ${detections.length} 个宝石候选`);
-          const validDet = detections.find(d => !isInChatZone(d.x, d.y) && d.width >= d.height * 0.9);
+          // dev 调试：保存宽高比不满足的宝石截图
+          {
+            const rejected = detections.filter(d => !isInChatZone(d.x, d.y) && d.width < d.height * 0.96);
+            if (rejected.length > 0 && isDevEnv()) {
+              const buf = await ctx.getScreenshot();
+              await saveRejectedGems(buf, rejected, `spiral${moveCount}`);
+            }
+          }
+          const validDet = detections.find(d => !isInChatZone(d.x, d.y) && d.width >= d.height * 0.96);
           if (validDet) {
             if (await isGemOccupied(ctx, validDet.x, validDet.y)) {
               ctx.log(`  宝石 (${validDet.x}, ${validDet.y}) 已被占用，继续搜索`);

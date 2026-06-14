@@ -11,6 +11,7 @@ import { readQueueOverview, resetQueueFilters } from './actions/readQueueOvervie
 import { rallyFort } from './actions/rallyFort';
 import { rallyFortSpiral } from './actions/rallyFortSpiral';
 import { gatherGem } from './actions/gatherGem';
+import { caveExplore } from './actions/caveExplore';
 import { sendWorldChat, sendWorldChatFirstRun } from './actions/sendWorldChat';
 import { ensureInCity, ensureBottomBarCollapsed } from './utils/location';
 import { ocrService } from '../../core/ocr/OcrService';
@@ -587,6 +588,16 @@ export const RiseOfKingdomsPlugin: Plugin = {
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const outcome = await explore(ctx, config, params.scoutBuilding, params.maxScouts);
         ctx.log(`派出斥候: ${outcome.dispatched} 个 (${outcome.result})`);
+      }
+    },
+    {
+      id: 'cave-explore',
+      name: '山洞探索',
+      description: '派出闲置斥候探索山洞',
+      run: async (ctx) => {
+        const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
+        const result = await caveExplore(ctx, config);
+        ctx.log(`山洞探索: ${result}`);
       }
     },
     {

@@ -345,11 +345,21 @@ function UpdateUI() {
   return (
     <>
       {updateStatus.status === 'downloading' && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-slate-900 h-1">
-          <div
-            className="h-full bg-emerald-500 transition-all duration-300"
-            style={{ width: `${updateStatus.progress || 0}%` }}
-          />
+        <div className="fixed top-0 left-0 right-0 z-50 bg-slate-800 border-b border-slate-700 px-4 py-2.5">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs text-slate-300 font-medium">
+              {updateStatus.version ? `v${updateStatus.version}` : '更新'} 下载中...
+            </span>
+            <span className="text-xs text-emerald-400 font-bold tabular-nums">
+              {updateStatus.progress || 0}%
+            </span>
+          </div>
+          <div className="w-full h-2 bg-slate-700 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full transition-all duration-300 ease-out"
+              style={{ width: `${updateStatus.progress || 0}%` }}
+            />
+          </div>
         </div>
       )}
       {updateStatus.status === 'downloaded' && (

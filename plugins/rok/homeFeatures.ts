@@ -22,6 +22,7 @@ export interface HomeFeatures {
   gemGatherTeams: number[];
   gemGatherActiveHours: number;
   gemGatherRestHours: number;
+  autoCaveExplore: boolean;
   loopInterval: number;
 }
 
@@ -55,5 +56,6 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   gemGatherTeams: [1],
   gemGatherActiveHours: 2,
   gemGatherRestHours: 1,
+  autoCaveExplore: false,
   loopInterval: 300,
 };

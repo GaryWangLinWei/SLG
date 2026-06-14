@@ -173,6 +173,8 @@ export function HomePage() {
   };
 
   const [features, setFeatures] = useState(loadFeatures);
+  const featuresRef = useRef(features);
+  featuresRef.current = features;
 
   const featuresToPersist = (f: typeof DEFAULT_FEATURES): typeof DEFAULT_HOME_FEATURES => {
     const { completedBuildings, completedTechs, ...rest } = f;
@@ -361,6 +363,7 @@ export function HomePage() {
       (features.autoWorldChat && features.worldChatMessages.some((m: string) => m.trim())) ||
       (features.autoRallyFort && features.rallyFortLevel > 0) ||
       (features.gemGatherEnabled && features.gemGatherTeams.some((t: number) => t)) ||
+      features.autoCaveExplore ||
       features.helpTeammates ||
       features.collectResources;
     if (!hasAnyFeature) {
@@ -592,11 +595,12 @@ export function HomePage() {
         let first = true;
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
-          if (!features.gemGatherEnabled || features.gemGatherTeams.length === 0) {
+          const f = featuresRef.current;
+          if (!f.gemGatherEnabled || f.gemGatherTeams.length === 0) {
             await sleep(30); continue;
           }
-          const activeHours = features.gemGatherActiveHours || 2;
-          const restHours = features.gemGatherRestHours || 1;
+          const activeHours = Number(f.gemGatherActiveHours) || 2;
+          const restHours = Number(f.gemGatherRestHours) || 1;
 
           // ── 采集阶段 ──
           const activeEnd = Date.now() + activeHours * 3600 * 1000;
@@ -606,7 +610,7 @@ export function HomePage() {
             if (loopStopped) break;
             if (!await acquireLock()) break;
             try {
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'gem-gather', { teams: features.gemGatherTeams });
+              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'gem-gather', { teams: f.gemGatherTeams });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -651,6 +655,47 @@ export function HomePage() {
             await sleep(1);
           }
           setGemRestCountdown('');
+        }
+      })();
+
+      // 山洞探索 — 每 5min
+      (async () => {
+        let first = true;
+        while (!loopStopped) {
+          if (first) { first = false; await sleep(10); continue; }
+          const f = featuresRef.current;
+          if (f.autoCaveExplore) {
+            if (loopStopped) break;
+            if (!await acquireLock()) break;
+            try {
+              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'cave-explore');
+              if (createResult.success) {
+                runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
+                setRunningTaskIds([...runningTaskIdsRef.current]);
+                const runResult = await api.tasks.run(createResult.task.id);
+                runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
+                setRunningTaskIds([...runningTaskIdsRef.current]);
+
+                if (runResult.task?.status === 'stopped') {
+                  loopStopped = true;
+                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ 山洞探索已被停止`]);
+                  return;
+                }
+
+                const logs = runResult.task?.logs ?? [];
+                const isSuccess = logs.some((l: string) => l.includes('→ success'));
+                const isNoScout = logs.some((l: string) => l.includes('→ no_scout_button'));
+                setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${isSuccess ? '✅' : isNoScout ? '⚠️' : 'ℹ️'} 山洞探索 ${isSuccess ? '完成' : isNoScout ? '未找到斥候营地' : '无闲置斥候'}`]);
+              }
+            } catch {} finally { releaseLock(); }
+          }
+          if (loopStopped) break;
+          const caveInterval = 300 * (0.85 + Math.random() * 0.3);
+          setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏔️ 山洞探索，${caveInterval.toFixed(0)} 秒后下一轮`]);
+          const startWait = Date.now();
+          while (!loopStopped && (Date.now() - startWait) < caveInterval * 1000) {
+            await sleep(1);
+          }
         }
       })();
 
@@ -1454,6 +1499,21 @@ export function HomePage() {
               {features.autoExplore && (
                 <p className="text-xs text-slate-400 mt-1 ml-8">⚠ 探索模式已开启，其他功能已暂停</p>
               )}
+              {/* 山洞探索 */}
+              <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0">
+                <span className="flex items-center gap-2 text-sm text-slate-700">
+                  <span className="w-6 h-6 bg-amber-100 rounded flex items-center justify-center text-xs">🏔️</span>
+                  山洞探索
+                  <span className="text-xs text-slate-400">· 每5分钟</span>
+                </span>
+                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+                  <input type="checkbox" checked={features.autoCaveExplore} disabled={features.autoExplore || features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, autoCaveExplore: e.target.checked })}
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.autoCaveExplore ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoCaveExplore ? 'translate-x-[18px]' : ''}`} />
+                </label>
+              </div>
             </div>
 
             {/* 自动喊话 */}

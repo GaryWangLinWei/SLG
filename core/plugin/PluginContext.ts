@@ -63,27 +63,44 @@ export class PluginContext {
     threshold: number = 0.85,
     scales?: number[],
     normalize?: boolean,
-    channel?: string
+    channel?: string,
+    searchRegion?: { x: number; y: number; width: number; height: number }
   ): Promise<{ found: boolean; x: number; y: number; confidence: number }> {
     this.checkCancellation();
     const screenshotBuffer = await this.device.screenshot();
     const tempPath = path.join(os.tmpdir(), `screenshot-${Date.now()}.png`);
-    await fs.writeFile(tempPath, screenshotBuffer);
+
+    // 如果指定了搜索区域，裁剪后再匹配
+    const searchImagePath = searchRegion
+      ? path.join(os.tmpdir(), `crop-${Date.now()}.png`)
+      : null;
 
     try {
-      const result = await this.vision.findImage(tempPath, templatePath, threshold, scales, normalize, channel);
+      if (searchRegion) {
+        const { x: rx, y: ry, width: rw, height: rh } = searchRegion;
+        await sharp(screenshotBuffer)
+          .extract({ left: rx, top: ry, width: rw, height: rh })
+          .png()
+          .toFile(searchImagePath!);
+      } else {
+        await fs.writeFile(tempPath, screenshotBuffer);
+      }
+
+      const matchPath = searchImagePath || tempPath;
+      const result = await this.vision.findImage(matchPath, templatePath, threshold, scales, normalize, channel);
       if (result.found) {
         const tapLoc = this.vision.getTapLocation(result);
         return {
           found: true,
-          x: tapLoc.x,
-          y: tapLoc.y,
+          x: tapLoc.x + (searchRegion?.x || 0),
+          y: tapLoc.y + (searchRegion?.y || 0),
           confidence: result.confidence
         };
       }
       return { found: false, x: 0, y: 0, confidence: result.confidence };
     } finally {
       await fs.unlink(tempPath).catch(() => {});
+      if (searchImagePath) await fs.unlink(searchImagePath).catch(() => {});
     }
   }
 
@@ -249,6 +266,12 @@ export class PluginContext {
     const buf = await this.device.screenshot();
     const meta = await sharp(buf).metadata();
     return { width: meta.width!, height: meta.height! };
+  }
+
+  /** 获取当前屏幕原始截图（Buffer），供调试/标注使用 */
+  async getScreenshot(): Promise<Buffer> {
+    this.checkCancellation();
+    return this.device.screenshot();
   }
 
   async captureRegion(

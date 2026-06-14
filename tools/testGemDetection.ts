@@ -8,7 +8,7 @@ import { YoloDetector, Detection } from '../core/vision/YoloDetector';
 import * as path from 'path';
 import * as fs from 'fs';
 
-const OUTPUT_DIR = 'D:/SLG/temp';
+const OUTPUT_DIR = 'C:/Users/54459/Desktop/baoshiTest/result';
 const MODEL_PATH = path.join(__dirname, '..', 'plugins/rok/models/gem.onnx');
 
 async function drawDetections(
@@ -31,15 +31,16 @@ async function drawDetections(
     const y1 = d.y - d.height / 2;
     const x2 = d.x + d.width / 2;
     const y2 = d.y + d.height / 2;
-    const label = d.confidence.toFixed(3);
+    const aspect = (d.width / d.height).toFixed(2);
+    const label = `${d.confidence.toFixed(2)} ${aspect}`;
 
     svgOverlay += `
       <rect x="${x1}" y="${y1}" width="${x2 - x1}" height="${y2 - y1}"
-            fill="none" stroke="red" stroke-width="2"/>
-      <rect x="${x1}" y="${y1 - 20}" width="${label.length * 10 + 8}" height="20"
-            fill="red"/>
-      <text x="${x1 + 4}" y="${y1 - 5}" font-family="Arial" font-size="14"
-            fill="white">${label}</text>`;
+            fill="none" stroke="red" stroke-width="3"/>
+      <rect x="${x1}" y="${y1 - 22}" width="${label.length * 11 + 12}" height="22"
+            fill="red" rx="2"/>
+      <text x="${x1 + 6}" y="${y1 - 6}" font-family="Arial" font-size="15"
+            font-weight="bold" fill="white">${label}</text>`;
   }
   svgOverlay += '</svg>';
 
@@ -53,7 +54,7 @@ async function drawDetections(
   report += `Detections: ${detections.length}\n\n`;
   for (let i = 0; i < detections.length; i++) {
     const d = detections[i];
-    report += `  [${i}] x=${d.x} y=${d.y} w=${d.width} h=${d.height} conf=${d.confidence.toFixed(4)}\n`;
+    report += `  [${i}] x=${d.x} y=${d.y} w=${d.width} h=${d.height} conf=${d.confidence.toFixed(4)} aspect=${(d.width / d.height).toFixed(2)}\n`;
   }
   fs.writeFileSync(reportPath, report);
 }
