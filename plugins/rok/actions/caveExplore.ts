@@ -5,6 +5,7 @@ import { getTemplatesDir } from '../../../core/resourcePath';
 import { ocrService } from '../../../core/ocr/OcrService';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import sharp from 'sharp';
 
 const TEMPLATE_DIR = getTemplatesDir();
 
@@ -31,6 +32,57 @@ const CAVE_OCR_REGIONS = [
 // 调查按钮
 const INVESTIGATE_BTN = { x: 1141, y: 596 };
 
+// 调试截图保存目录
+const DEBUG_DIR = path.join(process.cwd(), 'temp/cave_debug');
+
+interface MatchWithMeta {
+  x: number;
+  y: number;
+  confidence: number;
+  width: number;
+  height: number;
+  label: string;
+}
+
+async function saveStep5Debug(
+  screenshotBuf: Buffer,
+  matches: MatchWithMeta[]
+): Promise<void> {
+  try {
+    await fs.mkdir(DEBUG_DIR, { recursive: true });
+    const filename = `step5_${Date.now()}.png`;
+    const outputPath = path.join(DEBUG_DIR, filename);
+
+    const metadata = await sharp(screenshotBuf).metadata();
+    const imgW = metadata.width!;
+    const imgH = metadata.height!;
+
+    let svg = `<svg width="${imgW}" height="${imgH}" xmlns="http://www.w3.org/2000/svg">`;
+    for (const m of matches) {
+      const x1 = m.x - m.width / 2;
+      const y1 = m.y - m.height / 2;
+      const text = `${m.label} ${m.confidence.toFixed(2)}`;
+      const textW = text.length * 12 + 12;
+      svg += `
+        <rect x="${x1}" y="${y1}" width="${m.width}" height="${m.height}"
+              fill="none" stroke="red" stroke-width="3"/>
+        <rect x="${x1}" y="${y1 - 22}" width="${textW}" height="22"
+              fill="red" rx="2"/>
+        <text x="${x1 + 6}" y="${y1 - 6}" font-family="Arial" font-size="14"
+              font-weight="bold" fill="white">${text}</text>`;
+    }
+    svg += '</svg>';
+
+    await sharp(screenshotBuf)
+      .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+      .toFile(outputPath);
+
+    console.log(`[caveExplore] 步骤5调试截图已保存: ${outputPath}`);
+  } catch (e) {
+    // 静默忽略，不影响主流程
+  }
+}
+
 export type CaveExploreResult = 'success' | 'no_scout_button' | 'no_idle_scout';
 
 export async function caveExplore(
@@ -49,7 +101,19 @@ export async function caveExplore(
   const popScoutTemplate = path.join(TEMPLATE_DIR, 'pop_zhenChaBtn.png');
   const chihouIdleTemplate = path.join(TEMPLATE_DIR, 'chihou_idle.png');
   const chihouBackTemplate = path.join(TEMPLATE_DIR, 'chihou_back.png');
+  const chihouZhuzhaTemplate = path.join(TEMPLATE_DIR, 'chihou_zhuzha.png');
   const btnExploreTemplate = path.join(TEMPLATE_DIR, 'btn_explore.png');
+
+  // 预加载模板尺寸
+  const idleMeta = await sharp(chihouIdleTemplate).metadata();
+  const backMeta = await sharp(chihouBackTemplate).metadata();
+  const zhuzhaMeta = await sharp(chihouZhuzhaTemplate).metadata();
+  const idleW = idleMeta.width!;
+  const idleH = idleMeta.height!;
+  const backW = backMeta.width!;
+  const backH = backMeta.height!;
+  const zhuzhaW = zhuzhaMeta.width!;
+  const zhuzhaH = zhuzhaMeta.height!;
 
   const exploredSet = new Set<string>();
 
@@ -118,10 +182,24 @@ export async function caveExplore(
 
     const idleMatches = await ctx.findAllImages(chihouIdleTemplate, 0.7, IDLE_SEARCH_REGION);
     const backMatches = await ctx.findAllImages(chihouBackTemplate, 0.7, IDLE_SEARCH_REGION);
+    const zhuzhaMatches = await ctx.findAllImages(chihouZhuzhaTemplate, 0.7, IDLE_SEARCH_REGION);
 
-    ctx.log(`  闲置: ${idleMatches.length} 个, 归巢: ${backMatches.length} 个`);
+    ctx.log(`  闲置: ${idleMatches.length} 个, 归巢: ${backMatches.length} 个, 驻扎: ${zhuzhaMatches.length} 个`);
 
-    const idleTotal = idleMatches.length + backMatches.length;
+    // 调试：保存步骤5截图并红框标记
+    (async () => {
+      try {
+        const debugBuf = await ctx.getScreenshot();
+        const all: MatchWithMeta[] = [
+          ...idleMatches.map(m => ({ ...m, width: idleW, height: idleH, label: 'idle' })),
+          ...backMatches.map(m => ({ ...m, width: backW, height: backH, label: 'back' })),
+          ...zhuzhaMatches.map(m => ({ ...m, width: zhuzhaW, height: zhuzhaH, label: 'zhuzha' })),
+        ];
+        if (all.length > 0) await saveStep5Debug(debugBuf, all);
+      } catch {}
+    })();
+
+    const idleTotal = idleMatches.length + backMatches.length + zhuzhaMatches.length;
 
     if (idleTotal === 0) {
       ctx.log('  无闲置斥候，关闭界面');
@@ -131,8 +209,8 @@ export async function caveExplore(
       return 'no_idle_scout';
     }
 
-    // 优先点击 idle，其次 back
-    const firstTarget = idleMatches.length > 0 ? idleMatches[0] : backMatches[0];
+    // 选取第一个可用斥候
+    const firstTarget = idleMatches[0] ?? backMatches[0] ?? zhuzhaMatches[0];
     ctx.log(`  选择斥候 (${firstTarget.x}, ${firstTarget.y})，闲置总数: ${idleTotal}`);
     await ctx.tap(firstTarget.x, firstTarget.y);
     await ctx.sleep(1);
@@ -154,7 +232,7 @@ export async function caveExplore(
       const regionPath = await ctx.captureRegion(region.x, region.y, region.width, region.height);
 
       try {
-        const text = await ocrService.readText(regionPath);
+        const text = (await ocrService.readText(regionPath)).replace(/¥/g, 'Y');
         ctx.log(`  区域${region.id} OCR: "${text}"`);
 
         // 解析 "X:数字Y:数字" 格式
@@ -194,7 +272,7 @@ export async function caveExplore(
       ctx.log(`=== 山洞探索完成 ===`);
       return 'success';
     }
-    await ctx.sleep(0.5);
+    await ctx.sleep(2.5);
 
     // ============================================
     // 第 8 步: 点击调查按钮
@@ -228,8 +306,6 @@ export async function caveExplore(
       ctx.log(`  还有 ${idleTotal - 1} 个闲置斥候，从第 0 步重新开始`);
     } else {
       ctx.log('  唯一闲置斥候已派遣');
-      await ctx.tap(CLOSE_SCOUT.x, CLOSE_SCOUT.y);
-      await ctx.sleep(1);
       ctx.log(`=== 山洞探索完成 ===`);
       return 'success';
     }
