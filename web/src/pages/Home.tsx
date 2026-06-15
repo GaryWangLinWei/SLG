@@ -381,7 +381,7 @@ export function HomePage() {
     const isWorldChatMode = features.autoWorldChat;
     const interval = isExploreMode ? 60 : isWorldChatMode ? features.worldChatInterval : features.loopInterval;
     clearLoopState();
-    const modeLabel = isExploreMode ? '自动探索' : isWorldChatMode ? '自动喊话' : '自动循环';
+    const modeLabel = isExploreMode ? '迷雾探索' : isWorldChatMode ? '自动喊话' : '自动循环';
     setLogs([`[${new Date().toLocaleTimeString()}] 🚀 开始${modeLabel} (间隔${interval}秒)`]);
 
     // Reset completion state for a fresh run (module-level for loop, state for UI)
@@ -658,48 +658,8 @@ export function HomePage() {
         }
       })();
 
-      // 山洞探索 — 每 5min
-      (async () => {
-        let first = true;
-        while (!loopStopped) {
-          if (first) { first = false; await sleep(10); continue; }
-          const f = featuresRef.current;
-          if (f.autoCaveExplore) {
-            if (loopStopped) break;
-            if (!await acquireLock()) break;
-            try {
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'cave-explore');
-              if (createResult.success) {
-                runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
-                setRunningTaskIds([...runningTaskIdsRef.current]);
-                const runResult = await api.tasks.run(createResult.task.id);
-                runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
-                setRunningTaskIds([...runningTaskIdsRef.current]);
-
-                if (runResult.task?.status === 'stopped') {
-                  loopStopped = true;
-                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ 山洞探索已被停止`]);
-                  return;
-                }
-
-                const logs = runResult.task?.logs ?? [];
-                const isSuccess = logs.some((l: string) => l.includes('→ success'));
-                const isNoScout = logs.some((l: string) => l.includes('→ no_scout_button'));
-                setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${isSuccess ? '✅' : isNoScout ? '⚠️' : 'ℹ️'} 山洞探索 ${isSuccess ? '完成' : isNoScout ? '未找到斥候营地' : '无闲置斥候'}`]);
-              }
-            } catch {} finally { releaseLock(); }
-          }
-          if (loopStopped) break;
-          const caveInterval = 300 * (0.85 + Math.random() * 0.3);
-          setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏔️ 山洞探索，${caveInterval.toFixed(0)} 秒后下一轮`]);
-          const startWait = Date.now();
-          while (!loopStopped && (Date.now() - startWait) < caveInterval * 1000) {
-            await sleep(1);
-          }
-        }
-      })();
-
-      const hasMainWork = features.autoExplore || features.autoWorldChat || features.upgradeBuildings || features.autoResearch || features.trainTroops;
+      // 山洞探索 — 独立模式，与其他 action 互斥
+      const hasMainWork = features.autoExplore || features.autoCaveExplore || features.autoWorldChat || features.upgradeBuildings || features.autoResearch || features.trainTroops;
       if (!hasMainWork) {
         setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ℹ️ 未启用建筑/科技/训练，主循环跳过`]);
       }
@@ -780,7 +740,7 @@ export function HomePage() {
         // 探索模式：与其他任务互斥，只执行探索
         if (features.autoExplore) {
           if (!buildingOptions.includes('斥候营地')) {
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记斥候营地位置，跳过自动探索`]);
+            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记斥候营地位置，跳过迷雾探索`]);
           } else {
             if (await acquireLock()) {
               try { await runTask('explore', { maxScouts: features.exploreCount }); }
@@ -810,6 +770,24 @@ export function HomePage() {
           } else {
             await sleep(exploreNextWake);
           }
+          if (loopStopped) break;
+          continue;
+        }
+
+        // 山洞探索模式：与其他任务互斥，只执行山洞探索
+        if (features.autoCaveExplore) {
+          if (!buildingOptions.includes('斥候营地')) {
+            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记斥候营地位置，跳过山洞探索`]);
+          } else {
+            if (await acquireLock()) {
+              try { await runTask('cave-explore'); }
+              finally { releaseLock(); }
+            }
+          }
+          if (loopStopped) break;
+          const caveInterval = 120 * (0.85 + Math.random() * 0.3);
+          setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏔️ 山洞探索模式，${caveInterval.toFixed(0)} 秒后下一轮`]);
+          await sleep(caveInterval);
           if (loopStopped) break;
           continue;
         }
@@ -1462,12 +1440,12 @@ export function HomePage() {
                   <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.collectResources ? 'translate-x-[18px]' : ''}`} />
                 </label>
               </div>
-              {/* 自动探索 */}
+              {/* 迷雾探索 */}
               <div className="flex items-center justify-between py-2">
                 <div className="flex flex-col gap-1">
                   <span className="flex items-center gap-2 text-sm text-slate-700">
                     <span className="w-6 h-6 bg-cyan-100 rounded flex items-center justify-center text-xs">🗺️</span>
-                    自动探索
+                    迷雾探索
                   </span>
                   <div className="flex items-center gap-2 ml-8">
                     {features.autoExplore && <span className="text-xs px-1.5 py-0.5 bg-purple-500 text-white rounded-full font-medium">独立模式</span>}
@@ -1483,7 +1461,7 @@ export function HomePage() {
                   </div>
                 </div>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.autoExplore}
+                  <input type="checkbox" checked={features.autoExplore} disabled={features.autoCaveExplore}
                     onChange={(e) => {
                       if (e.target.checked && !buildingOptions.includes('斥候营地')) {
                         alert('请在坐标配置页标记斥候营地位置');
@@ -1497,14 +1475,14 @@ export function HomePage() {
                 </label>
               </div>
               {features.autoExplore && (
-                <p className="text-xs text-slate-400 mt-1 ml-8">⚠ 探索模式已开启，其他功能已暂停</p>
+                <p className="text-xs text-slate-400 mt-1 ml-8">⚠ 迷雾探索模式已开启，山洞探索/其他功能已暂停</p>
               )}
               {/* 山洞探索 */}
               <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0">
                 <span className="flex items-center gap-2 text-sm text-slate-700">
                   <span className="w-6 h-6 bg-amber-100 rounded flex items-center justify-center text-xs">🏔️</span>
                   山洞探索
-                  <span className="text-xs text-slate-400">· 每5分钟</span>
+                  <span className="text-xs text-slate-400">· 每2分钟</span>
                 </span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
                   <input type="checkbox" checked={features.autoCaveExplore} disabled={features.autoExplore || features.autoWorldChat}
@@ -1514,6 +1492,9 @@ export function HomePage() {
                   <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoCaveExplore ? 'translate-x-[18px]' : ''}`} />
                 </label>
               </div>
+              {features.autoCaveExplore && (
+                <p className="text-xs text-slate-400 mt-1 ml-8">⚠ 山洞探索模式已开启，迷雾探索/其他功能已暂停</p>
+              )}
             </div>
 
             {/* 自动喊话 */}
@@ -1521,7 +1502,7 @@ export function HomePage() {
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center text-base">📢</span>自动喊话</span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.autoWorldChat}
+                  <input type="checkbox" checked={features.autoWorldChat} disabled={features.autoCaveExplore}
                     onChange={(e) => setFeatures({ ...features, autoWorldChat: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.autoWorldChat ? 'bg-purple-500' : 'bg-slate-200'}`} />

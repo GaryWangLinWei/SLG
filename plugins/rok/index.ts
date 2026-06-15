@@ -582,7 +582,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
     },
     {
       id: 'explore',
-      name: '自动探索',
+      name: '迷雾探索',
       description: '派出斥候探索迷雾',
       run: async (ctx, params: { scoutBuilding?: string; maxScouts?: number } = {}) => {
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);

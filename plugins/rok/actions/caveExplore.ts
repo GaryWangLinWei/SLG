@@ -25,63 +25,11 @@ const CAVE_TAB = { x: 940, y: 267 };
 // OCR 区域：3 个山洞坐标显示位置
 const CAVE_OCR_REGIONS = [
   { id: 1, x: 286, y: 457, width: 144, height: 33, cx: 358, cy: 473 },
-  { id: 2, x: 286, y: 611, width: 144, height: 33, cx: 358, cy: 627 },
-  { id: 3, x: 286, y: 762, width: 144, height: 33, cx: 358, cy: 777 },
+  { id: 2, x: 297, y: 626, width: 128, height: 30, cx: 361, cy: 641 },
 ];
 
 // 调查按钮
 const INVESTIGATE_BTN = { x: 1141, y: 596 };
-
-// 调试截图保存目录
-const DEBUG_DIR = path.join(process.cwd(), 'temp/cave_debug');
-
-interface MatchWithMeta {
-  x: number;
-  y: number;
-  confidence: number;
-  width: number;
-  height: number;
-  label: string;
-}
-
-async function saveStep5Debug(
-  screenshotBuf: Buffer,
-  matches: MatchWithMeta[]
-): Promise<void> {
-  try {
-    await fs.mkdir(DEBUG_DIR, { recursive: true });
-    const filename = `step5_${Date.now()}.png`;
-    const outputPath = path.join(DEBUG_DIR, filename);
-
-    const metadata = await sharp(screenshotBuf).metadata();
-    const imgW = metadata.width!;
-    const imgH = metadata.height!;
-
-    let svg = `<svg width="${imgW}" height="${imgH}" xmlns="http://www.w3.org/2000/svg">`;
-    for (const m of matches) {
-      const x1 = m.x - m.width / 2;
-      const y1 = m.y - m.height / 2;
-      const text = `${m.label} ${m.confidence.toFixed(2)}`;
-      const textW = text.length * 12 + 12;
-      svg += `
-        <rect x="${x1}" y="${y1}" width="${m.width}" height="${m.height}"
-              fill="none" stroke="red" stroke-width="3"/>
-        <rect x="${x1}" y="${y1 - 22}" width="${textW}" height="22"
-              fill="red" rx="2"/>
-        <text x="${x1 + 6}" y="${y1 - 6}" font-family="Arial" font-size="14"
-              font-weight="bold" fill="white">${text}</text>`;
-    }
-    svg += '</svg>';
-
-    await sharp(screenshotBuf)
-      .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
-      .toFile(outputPath);
-
-    console.log(`[caveExplore] 步骤5调试截图已保存: ${outputPath}`);
-  } catch (e) {
-    // 静默忽略，不影响主流程
-  }
-}
 
 export type CaveExploreResult = 'success' | 'no_scout_button' | 'no_idle_scout';
 
@@ -186,19 +134,6 @@ export async function caveExplore(
 
     ctx.log(`  闲置: ${idleMatches.length} 个, 归巢: ${backMatches.length} 个, 驻扎: ${zhuzhaMatches.length} 个`);
 
-    // 调试：保存步骤5截图并红框标记
-    (async () => {
-      try {
-        const debugBuf = await ctx.getScreenshot();
-        const all: MatchWithMeta[] = [
-          ...idleMatches.map(m => ({ ...m, width: idleW, height: idleH, label: 'idle' })),
-          ...backMatches.map(m => ({ ...m, width: backW, height: backH, label: 'back' })),
-          ...zhuzhaMatches.map(m => ({ ...m, width: zhuzhaW, height: zhuzhaH, label: 'zhuzha' })),
-        ];
-        if (all.length > 0) await saveStep5Debug(debugBuf, all);
-      } catch {}
-    })();
-
     const idleTotal = idleMatches.length + backMatches.length + zhuzhaMatches.length;
 
     if (idleTotal === 0) {
@@ -227,6 +162,7 @@ export async function caveExplore(
     // ============================================
     ctx.log('[7/10] 识别山洞坐标...');
     let tappedCave = false;
+    let anyOcrMatch = false;
 
     for (const region of CAVE_OCR_REGIONS) {
       const regionPath = await ctx.captureRegion(region.x, region.y, region.width, region.height);
@@ -238,6 +174,7 @@ export async function caveExplore(
         // 解析 "X:数字Y:数字" 格式
         const match = text.match(/X\s*:?\s*(\d+)\s*Y\s*:?\s*(\d+)/i);
         if (match) {
+          anyOcrMatch = true;
           const coordKey = `X:${match[1]}Y:${match[2]}`;
           if (exploredSet.has(coordKey)) {
             ctx.log(`  山洞 ${coordKey} 已探索，跳过`);
@@ -260,17 +197,24 @@ export async function caveExplore(
     }
 
     if (!tappedCave) {
-      ctx.log('  所有山洞已探索或 OCR 识别失败');
-      if (idleTotal > 1) {
-        // 还有剩余闲置斥候，继续下一轮
-        ctx.log(`  剩余 ${idleTotal - 1} 个闲置斥候，继续...`);
-        continue;
+      // 前两个山洞都已探索，前往固定位置的第三个山洞
+      if (anyOcrMatch) {
+        ctx.log(`  前2个山洞已探索，前往第三个山洞 (1235, 743)`);
+        await ctx.tap(1235, 743);
+        tappedCave = true;
+      } else {
+        ctx.log('  所有山洞已探索或 OCR 识别失败');
+        if (idleTotal > 1) {
+          // 还有剩余闲置斥候，继续下一轮
+          ctx.log(`  剩余 ${idleTotal - 1} 个闲置斥候，继续...`);
+          continue;
+        }
+        ctx.log('  无更多闲置斥候');
+        await ctx.tap(CLOSE_SCOUT.x, CLOSE_SCOUT.y);
+        await ctx.sleep(1);
+        ctx.log(`=== 山洞探索完成 ===`);
+        return 'success';
       }
-      ctx.log('  无更多闲置斥候');
-      await ctx.tap(CLOSE_SCOUT.x, CLOSE_SCOUT.y);
-      await ctx.sleep(1);
-      ctx.log(`=== 山洞探索完成 ===`);
-      return 'success';
     }
     await ctx.sleep(2.5);
 
