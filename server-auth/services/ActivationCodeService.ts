@@ -91,51 +91,69 @@ export function revokeCode(id: number): boolean {
   return result.changes > 0;
 }
 
-const TRIAL_CODE = 'TRIAL-7DAYS';
-const TRIAL_DAYS = 7;
+const TRIAL_BASIC_CODE = 'TRIAL-7DAYS';
+const TRIAL_BASIC_DAYS = 7;
+const TRIAL_PRO_CODE = 'TRIAL-PRO-1DAY';
+const TRIAL_PRO_DAYS = 1;
+
+// 试用码配置
+const TRIAL_CONFIGS: Record<string, { days: number; tier: 'basic' | 'pro'; newDeviceOnly: boolean }> = {
+  [TRIAL_BASIC_CODE]: { days: TRIAL_BASIC_DAYS, tier: 'basic', newDeviceOnly: true },
+  [TRIAL_PRO_CODE]: { days: TRIAL_PRO_DAYS, tier: 'pro', newDeviceOnly: false },
+};
 
 export function useCode(code: string, deviceFingerprint: string): { success: boolean; expiresAt?: number; error?: string; renewType?: string; tier?: 'basic' | 'pro'; code?: string } {
   const db = getDb();
   const now = Date.now();
 
-  // 试用码处理（仅限新用户）
-  if (code === TRIAL_CODE) {
-    // 检查设备是否已有任何激活（新用户才能试用）
-    const hasAnyActivation = db.prepare(
-      'SELECT id FROM device_bindings WHERE device_fingerprint = ?'
-    ).get(deviceFingerprint);
-    if (hasAnyActivation) {
-      return { success: false, error: '试用码仅限新用户使用' };
+  // 试用码处理
+  const trialConfig = TRIAL_CONFIGS[code];
+  if (trialConfig) {
+    // Basic 试用：仅限全新设备
+    if (trialConfig.newDeviceOnly) {
+      const hasAnyActivation = db.prepare(
+        'SELECT id FROM device_bindings WHERE device_fingerprint = ?'
+      ).get(deviceFingerprint);
+      if (hasAnyActivation) {
+        return { success: false, error: '试用码仅限新用户使用' };
+      }
     }
 
     const alreadyTrialed = db.prepare(`
       SELECT 1 FROM device_bindings db
       JOIN activation_codes ac ON db.activation_code_id = ac.id
-      WHERE db.device_fingerprint = ? AND ac.type = 'trial'
-    `).get(deviceFingerprint);
+      WHERE db.device_fingerprint = ? AND ac.type = 'trial' AND ac.tier = ?
+    `).get(deviceFingerprint, trialConfig.tier);
     if (alreadyTrialed) {
-      return { success: false, error: '该设备已领取过试用' };
+      return { success: false, error: '该设备已领取过此试用' };
     }
 
     const insertCode = db.prepare(`
       INSERT INTO activation_codes (code, duration_days, status, type, created_at, created_by, expires_at)
       VALUES (?, ?, 'used', 'trial', ?, ?, ?)
     `);
+    const upsertBinding = db.prepare(`
+      UPDATE device_bindings SET activation_code_id = ?, last_heartbeat_at = ?, bound_at = ? WHERE device_fingerprint = ?
+    `);
     const insertBinding = db.prepare(`
       INSERT INTO device_bindings (activation_code_id, device_fingerprint, bound_at, last_heartbeat_at)
       VALUES (?, ?, ?, ?)
     `);
     const trialCode = `TRIAL-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const expiresAt = now + TRIAL_DAYS * 24 * 60 * 60 * 1000;
+    const expiresAt = now + trialConfig.days * 24 * 60 * 60 * 1000;
 
     const transaction = db.transaction(() => {
-      const result = insertCode.run(trialCode, TRIAL_DAYS, now, deviceFingerprint, expiresAt);
-      insertBinding.run(result.lastInsertRowid, deviceFingerprint, now, now);
+      const result = insertCode.run(trialCode, trialConfig.days, now, deviceFingerprint, expiresAt);
+      const codeId = result.lastInsertRowid;
+      const upsertResult = upsertBinding.run(codeId, now, now, deviceFingerprint);
+      if (upsertResult.changes === 0) {
+        insertBinding.run(codeId, deviceFingerprint, now, now);
+      }
     });
 
     try {
       transaction();
-      return { success: true, expiresAt, tier: 'basic', code: trialCode };
+      return { success: true, expiresAt, tier: trialConfig.tier, code: trialCode };
     } catch (e: any) {
       return { success: false, error: e.message };
     }

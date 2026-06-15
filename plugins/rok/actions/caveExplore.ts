@@ -158,7 +158,7 @@ export async function caveExplore(
       popX = popup.x;
       popY = popup.y;
       ctx.setCachedLocation(CACHE_KEY, popX, popY);
-      ctx.log(`  识别并缓存侦查按钮 (${popX}, ${popY})`);
+      ctx.log(`  识别并缓存侦查按钮 (${popX}, ${popY})，置信度: ${popup.confidence.toFixed(3)}`);
     }
 
     // ============================================
