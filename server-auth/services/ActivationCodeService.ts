@@ -129,8 +129,8 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
     }
 
     const insertCode = db.prepare(`
-      INSERT INTO activation_codes (code, duration_days, status, type, created_at, created_by, expires_at)
-      VALUES (?, ?, 'used', 'trial', ?, ?, ?)
+      INSERT INTO activation_codes (code, duration_days, status, type, tier, created_at, created_by, expires_at)
+      VALUES (?, ?, 'used', 'trial', ?, ?, ?, ?)
     `);
     const upsertBinding = db.prepare(`
       UPDATE device_bindings SET activation_code_id = ?, last_heartbeat_at = ?, bound_at = ? WHERE device_fingerprint = ?
@@ -143,7 +143,7 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
     const expiresAt = now + trialConfig.days * 24 * 60 * 60 * 1000;
 
     const transaction = db.transaction(() => {
-      const result = insertCode.run(trialCode, trialConfig.days, now, deviceFingerprint, expiresAt);
+      const result = insertCode.run(trialCode, trialConfig.days, trialConfig.tier, now, deviceFingerprint, expiresAt);
       const codeId = result.lastInsertRowid;
       const upsertResult = upsertBinding.run(codeId, now, now, deviceFingerprint);
       if (upsertResult.changes === 0) {
