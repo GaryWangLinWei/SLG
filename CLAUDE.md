@@ -142,8 +142,6 @@ web/ (React+Vite)  ──/api──▶  server/ (Koa+REST)  ──▶  core/ ─
 **测试激活码：**
 | 码 | 行为 |
 |----|------|
-| `TRIAL-7DAYS` | Basic 试用（7 天，仅全新设备，一次） |
-| `TRIAL-PRO-1DAY` | Pro 试用（1 天，任意设备均可，一次） |
 | `DEMO-123456` | 首次激活，30 天，5 账号 |
 | `ERROR` | 测试错误显示 |
 | `RENEW-SAME` | 同级别续费（时间累加） |
