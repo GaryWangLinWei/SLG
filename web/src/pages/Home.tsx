@@ -12,6 +12,8 @@ let loopLogs: string[] = [];
 let loopCompletedBuildings: boolean[] = [false, false, false, false, false];
 let loopCompletedTechs: boolean[] = [false, false, false, false, false];
 let deviceBusy = false;
+let moduleGemInitialCount: number | null = null;
+let moduleGemCollectedCount: number = 0;
 
 const LOOP_STATE_KEY = 'loop-state';
 
@@ -26,6 +28,8 @@ function saveLoopState(accountId: string) {
 
 function clearLoopState() {
   loopLogs = [];
+  moduleGemInitialCount = null;
+  moduleGemCollectedCount = 0;
   try { sessionStorage.removeItem(LOOP_STATE_KEY); } catch {}
 }
 
@@ -126,6 +130,8 @@ export function HomePage() {
   const [_runningTaskIds, setRunningTaskIds] = useState<string[]>([]);
   const [logs, setLogs] = useState<string[]>(loopLogs);
   const [gemRestCountdown, setGemRestCountdown] = useState<string>('');
+  const [gemInitialCount, setGemInitialCount] = useState<number | null>(moduleGemInitialCount);
+  const [gemCollectedCount, setGemCollectedCount] = useState<number>(moduleGemCollectedCount);
   useEffect(() => { loopLogs = logs; }, [logs]);
   const logContainerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -590,9 +596,67 @@ export function HomePage() {
         }
       })();
 
+      // 山洞探索独立循环
+      const caveLoop = (async () => {
+        let first = true;
+        while (!loopStopped) {
+          if (first) { first = false; await sleep(10); continue; }
+          if (features.autoCaveExplore && !features.autoExplore) {
+            if (!buildingOptions.includes('斥候营地')) {
+              setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记斥候营地位置，跳过山洞探索`]);
+            } else {
+              if (!await acquireLock()) break;
+              try {
+                const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'cave-explore');
+                if (createResult.success) {
+                  runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
+                  setRunningTaskIds([...runningTaskIdsRef.current]);
+                  const runResult = await api.tasks.run(createResult.task.id);
+                  runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
+                  setRunningTaskIds([...runningTaskIdsRef.current]);
+                  const logs = runResult.task?.logs ?? [];
+                  const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
+                  if (hasExpiredLog) {
+                    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
+                    loopStopped = true;
+                    setExpiredMessage('激活码已到期，请重新激活');
+                    refreshStatus();
+                  } else {
+                    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏔️ 山洞探索 完成`]);
+                  }
+                }
+              } catch {} finally { releaseLock(); }
+            }
+          }
+          const caveInterval = 120 * (0.85 + Math.random() * 0.3);
+          const startWait = Date.now();
+          while (!loopStopped && (Date.now() - startWait) < caveInterval * 1000) {
+            await sleep(1);
+          }
+        }
+      })();
+
       // 宝石采集独立循环（采集/休息轮替）
       (async () => {
         let first = true;
+        let localInitialCount: number | null = null;
+
+        const readCount = async (): Promise<number | null> => {
+          try {
+            const res = await api.tasks.create(currentAccountId, 'com.rok.automation', 'read-gem-count');
+            if (!res.success) { console.error('[readCount] create failed', res); return null; }
+            const run = await api.tasks.run(res.task.id);
+            const logs = run.task?.logs ?? [];
+            console.log('[readCount] logs:', logs);
+            const line = logs.find((l: string) => /\[GEM-COUNT\]\s+\d+/.test(l));
+            if (!line) { console.error('[readCount] no matching line found'); return null; }
+            const m = line.match(/\[GEM-COUNT\]\s+(\d+)/);
+            const result = m ? parseInt(m[1], 10) : null;
+            console.log('[readCount] result:', result);
+            return result;
+          } catch (e) { console.error('[readCount] error:', e); return null; }
+        };
+
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
           const f = featuresRef.current;
@@ -601,6 +665,18 @@ export function HomePage() {
           }
           const activeHours = Number(f.gemGatherActiveHours) || 2;
           const restHours = Number(f.gemGatherRestHours) || 1;
+
+          // ── 读取初始宝石数量 ──
+          if (localInitialCount === null) {
+            const count = await readCount();
+            if (count !== null) {
+              localInitialCount = count;
+              moduleGemInitialCount = count;
+              moduleGemCollectedCount = 0;
+              setGemInitialCount(count);
+              setGemCollectedCount(0);
+            }
+          }
 
           // ── 采集阶段 ──
           const activeEnd = Date.now() + activeHours * 3600 * 1000;
@@ -628,7 +704,16 @@ export function HomePage() {
                   setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💎 宝石采集完成`]);
                 }
               }
+
+              // ── 采集后读取当前宝石数量 ──
+              const current = await readCount();
+              if (current !== null && localInitialCount !== null) {
+                moduleGemCollectedCount = Math.max(0, current - localInitialCount);
+                setGemCollectedCount(moduleGemCollectedCount);
+                setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💎 已采集: ${moduleGemCollectedCount} 颗`]);
+              }
             } catch {} finally { releaseLock(); }
+
             if (loopStopped) break;
             if (Date.now() >= activeEnd) break;
             // 两次采集之间 5 分钟 CD
@@ -659,7 +744,7 @@ export function HomePage() {
       })();
 
       // 山洞探索 — 独立模式，与其他 action 互斥
-      const hasMainWork = features.autoExplore || features.autoCaveExplore || features.autoWorldChat || features.upgradeBuildings || features.autoResearch || features.trainTroops;
+      const hasMainWork = features.autoExplore || features.autoWorldChat || features.upgradeBuildings || features.autoResearch || features.trainTroops;
       if (!hasMainWork) {
         setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ℹ️ 未启用建筑/科技/训练，主循环跳过`]);
       }
@@ -770,24 +855,6 @@ export function HomePage() {
           } else {
             await sleep(exploreNextWake);
           }
-          if (loopStopped) break;
-          continue;
-        }
-
-        // 山洞探索模式：与其他任务互斥，只执行山洞探索
-        if (features.autoCaveExplore) {
-          if (!buildingOptions.includes('斥候营地')) {
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记斥候营地位置，跳过山洞探索`]);
-          } else {
-            if (await acquireLock()) {
-              try { await runTask('cave-explore'); }
-              finally { releaseLock(); }
-            }
-          }
-          if (loopStopped) break;
-          const caveInterval = 120 * (0.85 + Math.random() * 0.3);
-          setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏔️ 山洞探索模式，${caveInterval.toFixed(0)} 秒后下一轮`]);
-          await sleep(caveInterval);
           if (loopStopped) break;
           continue;
         }
@@ -1012,7 +1079,7 @@ export function HomePage() {
           }
         }
       }
-      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop]);
+      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, caveLoop]);
       loopRunning = false;
       clearLoopState();
       runningTaskIdsRef.current = [];
@@ -1032,6 +1099,10 @@ export function HomePage() {
     runningTaskIdsRef.current = [];
     setTaskRunning(false);
     setRunningTaskIds([]);
+    moduleGemInitialCount = null;
+    moduleGemCollectedCount = 0;
+    setGemInitialCount(null);
+    setGemCollectedCount(0);
     setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ 已停止所有任务`]);
   };
 
@@ -1395,13 +1466,19 @@ export function HomePage() {
               {gemRestCountdown && (
                 <p className="text-xs text-amber-600 mt-1">💤 休息中 剩余 {gemRestCountdown}</p>
               )}
+              {features.gemGatherEnabled && gemInitialCount !== null && (
+                <div className="flex items-center gap-4 mt-1.5 text-xs text-slate-500">
+                  <span>初始数量：<span className="text-slate-700 font-medium">{gemInitialCount}</span></span>
+                  <span>已采集数量：<span className="text-cyan-600 font-medium">{gemCollectedCount}</span><span className="text-slate-400">（每5分钟更新）</span></span>
+                </div>
+              )}
               {isFeatureLocked('gemGather') ? (
                 <p className="text-xs text-amber-600 mt-1.5 flex items-center gap-1">
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                   升级到 Pro 解锁宝石采集
                 </p>
               ) : (
-                <p className="text-xs text-slate-400 mt-1.5">选择队伍请勿与采集队伍冲突</p>
+                <p className="text-xs text-slate-400 mt-1.5">推荐默认配置，经测试不易被查</p>
               )}
             </div>
 
@@ -1461,7 +1538,7 @@ export function HomePage() {
                   </div>
                 </div>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.autoExplore} disabled={features.autoCaveExplore}
+                  <input type="checkbox" checked={features.autoExplore}
                     onChange={(e) => {
                       if (e.target.checked && !buildingOptions.includes('斥候营地')) {
                         alert('请在坐标配置页标记斥候营地位置');
@@ -1475,7 +1552,7 @@ export function HomePage() {
                 </label>
               </div>
               {features.autoExplore && (
-                <p className="text-xs text-slate-400 mt-1 ml-8">⚠ 迷雾探索模式已开启，山洞探索/其他功能已暂停</p>
+                <p className="text-xs text-slate-400 mt-1 ml-8">⚠ 迷雾探索模式已开启，其他功能已暂停</p>
               )}
               {/* 山洞探索 */}
               <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0">
@@ -1485,16 +1562,13 @@ export function HomePage() {
                   <span className="text-xs text-slate-400">· 每2分钟</span>
                 </span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.autoCaveExplore} disabled={features.autoExplore || features.autoWorldChat}
+                  <input type="checkbox" checked={features.autoCaveExplore}
                     onChange={(e) => setFeatures({ ...features, autoCaveExplore: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.autoCaveExplore ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                   <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoCaveExplore ? 'translate-x-[18px]' : ''}`} />
                 </label>
               </div>
-              {features.autoCaveExplore && (
-                <p className="text-xs text-slate-400 mt-1 ml-8">⚠ 山洞探索模式已开启，迷雾探索/其他功能已暂停</p>
-              )}
             </div>
 
             {/* 自动喊话 */}
@@ -1502,7 +1576,7 @@ export function HomePage() {
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center text-base">📢</span>自动喊话</span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.autoWorldChat} disabled={features.autoCaveExplore}
+                  <input type="checkbox" checked={features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, autoWorldChat: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.autoWorldChat ? 'bg-purple-500' : 'bg-slate-200'}`} />

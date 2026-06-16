@@ -179,28 +179,38 @@ export async function gatherGem(
 
   // [2/7] 缩小地图（所有队伍共一次，后续在每队结束后缩地接续）
   ctx.log('[2/7] 缩小地图');
-  const p = gg.pinch;
-  // 缩放角度抖动：保持中心 (800,450) 和缩放比例不变，仅旋转捏合轴线
-  const pinchAngleJitter = 15 * Math.PI / 180; // ±15°
-  const doPinch = () => {
-    const angle = (Math.random() * 2 - 1) * pinchAngleJitter;
-    const cos = Math.cos(angle), sin = Math.sin(angle);
-    const cx = 800, cy = 450;
-    const startR = 500, endR = 250;
-    // 手指1: 中心左侧, 手指2: 中心右侧，绕中心旋转 angle
-    const f1sx = cx - startR * cos, f1sy = cy - startR * sin;
-    const f1ex = cx - endR * cos,   f1ey = cy - endR * sin;
-    const f2sx = cx + startR * cos, f2sy = cy + startR * sin;
-    const f2ex = cx + endR * cos,   f2ey = cy + endR * sin;
-    return ctx.pinch(
-      Math.round(f1sx), Math.round(f1sy),
-      Math.round(f2sx), Math.round(f2sy),
-      Math.round(f1ex), Math.round(f1ey),
-      Math.round(f2ex), Math.round(f2ey),
-      p.duration
-    );
+  // 双指缩放 → 改为：长按城内外按钮2秒 + 点击(322,700)
+  // const p = gg.pinch;
+  // // 缩放角度抖动：保持中心 (800,450) 和缩放比例不变，仅旋转捏合轴线
+  // const pinchAngleJitter = 15 * Math.PI / 180; // ±15°
+  // const doPinch = () => {
+  //   const angle = (Math.random() * 2 - 1) * pinchAngleJitter;
+  //   const cos = Math.cos(angle), sin = Math.sin(angle);
+  //   const cx = 800, cy = 450;
+  //   const startR = 500, endR = 250;
+  //   // 手指1: 中心左侧, 手指2: 中心右侧，绕中心旋转 angle
+  //   const f1sx = cx - startR * cos, f1sy = cy - startR * sin;
+  //   const f1ex = cx - endR * cos,   f1ey = cy - endR * sin;
+  //   const f2sx = cx + startR * cos, f2sy = cy + startR * sin;
+  //   const f2ex = cx + endR * cos,   f2ey = cy + endR * sin;
+  //   return ctx.pinch(
+  //     Math.round(f1sx), Math.round(f1sy),
+  //     Math.round(f2sx), Math.round(f2sy),
+  //     Math.round(f1ex), Math.round(f1ey),
+  //     Math.round(f2ex), Math.round(f2ey),
+  //     p.duration
+  //   );
+  // };
+  const doZoomOut = async () => {
+    ctx.log(`  长按城内外按钮 (${worldBtn.x}, ${worldBtn.y}) 2秒`);
+    await ctx.swipeAndHold(worldBtn.x, worldBtn.y, worldBtn.x, worldBtn.y, 2000);
+    await ctx.releaseHold();
+    await ctx.sleep(0.5);
+    ctx.log(`  点击 (322, 700) 完成缩放`);
+    await ctx.tap(322, 700);
+    await ctx.sleep(0.5);
   };
-  await doPinch();
+  await doZoomOut();
   await ctx.sleep(1);
 
   // 螺旋搜索状态（全程接续，不因换队重置）
@@ -308,19 +318,35 @@ export async function gatherGem(
       await ctx.tap(gemX, gemY);
       await ctx.sleep(1.5);
 
-      ctx.log(`  点击放大后的目标 (${gg.pinchedGemTapPoint.x}, ${gg.pinchedGemTapPoint.y})`);
-      await ctx.tap(gg.pinchedGemTapPoint.x, gg.pinchedGemTapPoint.y);
-      await ctx.sleep(1);
-
-      // 检测 (768,388)-(808,427) 区域是否有采集状态标志，有说明已在采集，缩回继续找
+      // 检测 (745,360)-(902,502) 区域是否有采集状态标志，有说明已在采集，缩回继续找
       {
-        const caiJiRegionPath = await ctx.captureRegion(768, 388, 40, 39);
+        const caiJiRegionPath = await ctx.captureRegion(745, 360, 157, 142);
         try {
-          const caiJiResult = await vision.findImage(caiJiRegionPath, CAIJI_STATE_TEMPLATE, 0.7);
+          const caiJiResult = await vision.findImage(caiJiRegionPath, CAIJI_STATE_TEMPLATE, 0.6);
+          // 调试：保存采集状态检测截图（红框+置信度）
+          if (isDevEnv()) {
+            try {
+              const DEBUG_DIR = 'D:/SLG/temp/debug/caiji';
+              await fs.mkdir(DEBUG_DIR, { recursive: true });
+              const caiJiMeta = await sharp(caiJiRegionPath).metadata();
+              const w = caiJiMeta.width!, h = caiJiMeta.height!;
+              const label = caiJiResult.found ? 'OCCUPIED' : 'FREE';
+              const color = caiJiResult.found ? '#ff4444' : '#44aa44';
+              const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+                <rect x="2" y="2" width="${w - 4}" height="${h - 4}" fill="none" stroke="${color}" stroke-width="2" rx="1"/>
+                <rect x="2" y="${h - 20}" width="${w - 4}" height="18" fill="${color}" rx="1"/>
+                <text x="${w / 2}" y="${h - 6}" font-family="Arial" font-size="10" font-weight="bold" fill="white" text-anchor="middle">${label} ${caiJiResult.confidence.toFixed(2)}</text>
+              </svg>`;
+              const outPath = path.join(DEBUG_DIR, `caiji_${label}_${Date.now()}.png`);
+              await sharp(caiJiRegionPath)
+                .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+                .toFile(outPath);
+            } catch {}
+          }
           if (caiJiResult.found) {
             ctx.log(`  🔄 该宝石已有队伍在采集 (confidence: ${caiJiResult.confidence.toFixed(3)})，缩地后继续螺旋`);
             await fs.unlink(caiJiRegionPath).catch(() => {});
-            await doPinch();
+            await doZoomOut();
             await ctx.sleep(1);
             continue;  // 回到 caijiRetry 循环，继续螺旋搜索
           }
@@ -328,6 +354,10 @@ export async function gatherGem(
           await fs.unlink(caiJiRegionPath).catch(() => {});
         }
       }
+
+      ctx.log(`  点击放大后的目标 (${gg.pinchedGemTapPoint.x}, ${gg.pinchedGemTapPoint.y})`);
+      await ctx.tap(gg.pinchedGemTapPoint.x, gg.pinchedGemTapPoint.y);
+      await ctx.sleep(1);
 
       // 检测当前中心坐标，与已采集记录比对，避免重复采集
       if (collectedCoords.length > 0) {
@@ -341,7 +371,7 @@ export async function gatherGem(
           ctx.log(`  [坐标] 当前: ${coordText} → ${curCoord ? `(${curCoord.x},${curCoord.y})` : '解析失败'} | 已采集: [${recorded}]`);
           if (curCoord && isCoordRecorded(curCoord.x, curCoord.y, collectedCoords)) {
             ctx.log(`  ⚠️ 该宝石已采集过，缩地后继续螺旋`);
-            await doPinch();
+            await doZoomOut();
             await ctx.sleep(1);
             continue;  // 回到 caijiRetry 循环，继续螺旋搜索
           }
@@ -360,7 +390,7 @@ export async function gatherGem(
         caijiFound = true;
       } else {
         ctx.log(`  ❌ 未找到采集按钮 (confidence: ${caijiResult.confidence.toFixed(3)})，缩地后继续螺旋`);
-        await doPinch();
+        await doZoomOut();
         await ctx.sleep(1);
       }
     }
@@ -516,7 +546,7 @@ export async function gatherGem(
     }
 
     // 缩地后接续螺旋搜索下一颗矿
-    await doPinch();
+    await doZoomOut();
     await ctx.sleep(1);
   }
 

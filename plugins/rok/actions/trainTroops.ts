@@ -81,15 +81,17 @@ export async function trainTroopsSingle(
     trainY = cached.y;
     ctx.log(`使用缓存的训练按钮坐标 (${trainX}, ${trainY})`);
   } else {
-    const popup = await ctx.findImageWithLocation(trainTemplatePath, 0.75, [0.7, 0.8, 0.9, 1.0, 1.1], undefined, undefined, { x: 528, y: 451, width: 552, height: 308 });
+    const TRAIN_SEARCH_REGION = { x: 776, y: 461, width: 378, height: 300 };
+    const popup = await ctx.findImageWithLocation(trainTemplatePath, 0.6, [0.7, 0.8, 0.9, 1.0, 1.1], false, undefined, TRAIN_SEARCH_REGION);
+    ctx.log(`  训练按钮最高置信度: ${popup.confidence.toFixed(3)}`);
     if (!popup.found) {
-      ctx.log(`❌ 未找到弹出训练按钮 (confidence: ${popup.confidence.toFixed(3)})`);
+      ctx.log(`❌ 未找到弹出训练按钮`);
       return 'no_train_button';
     }
     trainX = popup.x;
     trainY = popup.y;
     ctx.setCachedLocation(CACHE_KEY, trainX, trainY);
-    ctx.log(`识别并缓存训练按钮 (${trainX}, ${trainY}) confidence: ${popup.confidence.toFixed(3)}`);
+    ctx.log(`识别并缓存训练按钮 (${trainX}, ${trainY})`);
   }
   await ctx.tap(trainX, trainY);
   await ctx.sleep(2);

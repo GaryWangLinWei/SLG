@@ -12,6 +12,7 @@ import { rallyFort } from './actions/rallyFort';
 import { rallyFortSpiral } from './actions/rallyFortSpiral';
 import { gatherGem } from './actions/gatherGem';
 import { caveExplore } from './actions/caveExplore';
+import { readGemCount } from './actions/readGemCount';
 import { sendWorldChat, sendWorldChatFirstRun } from './actions/sendWorldChat';
 import { ensureInCity, ensureBottomBarCollapsed } from './utils/location';
 import { ocrService } from '../../core/ocr/OcrService';
@@ -598,6 +599,15 @@ export const RiseOfKingdomsPlugin: Plugin = {
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const result = await caveExplore(ctx, config);
         ctx.log(`山洞探索: ${result}`);
+      }
+    },
+    {
+      id: 'read-gem-count',
+      name: '读取宝石数量',
+      description: 'OCR 读取游戏界面宝石数量显示',
+      run: async (ctx) => {
+        const count = await readGemCount(ctx);
+        ctx.log(`宝石数量: ${count ?? '解析失败'}`);
       }
     },
     {

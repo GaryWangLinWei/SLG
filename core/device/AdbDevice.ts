@@ -441,8 +441,12 @@ export class AdbDevice implements Device {
     x2: number, y2: number,
     holdMs: number = 500
   ): Promise<void> {
+    const sx1 = this.jitterCoord(x1);
+    const sy1 = this.jitterCoord(y1);
+    const sx2 = this.jitterCoord(x2);
+    const sy2 = this.jitterCoord(y2);
     // 单次连续滑动：手指在移动中，结束时游戏视为 swipe-end 而非 tap
-    const cmd = `"${getAdbPath()}" -s ${this.deviceId} shell input swipe ${x1} ${y1} ${x2} ${y2} ${holdMs}`;
+    const cmd = `"${getAdbPath()}" -s ${this.deviceId} shell input swipe ${sx1} ${sy1} ${sx2} ${sy2} ${holdMs}`;
     this.holdProcess = spawn(cmd, [], { shell: true, stdio: 'ignore' });
     this.holdProcess.on('error', () => {});
 

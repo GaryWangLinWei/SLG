@@ -171,8 +171,8 @@ export async function caveExplore(
         const text = (await ocrService.readText(regionPath)).replace(/¥/g, 'Y');
         ctx.log(`  区域${region.id} OCR: "${text}"`);
 
-        // 解析 "X:数字Y:数字" 格式
-        const match = text.match(/X\s*:?\s*(\d+)\s*Y\s*:?\s*(\d+)/i);
+        // 解析 "X:数字Y:数字" 格式（容忍 OCR 噪点：X 和 Y 之间允许任意非数字字符）
+        const match = text.match(/X\s*:?\s*(\d+)\D*?Y\s*:?\s*(\d+)/i);
         if (match) {
           anyOcrMatch = true;
           const coordKey = `X:${match[1]}Y:${match[2]}`;
