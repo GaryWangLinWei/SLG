@@ -1,6 +1,6 @@
 import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
-import { resetCityView } from '../utils/location';
+import { resetCityView, swipeBuildingToCenter } from '../utils/location';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -58,14 +58,7 @@ export async function trainTroopsSingle(
     ctx.log(`❌ 未找到建筑坐标: ${targetBuilding}`);
     return 'not_found';
   }
-  ctx.log(`--- 第 1 步: 拖动 ${targetBuilding} 到屏幕中心 (${buildPos.x}, ${buildPos.y} → 800, 450) ---`);
-  await ctx.swipe(buildPos.x, buildPos.y, 800, 450, 1000);
-  await ctx.tap(800, 450);  // 打断惯性
-  await ctx.sleep(0.3);
-  await ctx.tap(800, 450);
-  await ctx.sleep(0.5);
-  await ctx.tap(800, 450);
-  await ctx.sleep(1);
+  await swipeBuildingToCenter(ctx, buildPos, targetBuilding);
 
   // ============================================
   // 第 2 步: 图像识别训练按钮，首次缩放识别后缓存坐标

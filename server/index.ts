@@ -19,7 +19,13 @@ import { licenseService } from '../core/license';
 
 const APP_VERSION: string = (() => {
   try {
-    const pkg = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf-8'));
+    // 开发模式: server/index.ts → ../package.json
+    // 打包后:   dist/server/index.js → ../../package.json (asar 根目录)
+    let pkgPath = path.join(__dirname, '..', 'package.json');
+    if (!fs.existsSync(pkgPath)) {
+      pkgPath = path.join(__dirname, '..', '..', 'package.json');
+    }
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
     return pkg.version || '0.0.0';
   } catch { return '0.0.0'; }
 })();

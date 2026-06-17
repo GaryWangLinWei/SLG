@@ -1,6 +1,6 @@
 import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
-import { resetCityView } from '../utils/location';
+import { resetCityView, swipeBuildingToCenter } from '../utils/location';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import { ocrService } from '../../../core/ocr/OcrService';
 import * as path from 'path';
@@ -8,6 +8,18 @@ import * as fs from 'fs/promises';
 import sharp from 'sharp';
 
 const TEMPLATE_DIR = getTemplatesDir();
+
+// 开发调试：保存 OCR 区域截图
+const CAVE_DEBUG_DIR = 'D:/SLG/temp/debug/cave';
+
+function isDevEnv(): boolean {
+  try {
+    const { app } = require('electron');
+    return !app.isPackaged;
+  } catch {
+    return true;
+  }
+}
 
 // 斥候列表滑动
 const SCOUT_LIST_SWIPE_START = { x: 904, y: 675 };
@@ -25,7 +37,7 @@ const CAVE_TAB = { x: 940, y: 267 };
 // OCR 区域：3 个山洞坐标显示位置
 const CAVE_OCR_REGIONS = [
   { id: 1, x: 286, y: 457, width: 144, height: 33, cx: 358, cy: 473 },
-  { id: 2, x: 297, y: 626, width: 128, height: 30, cx: 361, cy: 641 },
+  { id: 2, x: 286, y: 612, width: 144, height: 44, cx: 358, cy: 634 },
 ];
 
 // 调查按钮
@@ -75,14 +87,7 @@ export async function caveExplore(
     // ============================================
     // 第 1 步: 拖动斥候营地到屏幕中心，点击
     // ============================================
-    ctx.log(`[1/10] 拖动 ${buildingKey} 到屏幕中心 (${buildPos.x}, ${buildPos.y} → 800, 450)`);
-    await ctx.swipe(buildPos.x, buildPos.y, 800, 450, 1000);
-    await ctx.tap(800, 450);
-    await ctx.sleep(0.3);
-    await ctx.tap(800, 450);
-    await ctx.sleep(0.5);
-    await ctx.tap(800, 450);
-    await ctx.sleep(1);
+    await swipeBuildingToCenter(ctx, buildPos, buildingKey);
 
     // ============================================
     // 第 2 步: 识别弹出侦查按钮（复用 explore 缓存 key）
@@ -167,9 +172,28 @@ export async function caveExplore(
     for (const region of CAVE_OCR_REGIONS) {
       const regionPath = await ctx.captureRegion(region.x, region.y, region.width, region.height);
 
+      // 开发调试：保存 OCR 区域截图
+      if (isDevEnv()) {
+        try {
+          await fs.mkdir(CAVE_DEBUG_DIR, { recursive: true });
+          const regionBuf = await fs.readFile(regionPath);
+          const outPath = path.join(CAVE_DEBUG_DIR, `cave_ocr_r${region.id}_${Date.now()}.png`);
+          await fs.writeFile(outPath, regionBuf);
+          ctx.log(`  [调试] OCR 区域${region.id} 截图: ${outPath}`);
+        } catch {}
+      }
+
       try {
-        const text = (await ocrService.readText(regionPath)).replace(/¥/g, 'Y');
-        ctx.log(`  区域${region.id} OCR: "${text}"`);
+        const rawText = await ocrService.readText(regionPath);
+        // OCR 纠错：常见数字误识别
+        //   T→7 (如 X:T47 应为 X:747), O→0, I/l→1, S→5
+        const text = rawText
+          .replace(/¥/g, 'Y')
+          .replace(/T(?=\d)/g, '7')
+          .replace(/O(?=\d)/g, '0')
+          .replace(/[Il](?=\d)/g, '1')
+          .replace(/S(?=\d)/g, '5');
+        ctx.log(`  区域${region.id} OCR: "${rawText}" → 纠错后: "${text}"`);
 
         // 解析 "X:数字Y:数字" 格式（容忍 OCR 噪点：X 和 Y 之间允许任意非数字字符）
         const match = text.match(/X\s*:?\s*(\d+)\D*?Y\s*:?\s*(\d+)/i);

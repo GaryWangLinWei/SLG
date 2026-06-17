@@ -19,6 +19,7 @@ export interface HomeFeatures {
   rallyFortTeam: number;
   rallyFortDowngrade: boolean;
   gemGatherEnabled: boolean;
+  gemGatherFocusMode: boolean;
   gemGatherTeams: number[];
   gemGatherActiveHours: number;
   gemGatherRestHours: number;
@@ -53,6 +54,7 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   rallyFortTeam: 1,
   rallyFortDowngrade: true,
   gemGatherEnabled: false,
+  gemGatherFocusMode: false,
   gemGatherTeams: [1],
   gemGatherActiveHours: 2,
   gemGatherRestHours: 1,

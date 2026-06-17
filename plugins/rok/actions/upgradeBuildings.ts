@@ -1,6 +1,6 @@
 import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
-import { resetCityView } from '../utils/location';
+import { resetCityView, swipeBuildingToCenter } from '../utils/location';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -27,14 +27,7 @@ export async function upgradeSingleBuilding(
   await resetCityView(ctx, config);
 
   // Step 1: Drag building to center, then tap
-  ctx.log(`  [1/6] 拖动建筑到屏幕中心 (${pos.x}, ${pos.y} → 800, 450)`);
-  await ctx.swipe(pos.x, pos.y, 800, 450, 1000);
-  await ctx.tap(800, 450);  // 打断惯性
-  await ctx.sleep(0.3);
-  await ctx.tap(800, 450);
-  await ctx.sleep(0.5);
-  await ctx.tap(800, 450);
-  await ctx.sleep(1);
+  await swipeBuildingToCenter(ctx, pos, targetBuilding);
 
   // Step 2: Find and tap popup upgrade button
   const upgradeTemplate = path.join(TEMPLATE_DIR, config.popupUpgradeTemplate);

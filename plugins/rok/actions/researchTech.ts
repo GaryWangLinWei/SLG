@@ -1,6 +1,6 @@
 import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
-import { resetCityView } from '../utils/location';
+import { resetCityView, swipeBuildingToCenter } from '../utils/location';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import * as path from 'path';
 import * as fs from 'fs/promises';
@@ -144,14 +144,7 @@ export async function researchTech(
     ctx.log(`❌ 未找到建筑坐标: ${buildingName}`);
     return 'not_found';
   }
-  ctx.log(`--- 第 1 步: 拖动 ${buildingName} 到屏幕中心 (${academyPos.x}, ${academyPos.y} → 800, 450) ---`);
-  await ctx.swipe(academyPos.x, academyPos.y, 800, 450, 1000);
-  await ctx.tap(800, 450);  // 打断惯性
-  await ctx.sleep(0.3);
-  await ctx.tap(800, 450);
-  await ctx.sleep(0.5);
-  await ctx.tap(800, 450);
-  await ctx.sleep(1);
+  await swipeBuildingToCenter(ctx, academyPos, buildingName);
 
   // ============================================
   // 第 2 步: 识别弹出研究按钮，进入研究面板

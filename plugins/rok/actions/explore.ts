@@ -1,6 +1,6 @@
 import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
-import { resetCityView } from '../utils/location';
+import { resetCityView, swipeBuildingToCenter } from '../utils/location';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import * as path from 'path';
 import sharp from 'sharp';
@@ -51,12 +51,7 @@ export async function explore(
     await resetCityView(ctx, config);
 
     // 拖动建筑到屏幕中心
-    ctx.log(`  [1/8] 拖动 ${buildingName} 到屏幕中心 (${buildPos.x}, ${buildPos.y} → 800, 450)`);
-    await ctx.swipe(buildPos.x, buildPos.y, 800, 450, 1000);
-    await ctx.tap(800, 450);  // 打断惯性
-    await ctx.sleep(0.5);
-    await ctx.tap(800, 450);
-    await ctx.sleep(1);
+    await swipeBuildingToCenter(ctx, buildPos, buildingName);
 
     // 第 3 步: 图像识别弹出侦查按钮
     ctx.log('  [3/8] 识别弹出侦查按钮');
