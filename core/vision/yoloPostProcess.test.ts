@@ -53,19 +53,19 @@ describe('parseYoloOutput', () => {
   it('should parse valid detections from multi-class tensor', () => {
     // (1, 6, 2) channel-major: [ch0_a0, ch0_a1, ch1_a0, ch1_a1, ...]
     // ch0=x, ch1=y, ch2=w, ch3=h, ch4=obj, ch5=cls
-    // anchor 0: x=0.5,y=0.5,w=0.1,h=0.1,obj=0.9,cls=0.8 → conf=0.72
-    // anchor 1: x=0.3,y=0.3,w=0.05,h=0.05,obj=0.4,cls=0.3 → conf=0.12
+    // anchor 0: x=0.5,y=0.5,w=0.1,h=0.1,conf=0.9
+    // anchor 1: x=0.3,y=0.3,w=0.05,h=0.05,conf=0.4
     const tensor = new Float32Array([
       0.5, 0.3,  // ch0: x for anchors 0,1
       0.5, 0.3,  // ch1: y
       0.1, 0.05, // ch2: w
       0.1, 0.05, // ch3: h
-      0.9, 0.4,  // ch4: obj
-      0.8, 0.3,  // ch5: cls
+      0.9, 0.4,  // ch4: conf
+      0.8, 0.3,  // ch5: (unused)
     ]);
     const result = parseYoloOutput(tensor, [1, 6, 2], 0.5, 1);
     expect(result.length).toBe(1);
-    expect(result[0].confidence).toBeCloseTo(0.72, 5);
+    expect(result[0].confidence).toBeCloseTo(0.9, 5);
     expect(result[0].classIndex).toBe(0);
   });
 
@@ -76,7 +76,7 @@ describe('parseYoloOutput', () => {
       0.6, 0.4,  // ch1: y
       0.1, 0.2,  // ch2: w
       0.1, 0.2,  // ch3: h
-      0.9, 0.4,  // ch4: obj → anchor0 conf=0.9, anchor1 conf=0.4
+      0.9, 0.4,  // ch4: conf → anchor0 conf=0.9, anchor1 conf=0.4
     ]);
     const result = parseYoloOutput(tensor, [1, 5, 2], 0.5, 0);
     expect(result.length).toBe(1);
@@ -134,7 +134,7 @@ describe('scaleToOriginal', () => {
 
 describe('postProcess', () => {
   it('should run full pipeline end to end', () => {
-    // 1 anchor, (x=0.5, y=0.5, w=0.1, h=0.1, obj=0.9, cls=0.95) → conf=0.855
+    // 1 anchor, (x=0.5, y=0.5, w=0.1, h=0.1, conf=0.9)
     var tensor = new Float32Array([
       0.5, 0.5, 0.1, 0.1, 0.9, 0.95,
     ]);
@@ -146,7 +146,7 @@ describe('postProcess', () => {
     );
     // max(1600,900)=1600, x=0.5*1600=800, y=0.5*1600=800
     expect(result.length).toBe(1);
-    expect(result[0].confidence).toBeCloseTo(0.855, 3);
+    expect(result[0].confidence).toBeCloseTo(0.9, 5);
     expect(result[0].x).toBe(800);
     expect(result[0].y).toBe(800);
   });

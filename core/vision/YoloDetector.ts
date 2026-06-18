@@ -81,7 +81,7 @@ export class YoloDetector {
 
   /**
    * 检测图片中的所有目标。
-   * 返回按置信度降序排列。
+   * 返回按置信度降序排列，只保留 gem（class 0），过滤 tieshou（class 1）。
    */
   async detect(
     imagePath: string,
@@ -101,29 +101,29 @@ export class YoloDetector {
     const output = results[outputName];
     const rawData = output.data as Float32Array;
 
-    // YOLO ONNX 输出的是 model space 像素坐标（0~640），归一化 spatial 通道到 [0,1]
-    // 输出布局: (1, features, anchors) features=[x, y, w, h, objectness]
-    // objectness 已是 [0,1]，不需要归一化
+    // YOLO ONNX 输出布局: (1, features, anchors)
+    // nc=2 时 features=6: ch0~3=spatial(x,y,w,h), ch4=objectness, ch5=gem_score, ch6=tieshou_score
     const numAnchors = output.dims[2];
+    const numClasses = output.dims[1] - 4; // 从输出维度自动推算类别数
 
-    // ONNX (1, channels, numAnchors) 在 C 序内存中是 channel-major:
-    // [ch0_all_anchors, ch1_all_anchors, ...]
-    // 对 (1,5,8400): [x_0..x_8399, y_0..y_8399, w_0..w_8399, h_0..h_8399, obj_0..obj_8399]
+    // ONNX (1, channels, numAnchors) 在 C 序内存中是 channel-major
     const normalized = new Float32Array(rawData.length);
-    // 归一化 spatial 通道（0~3: x, y, w, h），保留 objectness（通道 4）不变
+    // 归一化 spatial 通道（0~3: x, y, w, h）
     for (let ch = 0; ch < 4; ch++) {
       const chOffset = ch * numAnchors;
       for (let i = 0; i < numAnchors; i++) {
         normalized[chOffset + i] = rawData[chOffset + i] / this.modelSize;
       }
     }
-    // 复制 objectness 通道（保持不变）
-    const objOffset = 4 * numAnchors;
-    for (let i = 0; i < numAnchors; i++) {
-      normalized[objOffset + i] = rawData[objOffset + i];
+    // 复制 objectness + class score 通道（ch4+，保持不变）
+    for (let ch = 4; ch < output.dims[1]; ch++) {
+      const chOffset = ch * numAnchors;
+      for (let i = 0; i < numAnchors; i++) {
+        normalized[chOffset + i] = rawData[chOffset + i];
+      }
     }
 
-    return postProcess(
+    const allDetections = postProcess(
       normalized,
       output.dims,
       imgWidth,
@@ -133,7 +133,10 @@ export class YoloDetector {
       padY / this.modelSize,
       threshold,
       iouThreshold,
-      0  // numClasses=0: 单类模型，无独立 class score 通道
+      numClasses
     );
+
+    // 只保留 gem（class 0），过滤掉 tieshou（class 1）
+    return allDetections.filter(d => d.classIndex === 0);
   }
 }

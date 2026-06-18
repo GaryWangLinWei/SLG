@@ -88,25 +88,24 @@ export function parseYoloOutput(
     const y = output[numAnchors + i];
     const w = output[2 * numAnchors + i];
     const h = output[3 * numAnchors + i];
-    const objectness = output[4 * numAnchors + i];
 
     let confidence: number;
     let bestClass = 0;
 
-    if (numClasses === 0) {
-      // 单类模型，无独立 class score
-      confidence = objectness;
+    if (numClasses <= 1) {
+      // 单类模型 (nc=1): ch4 直接就是置信度
+      confidence = output[4 * numAnchors + i];
     } else {
-      // 多类模型：找最高分的类别
+      // 多类模型 (nc>=2): ch4+ 直接是各类别置信度，没有独立的 objectness 通道
       let bestClassScore = 0;
       for (let c = 0; c < numClasses; c++) {
-        const score = output[(5 + c) * numAnchors + i];
+        const score = output[(4 + c) * numAnchors + i];
         if (score > bestClassScore) {
           bestClassScore = score;
           bestClass = c;
         }
       }
-      confidence = objectness * bestClassScore;
+      confidence = bestClassScore;
     }
 
     if (confidence >= threshold) {
