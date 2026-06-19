@@ -52,31 +52,28 @@ export interface GemGatherOutcome {
  *   garrisoned — 驻扎
  *   returning  — 返回
  */
-export async function detectTeamStates(ctx: PluginContext): Promise<DetectedState[]> {
-  ctx.log(`[状态检测] 截取区域 (${STATUS_REGION.x},${STATUS_REGION.y}) ${STATUS_REGION.w}x${STATUS_REGION.h}`);
-  const regionPath = await ctx.captureRegion(
-    STATUS_REGION.x, STATUS_REGION.y, STATUS_REGION.w, STATUS_REGION.h
-  );
+export async function detectTeamStates(
+  ctx: PluginContext,
+  region: { x: number; y: number; w: number; h: number } = STATUS_REGION,
+  states: TeamState[] = ['zhuzha', 'caiji', 'back', 'totarget']
+): Promise<DetectedState[]> {
+  ctx.log(`[状态检测] 截取区域 (${region.x},${region.y}) ${region.w}x${region.h} states=[${states.join(',')}]`);
+  const regionPath = await ctx.captureRegion(region.x, region.y, region.w, region.h);
 
   try {
     const results: DetectedState[] = [];
-    // 记录匹配框，用于绘制调试截图
     const drawRects: { y: number; h: number; state: string; confidence: number }[] = [];
 
-    for (const [state, templatePath] of Object.entries(STATE_TEMPLATES)) {
-      // 先获取模板尺寸
+    for (const state of states) {
+      const templatePath = STATE_TEMPLATES[state];
       const tplMeta = await sharp(templatePath).metadata();
       const tplH = tplMeta.height || 24;
 
       const matches = await vision.findAllImages(regionPath, templatePath, 0.65);
       ctx.log(`  [${state}] 匹配到 ${matches.length} 个`);
       for (const m of matches) {
-        const screenY = m.location.y + STATUS_REGION.y;
-        results.push({
-          state: state as TeamState,
-          y: screenY,
-          confidence: m.confidence,
-        });
+        const screenY = m.location.y + region.y;
+        results.push({ state, y: screenY, confidence: m.confidence });
         ctx.log(`    y=${screenY} conf=${(m.confidence * 100).toFixed(1)}%`);
         drawRects.push({
           y: m.location.y,
@@ -87,7 +84,7 @@ export async function detectTeamStates(ctx: PluginContext): Promise<DetectedStat
       }
     }
 
-    // 保存调试截图：无论是否匹配都保存，方便确认区域是否正确
+    // 调试 SVG 截图保留
     if (isDevEnv()) {
       try {
         await fs.mkdir(DEBUG_DIR, { recursive: true });
@@ -96,18 +93,17 @@ export async function detectTeamStates(ctx: PluginContext): Promise<DetectedStat
         const h = regionMeta.height!;
 
         const colors: Record<string, string> = {
-          zhuzha: '#f59e0b',     // 橙 — 驻扎
-          caiji: '#22c55e',      // 绿 — 采集中
-          back: '#ef4444',       // 红 — 返回
-          totarget: '#3b82f6',   // 蓝 — 前往目标
+          zhuzha: '#f59e0b',
+          caiji: '#22c55e',
+          back: '#ef4444',
+          totarget: '#3b82f6',
         };
 
         let svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
           <rect x="0" y="0" width="${w}" height="${h}" fill="none" stroke="#666" stroke-width="1"/>`;
-        // 坐标刻度（每 50px 标一个 Y 值）
         for (let gy = 0; gy < h; gy += 50) {
           svg += `<line x1="0" y1="${gy}" x2="${w}" y2="${gy}" stroke="#444" stroke-width="0.5" stroke-dasharray="3,3"/>
-            <text x="2" y="${gy + 10}" font-family="Arial" font-size="9" fill="#888">y=${gy + STATUS_REGION.y}</text>`;
+            <text x="2" y="${gy + 10}" font-family="Arial" font-size="9" fill="#888">y=${gy + region.y}</text>`;
         }
         for (const r of drawRects) {
           const color = colors[r.state] || '#fff';
