@@ -145,6 +145,20 @@ export async function zoomOutToWorld(
   await ctx.sleep(0.5);
 }
 
+export async function checkIdleTeamsAvailable(ctx: PluginContext): Promise<boolean> {
+  const { width: addTeamW = 80, height: addTeamH = 80 } = await sharp(ADD_TEAM_BTN_TEMPLATE).metadata();
+  const x = 1517 - Math.floor(addTeamW! / 2);
+  const y = 130 - Math.floor(addTeamH! / 2);
+  const regionPath = await ctx.captureRegion(x, y, addTeamW!, addTeamH!);
+  try {
+    const diff = await ctx.compareImages(regionPath, ADD_TEAM_BTN_TEMPLATE);
+    ctx.log(`  AddTeamBtn 匹对差异: ${(diff * 100).toFixed(1)}%`);
+    return diff < 0.3;
+  } finally {
+    await fs.unlink(regionPath).catch(() => {});
+  }
+}
+
 export interface GemGatherOutcome {
   result: 'success' | 'not_found' | 'no_idle_teams' | 'team_unavailable';
   dispatched: number;
@@ -368,21 +382,13 @@ export async function gatherGem(
 
     // [5/7] 检测空闲队伍
     ctx.log(`  [5/7] 检测是否有空闲队伍...`);
-    const { width: addTeamW = 80, height: addTeamH = 80 } = await sharp(ADD_TEAM_BTN_TEMPLATE).metadata();
-    const addTeamRegionX = 1517 - Math.floor(addTeamW! / 2);
-    const addTeamRegionY = 130 - Math.floor(addTeamH! / 2);
-    const addTeamRegionPath = await ctx.captureRegion(addTeamRegionX, addTeamRegionY, addTeamW!, addTeamH!);
-    const addTeamDiff = await ctx.compareImages(addTeamRegionPath, ADD_TEAM_BTN_TEMPLATE);
-    ctx.log(`  AddTeamBtn 匹对差异: ${(addTeamDiff * 100).toFixed(1)}%`);
-
-    if (addTeamDiff >= 0.3) {
+    const idleAvailable = await checkIdleTeamsAvailable(ctx);
+    if (!idleAvailable) {
       ctx.log(`  ⚠️ 没有空闲队伍，停止采集，切换回城内`);
-      await fs.unlink(addTeamRegionPath).catch(() => {});
       await ctx.tap(worldBtn.x, worldBtn.y);
-      await ctx.sleep(1.5 + Math.random() * 1.0);   // 1.5-2.5s
+      await ctx.sleep(1.5 + Math.random() * 1.0);
       break;
     }
-    await fs.unlink(addTeamRegionPath).catch(() => {});
     ctx.log(`  有空闲队伍，继续`);
 
     // [6/7] 点击选择队伍按钮
