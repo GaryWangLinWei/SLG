@@ -12,6 +12,7 @@ let loopLogs: string[] = [];
 let loopCompletedBuildings: boolean[] = [false, false, false, false, false];
 let loopCompletedTechs: boolean[] = [false, false, false, false, false];
 let deviceBusy = false;
+const GATHER_LOOP_INTERVAL = 300; // 城外采集独立循环间隔（秒）
 let moduleGemInitialCount: number | null = null;
 let moduleGemCollectedCount: number = 0;
 
@@ -386,7 +387,7 @@ export function HomePage() {
     setTaskRunning(true);
     const isExploreMode = features.autoExplore;
     const isWorldChatMode = features.autoWorldChat;
-    const interval = isExploreMode ? 60 : isWorldChatMode ? features.worldChatInterval : features.loopInterval;
+    const interval = isExploreMode ? 60 : isWorldChatMode ? features.worldChatInterval : GATHER_LOOP_INTERVAL;
     clearLoopState();
     const modeLabel = isExploreMode ? '迷雾探索' : isWorldChatMode ? '自动喊话' : '自动循环';
     setLogs([`[${new Date().toLocaleTimeString()}] 🚀 开始${modeLabel} (间隔${interval}秒)`]);
@@ -456,7 +457,7 @@ export function HomePage() {
               } catch {} finally { releaseLock(); }
             }
           }
-          const jitteredInterval = features.loopInterval * (0.85 + Math.random() * 0.3);
+          const jitteredInterval = GATHER_LOOP_INTERVAL * (0.85 + Math.random() * 0.3);
           const startWait = Date.now();
           while (!loopStopped && (Date.now() - startWait) < jitteredInterval * 1000) {
             await sleep(1);
@@ -1187,19 +1188,10 @@ export function HomePage() {
             <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center text-white text-xl shadow-lg shadow-emerald-500/30">🎮</div>
             <div>
               <h3 className="font-semibold text-slate-800">{taskRunning ? '运行中' : '准备就绪'}</h3>
-              <p className="text-sm text-slate-500">{deviceConnected ? `设备已连接 · 循环间隔 ${features.loopInterval}秒` : '未连接设备'}</p>
+              <p className="text-sm text-slate-500">{deviceConnected ? '设备已连接' : '未连接设备'}</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {deviceConnected && !taskRunning && (
-              <div className="flex items-center gap-2">
-                <span className="text-slate-500 text-sm">循环间隔:</span>
-                <input type="number" min={180} step={30} value={features.loopInterval}
-                  onChange={(e) => setFeatures({ ...features, loopInterval: Math.max(180, Number(e.target.value)) })}
-                  className="w-16 px-2 py-1 bg-white border border-slate-200 rounded-lg text-slate-800 text-sm text-center focus:outline-none focus:border-emerald-400" />
-                <span className="text-slate-500 text-sm">秒</span>
-              </div>
-            )}
             {!deviceConnected ? (
               <button
                 onClick={handleConnectDevice}
