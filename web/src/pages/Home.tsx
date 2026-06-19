@@ -15,6 +15,9 @@ let deviceBusy = false;
 const GATHER_LOOP_INTERVAL = 300; // 城外采集独立循环间隔（秒）
 let moduleGemInitialCount: number | null = null;
 let moduleGemCollectedCount: number = 0;
+let offlineActive = false;             // 当前是否处于下线状态
+let lastOfflineState = false;          // 上次的状态（用于边沿检测）
+let moduleGemRestActive = false;       // 宝石采集 rest 阶段标志
 
 const LOOP_STATE_KEY = 'loop-state';
 
@@ -31,6 +34,10 @@ function clearLoopState() {
   loopLogs = [];
   moduleGemInitialCount = null;
   moduleGemCollectedCount = 0;
+  offlineActive = false;
+  lastOfflineState = false;
+  moduleGemRestActive = false;
+  void offlineActive; // Task 9 子循环二次守卫将读取
   try { sessionStorage.removeItem(LOOP_STATE_KEY); } catch {}
 }
 
@@ -638,6 +645,58 @@ export function HomePage() {
         }
       })();
 
+      // 下线监控独立循环 — 每 30s 检查一次，边沿触发 kill / launch
+      const offlineLoop = (async () => {
+        while (!loopStopped) {
+          const f = featuresRef.current;
+          const now = new Date();
+          const hour = now.getHours();
+          const inNightWindow = f.nightMode && hour >= 2 && hour < 5;
+          const inGemRest = moduleGemRestActive;
+          const shouldOffline = inNightWindow || inGemRest;
+
+          if (shouldOffline && !lastOfflineState) {
+            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🌙 进入下线状态（${inNightWindow ? '夜间' : '宝石休息'}）`]);
+            offlineActive = true;
+            lastOfflineState = true;
+            if (await acquireLock()) {
+              try {
+                const r = await api.tasks.create(currentAccountId, 'com.rok.automation', 'kill-game');
+                if (r.success) {
+                  runningTaskIdsRef.current = [...runningTaskIdsRef.current, r.task.id];
+                  setRunningTaskIds([...runningTaskIdsRef.current]);
+                  await api.tasks.run(r.task.id);
+                  runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== r.task.id);
+                  setRunningTaskIds([...runningTaskIdsRef.current]);
+                }
+              } catch {} finally { releaseLock(); }
+            }
+          } else if (!shouldOffline && lastOfflineState) {
+            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ☀️ 恢复上线状态`]);
+            if (await acquireLock()) {
+              try {
+                const r = await api.tasks.create(currentAccountId, 'com.rok.automation', 'launch-game');
+                if (r.success) {
+                  runningTaskIdsRef.current = [...runningTaskIdsRef.current, r.task.id];
+                  setRunningTaskIds([...runningTaskIdsRef.current]);
+                  await api.tasks.run(r.task.id);
+                  runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== r.task.id);
+                  setRunningTaskIds([...runningTaskIdsRef.current]);
+                }
+              } catch {} finally { releaseLock(); }
+            }
+            offlineActive = false;
+            lastOfflineState = false;
+          }
+
+          // 等 30s 再检查（中途循环停止可立即退出）
+          const startWait = Date.now();
+          while (!loopStopped && (Date.now() - startWait) < 30000) {
+            await sleep(1);
+          }
+        }
+      })();
+
       // 宝石采集独立循环（采集/休息轮替）
       (async () => {
         let first = true;
@@ -1140,7 +1199,7 @@ export function HomePage() {
           }
         }
       }
-      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, caveLoop]);
+      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, caveLoop, offlineLoop]);
       loopRunning = false;
       clearLoopState();
       runningTaskIdsRef.current = [];
