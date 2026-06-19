@@ -175,6 +175,7 @@ export async function gatherGemFocus(
   const spiralState = createSpiralState(config);
   let dispatched = 0;
   let hasPaging: boolean | null = null;
+  let quotaFull = false;
 
   while (true) {
     // === step 1: 处理返回中的队伍 ===
@@ -204,6 +205,7 @@ export async function gatherGemFocus(
 
     if (caijiCount + totargetCount >= teams.length) {
       ctx.log(`[step 2] 配额已满（${caijiCount + totargetCount}/${teams.length}），退出循环`);
+      quotaFull = true;
       break;
     }
 
@@ -212,6 +214,9 @@ export async function gatherGemFocus(
       ctx.log('[step 3.1] 调用 gatherGem 完整流程');
       const r = await gatherGem(ctx, config, teams, { collectedCoords });
       dispatched += r.dispatched;
+      // gatherGem 内部独立维护 spiralState 且可能让视角回到城内，
+      // 重置焦点循环的 spiralState 以避免与实际视角错位
+      Object.assign(spiralState, createSpiralState(config));
       await ctx.sleep(2);
       continue;
     }
@@ -240,6 +245,7 @@ export async function gatherGemFocus(
       if (!await checkIdleTeamsAvailable(ctx)) {
         ctx.log('[step 4] 兜底：也无空闲队伍，退出');
         await ctx.tap(EXIT_LARGE_UI_BUTTON.x, EXIT_LARGE_UI_BUTTON.y);
+        await ctx.sleep(1);
         break;
       }
       const r = await dispatchToTeamPopup(
@@ -272,5 +278,7 @@ export async function gatherGemFocus(
   }
 
   ctx.log(`=== 专注模式结束：派出 ${dispatched} 队 ===`);
-  return { result: dispatched > 0 ? 'success' : 'not_found', dispatched };
+  const result: GemGatherOutcome['result'] =
+    dispatched > 0 || quotaFull ? 'success' : 'not_found';
+  return { result, dispatched };
 }
