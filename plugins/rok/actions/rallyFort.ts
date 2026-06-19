@@ -2,6 +2,7 @@ import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import { ensureInWorld } from '../utils/location';
+import { ensureTeamPage } from '../utils/teamPage';
 import * as path from 'path';
 
 const TEMPLATE_DIR = getTemplatesDir();
@@ -139,9 +140,29 @@ export async function rallyFort(
   await ctx.tap(CONFIRM_TIME_BUTTON.x, CONFIRM_TIME_BUTTON.y);
   await ctx.sleep(1);
 
-  // 检测分页
-  const hasPaging = await ctx.findImage(PAGE_INDICATOR_TEMPLATE, 0.8);
-  ctx.log(`  [检测] 换页按钮: ${hasPaging ? '存在 (>7组)' : '不存在 (≤7组)'}`);
+  // 检测分页 + 拿到换页按钮坐标
+  const pageResult = await ctx.findImageWithLocation(PAGE_INDICATOR_TEMPLATE, 0.8);
+  const hasPaging = pageResult.found;
+  if (hasPaging) {
+    ctx.log(`  [检测] 换页按钮: 存在 (>7组) @ (${pageResult.x},${pageResult.y})`);
+  } else {
+    ctx.log(`  [检测] 换页按钮: 不存在 (≤7组)`);
+  }
+
+  // 如有换页按钮，确保在攻击队伍页（红队）
+  // rallyFort 弹窗的部队页指示器位于 (1361,378)-(1397,413)
+  if (hasPaging) {
+    const onTargetPage = await ensureTeamPage(
+      ctx,
+      'attack',
+      { x: pageResult.x, y: pageResult.y },
+      { x: 1361, y: 378, w: 36, h: 35 }
+    );
+    if (!onTargetPage) {
+      ctx.log(`  ⚠️ 未能切换到攻击队伍页`);
+      return { result: 'team_unavailable', dispatched: 0, foundLevel: currentLevel };
+    }
+  }
 
   const teamButtons = hasPaging ? TEAM_BUTTONS_PAGED : TEAM_BUTTONS_NO_PAGE;
   const teamBtn = teamButtons[team];

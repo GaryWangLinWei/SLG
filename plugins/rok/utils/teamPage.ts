@@ -2,8 +2,17 @@ import { PluginContext } from '../../../core/plugin';
 import * as fs from 'fs/promises';
 import sharp from 'sharp';
 
-// 当前部队页指示器区域 (1361,308) - (1399,343)
-const TEAM_PAGE_REGION = { x: 1361, y: 308, w: 38, h: 35 };
+// 默认部队页指示器区域 (1361,308) - (1399,343)
+// 不同 action 的弹窗布局可能略有差异，可通过参数覆盖
+const DEFAULT_TEAM_PAGE_REGION = { x: 1361, y: 308, w: 38, h: 35 };
+
+/** 部队页指示器区域 */
+export interface TeamPageRegion {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
 
 /** 部队页类型 */
 export type TeamPage = 'other' | 'attack' | 'gather';
@@ -24,11 +33,14 @@ const PAGE_NAMES: Record<TeamPage, string> = {
  *
  * 形状几乎相同，但颜色差异巨大，用色调判别比模板匹配稳得多。
  * 返回 null 表示三类色调均不明确。
+ *
+ * @param region 检测区域，默认 (1361,308)-(1399,343)（资源采集/宝石采集弹窗）
  */
-export async function detectCurrentTeamPage(ctx: PluginContext): Promise<TeamPage | null> {
-  const regionPath = await ctx.captureRegion(
-    TEAM_PAGE_REGION.x, TEAM_PAGE_REGION.y, TEAM_PAGE_REGION.w, TEAM_PAGE_REGION.h
-  );
+export async function detectCurrentTeamPage(
+  ctx: PluginContext,
+  region: TeamPageRegion = DEFAULT_TEAM_PAGE_REGION
+): Promise<TeamPage | null> {
+  const regionPath = await ctx.captureRegion(region.x, region.y, region.w, region.h);
 
   try {
     const { data, info } = await sharp(regionPath)
@@ -82,15 +94,18 @@ export async function detectCurrentTeamPage(ctx: PluginContext): Promise<TeamPag
  * 返回是否成功切换到目标页。
  *
  * @param pageSwitchButton 换页按钮坐标（由调用方在前置 step 检测后传入）
+ * @param region 部队页指示器检测区域（不同弹窗位置可能不同）
+ * @param maxAttempts 最多检测次数（默认 3，即换页 2 次）
  */
 export async function ensureTeamPage(
   ctx: PluginContext,
   target: TeamPage,
   pageSwitchButton: { x: number; y: number },
+  region: TeamPageRegion = DEFAULT_TEAM_PAGE_REGION,
   maxAttempts: number = 3
 ): Promise<boolean> {
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-    const current = await detectCurrentTeamPage(ctx);
+    const current = await detectCurrentTeamPage(ctx, region);
 
     if (current === target) {
       if (attempt > 1) {

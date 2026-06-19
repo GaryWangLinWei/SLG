@@ -7,6 +7,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import sharp from 'sharp';
 import { ocrService } from '../../../core/ocr/OcrService';
+import { ensureTeamPage } from '../utils/teamPage';
 
 const vision = new Vision();
 
@@ -360,10 +361,33 @@ export async function gatherGem(
     await ctx.tap(SELECT_TEAM_BUTTON.x, SELECT_TEAM_BUTTON.y);
     await ctx.sleep(1);
 
-    // 检测分页（仅首轮）
+    // 检测分页（仅首轮）+ 拿到换页按钮坐标用于切换部队页
+    let pageSwitchButton: { x: number; y: number } | null = null;
     if (hasPaging === null) {
-      hasPaging = await ctx.findImage(PAGE_INDICATOR_TEMPLATE, 0.8);
-      ctx.log(`  [检测] 换页按钮: ${hasPaging ? '存在 (>7组)' : '不存在 (≤7组)'}`);
+      const pageResult = await ctx.findImageWithLocation(PAGE_INDICATOR_TEMPLATE, 0.8);
+      hasPaging = pageResult.found;
+      if (hasPaging) {
+        pageSwitchButton = { x: pageResult.x, y: pageResult.y };
+        ctx.log(`  [检测] 换页按钮: 存在 (>7组) @ (${pageResult.x},${pageResult.y})`);
+      } else {
+        ctx.log(`  [检测] 换页按钮: 不存在 (≤7组)`);
+      }
+    } else if (hasPaging) {
+      const pageResult = await ctx.findImageWithLocation(PAGE_INDICATOR_TEMPLATE, 0.8);
+      if (pageResult.found) {
+        pageSwitchButton = { x: pageResult.x, y: pageResult.y };
+      }
+    }
+
+    // 如有换页按钮，确保在采集队伍页（蓝队）
+    if (hasPaging && pageSwitchButton) {
+      const onTargetPage = await ensureTeamPage(ctx, 'gather', pageSwitchButton);
+      if (!onTargetPage) {
+        ctx.log(`  ⚠️ 未能切换到采集队伍页，关闭弹窗，任务完成`);
+        await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
+        await ctx.sleep(0.5);
+        break;
+      }
     }
 
     // [7/7] 弹窗内逐个尝试队伍，从上一次派出队伍的下一个开始
