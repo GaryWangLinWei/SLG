@@ -107,6 +107,44 @@ async function isGemOccupied(
   }
 }
 
+export interface SpiralState {
+  step: number;
+  dirIndex: number;
+  moveCount: number;
+  dirSwipes: number;
+  checkedCenter: boolean;
+  halfW: number;
+  halfH: number;
+  maxAttempts: number;
+}
+
+export function createSpiralState(config: RokConfig): SpiralState {
+  const gg = config.gemGather;
+  return {
+    step: 1,
+    dirIndex: 0,
+    moveCount: 0,
+    dirSwipes: 0,
+    checkedCenter: false,
+    halfW: Math.round(1600 * (gg.spiralSwipeRatioH ?? gg.spiralSwipeRatio) / 2),
+    halfH: Math.round(900 * gg.spiralSwipeRatio / 2),
+    maxAttempts: gg.searchMaxAttempts,
+  };
+}
+
+export async function zoomOutToWorld(
+  ctx: PluginContext,
+  worldBtn: { x: number; y: number }
+): Promise<void> {
+  ctx.log(`  长按城内外按钮 (${worldBtn.x}, ${worldBtn.y}) 2秒`);
+  await ctx.swipeAndHold(worldBtn.x, worldBtn.y, worldBtn.x, worldBtn.y, 2000);
+  await ctx.releaseHold();
+  await ctx.sleep(0.5);
+  ctx.log(`  点击 (322, 700) 完成缩放`);
+  await ctx.tap(322, 700);
+  await ctx.sleep(0.5);
+}
+
 export interface GemGatherOutcome {
   result: 'success' | 'not_found' | 'no_idle_teams' | 'team_unavailable';
   dispatched: number;
@@ -156,16 +194,7 @@ export async function gatherGem(
   //     p.duration
   //   );
   // };
-  const doZoomOut = async () => {
-    ctx.log(`  长按城内外按钮 (${worldBtn.x}, ${worldBtn.y}) 2秒`);
-    await ctx.swipeAndHold(worldBtn.x, worldBtn.y, worldBtn.x, worldBtn.y, 2000);
-    await ctx.releaseHold();
-    await ctx.sleep(0.5);
-    ctx.log(`  点击 (322, 700) 完成缩放`);
-    await ctx.tap(322, 700);
-    await ctx.sleep(0.5);
-  };
-  await doZoomOut();
+  await zoomOutToWorld(ctx, worldBtn);
   await ctx.sleep(1);
 
   // 螺旋搜索状态（全程接续，不因换队重置）
@@ -279,7 +308,7 @@ export async function gatherGem(
           if (caiJiResult.found) {
             ctx.log(`  🔄 该宝石已有队伍在采集 (confidence: ${caiJiResult.confidence.toFixed(3)})，缩地后继续螺旋`);
             await fs.unlink(caiJiRegionPath).catch(() => {});
-            await doZoomOut();
+            await zoomOutToWorld(ctx, worldBtn);
             await ctx.sleep(1);
             continue;  // 回到 caijiRetry 循环，继续螺旋搜索
           }
@@ -304,7 +333,7 @@ export async function gatherGem(
           ctx.log(`  [坐标] 当前: ${coordText} → ${curCoord ? `(${curCoord.x},${curCoord.y})` : '解析失败'} | 已采集: [${recorded}]`);
           if (curCoord && isCoordRecorded(curCoord.x, curCoord.y, collectedCoords)) {
             ctx.log(`  ⚠️ 该宝石已采集过，缩地后继续螺旋`);
-            await doZoomOut();
+            await zoomOutToWorld(ctx, worldBtn);
             await ctx.sleep(1);
             continue;  // 回到 caijiRetry 循环，继续螺旋搜索
           }
@@ -323,7 +352,7 @@ export async function gatherGem(
         caijiFound = true;
       } else {
         ctx.log(`  ❌ 未找到采集按钮 (confidence: ${caijiResult.confidence.toFixed(3)})，缩地后继续螺旋`);
-        await doZoomOut();
+        await zoomOutToWorld(ctx, worldBtn);
         await ctx.sleep(1);
       }
     }
@@ -493,7 +522,7 @@ export async function gatherGem(
     }
 
     // 缩地后接续螺旋搜索下一颗矿
-    await doZoomOut();
+    await zoomOutToWorld(ctx, worldBtn);
     await ctx.sleep(1);
   }
 
