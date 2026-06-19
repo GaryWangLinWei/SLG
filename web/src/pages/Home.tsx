@@ -1210,6 +1210,17 @@ export function HomePage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            {deviceConnected && (
+              <label
+                className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer"
+                title="开启后每天 02:00 自动强制关闭游戏，05:00 自动启动游戏，模拟玩家睡觉时段下线，降低被检测风险"
+              >
+                <input type="checkbox" checked={features.nightMode}
+                  onChange={e => setFeatures({ ...features, nightMode: e.target.checked })}
+                  className="w-4 h-4 accent-emerald-500" />
+                <span>🌙 夜间下线 02-05点</span>
+              </label>
+            )}
             {!deviceConnected ? (
               <button
                 onClick={handleConnectDevice}
