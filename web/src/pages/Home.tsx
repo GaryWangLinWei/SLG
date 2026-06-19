@@ -37,7 +37,6 @@ function clearLoopState() {
   offlineActive = false;
   lastOfflineState = false;
   moduleGemRestActive = false;
-  void offlineActive; // Task 9 子循环二次守卫将读取
   try { sessionStorage.removeItem(LOOP_STATE_KEY); } catch {}
 }
 
@@ -436,12 +435,14 @@ export function HomePage() {
         let first = true;
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
+          if (offlineActive) { await sleep(30); continue; }
           if (features.gatherResources && !features.autoExplore && !features.autoWorldChat && !features.gemGatherFocusMode) {
             const gatherTasks = features.gatherTasks
               .map((t: { type: string; level: number }, i: number) => ({ ...t, team: i + 1 }))
               .filter((t: { type: string; level: number; team: number }) => t.type);
             if (gatherTasks.length > 0) {
               if (!await acquireLock()) break;
+              if (offlineActive) { releaseLock(); await sleep(30); continue; }
               try {
                 const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'gather-resources', { gatherTasks });
                 if (createResult.success) {
@@ -477,8 +478,10 @@ export function HomePage() {
         let first = true;
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
+          if (offlineActive) { await sleep(30); continue; }
           if (features.helpTeammates && !features.autoExplore && !features.autoWorldChat && !features.gemGatherFocusMode) {
             if (!await acquireLock()) break;
+            if (offlineActive) { releaseLock(); await sleep(30); continue; }
             try {
               const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'help-teammates');
               if (createResult.success) {
@@ -513,8 +516,10 @@ export function HomePage() {
         let first = true;
         while (!loopStopped) {
           if (first) { first = false; await sleep(4 * 3600); continue; }
+          if (offlineActive) { await sleep(30); continue; }
           if (features.collectResources && !features.autoExplore && !features.autoWorldChat && !features.gemGatherFocusMode) {
             if (!await acquireLock()) break;
+            if (offlineActive) { releaseLock(); await sleep(30); continue; }
             try {
               const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'collect-resources');
               if (createResult.success) {
@@ -549,9 +554,11 @@ export function HomePage() {
         let first = true;
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
+          if (offlineActive) { await sleep(30); continue; }
           if (features.autoRallyFort && features.rallyFortLevel > 0 && !features.autoExplore && !features.autoWorldChat && !features.gemGatherFocusMode) {
             if (loopStopped) break;
             if (!await acquireLock()) break;
+            if (offlineActive) { releaseLock(); await sleep(30); continue; }
             let cd = 600; // 默认 CD，实际根据结果确定
             try {
               const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'rally-fort', { level: features.rallyFortLevel, team: features.rallyFortTeam, downgrade: features.rallyFortDowngrade });
@@ -610,11 +617,13 @@ export function HomePage() {
         let first = true;
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
+          if (offlineActive) { await sleep(30); continue; }
           if (features.autoCaveExplore && !features.autoExplore && !features.autoWorldChat && !features.gemGatherFocusMode) {
             if (!buildingOptions.includes('斥候营地')) {
               setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记斥候营地位置，跳过山洞探索`]);
             } else {
               if (!await acquireLock()) break;
+              if (offlineActive) { releaseLock(); await sleep(30); continue; }
               try {
                 const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'cave-explore');
                 if (createResult.success) {
@@ -935,8 +944,11 @@ export function HomePage() {
           return { build1: parse(match[1]), build2: parse(match[2]), train_bingying: parse(match[3]), train_majiu: parse(match[4]), train_bachang: parse(match[5]), train_gongcheng: parse(match[6]), research: parse(match[7]), build1Building: parseName(match[8]), build2Building: parseName(match[9]) };
         };
 
+        if (offlineActive) { await sleep(30); continue; }
+
         if (!bottomBarChecked) {
           if (await acquireLock()) {
+            if (offlineActive) { releaseLock(); await sleep(30); continue; }
             try { await runTask('ensure-bottom-bar'); bottomBarChecked = true; }
             finally { releaseLock(); }
           }
@@ -948,7 +960,7 @@ export function HomePage() {
             setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记斥候营地位置，跳过迷雾探索`]);
           } else {
             if (await acquireLock()) {
-              try { await runTask('explore', { maxScouts: features.exploreCount }); }
+              try { if (!offlineActive) await runTask('explore', { maxScouts: features.exploreCount }); }
               finally { releaseLock(); }
             }
           }
@@ -966,7 +978,7 @@ export function HomePage() {
             }
             if (!loopStopped) {
               if (await acquireLock()) {
-                try { await runTask('idle-drag'); } catch {} finally { releaseLock(); }
+                try { if (!offlineActive) await runTask('idle-drag'); } catch {} finally { releaseLock(); }
               }
             }
             while (!loopStopped && (Date.now() - exploreStartWait) < exploreNextWake * 1000) {
@@ -1000,7 +1012,7 @@ export function HomePage() {
               if (loopStopped) break;
 
               if (await acquireLock()) {
-                try { await runTask('send-world-chat', { message: messages[i], isFirst: i === 0 && true }); }
+                try { if (!offlineActive) await runTask('send-world-chat', { message: messages[i], isFirst: i === 0 && true }); }
                 finally { releaseLock(); }
               }
             }
@@ -1022,7 +1034,7 @@ export function HomePage() {
               }
               if (!loopStopped) {
                 if (await acquireLock()) {
-                  try { await runTask('idle-drag'); } catch {} finally { releaseLock(); }
+                  try { if (!offlineActive) await runTask('idle-drag'); } catch {} finally { releaseLock(); }
                 }
               }
               while (!loopStopped && (Date.now() - cdStartWait) < cdJitter * 1000) {
@@ -1045,6 +1057,7 @@ export function HomePage() {
           if (loopStopped) break;
           continue;
         }
+        if (offlineActive) { releaseLock(); await sleep(30); continue; }
         try {
         // Step 1: OCR 队列倒计时
         const ocrLogs = await runTask('read-queue-overview');
@@ -1186,7 +1199,7 @@ export function HomePage() {
           }
           if (!loopStopped) {
             if (await acquireLock()) {
-              try { await runTask('idle-drag'); } catch {} finally { releaseLock(); }
+              try { if (!offlineActive) await runTask('idle-drag'); } catch {} finally { releaseLock(); }
             }
           }
           while (!loopStopped && (Date.now() - startWait) < nextWake * 1000) {
