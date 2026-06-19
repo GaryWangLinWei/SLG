@@ -1,6 +1,6 @@
 import { PluginAction } from '../../../core/plugin';
 
-const PACKAGE_NAME = 'com.lilithgame.roc.gp';
+const PACKAGE_NAME = 'com.lilithgames.rok.offical.cn';
 
 export const launchGame: PluginAction = {
   id: 'launch-game',
