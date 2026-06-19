@@ -14,5 +14,6 @@ export interface Device {
   releaseHold?(): Promise<void>;
   pinch(x1: number, y1: number, x2: number, y2: number, toX1: number, toY1: number, toX2: number, toY2: number, duration?: number): Promise<void>;
   inputText(text: string): Promise<void>;
+  execShell?(cmd: string): Promise<{ stdout: string; stderr: string }>;
   sleep(seconds: number, maxSeconds?: number): Promise<void>;
 }

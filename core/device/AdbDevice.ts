@@ -105,6 +105,36 @@ export class AdbDevice implements Device {
   }
 
   /**
+   * 执行任意 ADB shell 命令，返回 stdout（不经 input/screencap 包装）。
+   * 用于 am force-stop / monkey 等系统命令。
+   */
+  async execShell(cmd: string): Promise<{ stdout: string; stderr: string }> {
+    if (!this.connected) throw new Error('Device not connected');
+    const fullCmd = `"${getAdbPath()}" -s ${this.deviceId} shell ${cmd}`;
+
+    try {
+      const result = await this.execAsync(fullCmd);
+      this.reconnectAttempts = 0;
+      return { stdout: result.stdout, stderr: result.stderr };
+    } catch (e) {
+      if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+        this.connected = false;
+        throw new Error(`ADB execShell 失败（已重连 ${this.maxReconnectAttempts} 次）: ${e}`);
+      }
+      this.reconnectAttempts++;
+      console.log(`[ADB] execShell 失败，尝试重连 (${this.reconnectAttempts}/${this.maxReconnectAttempts})...`);
+      await new Promise(r => setTimeout(r, this.reconnectDelayMs));
+      await this.connect();
+      if (!this.connected) {
+        throw new Error('ADB execShell 失败：设备断连，重连失败');
+      }
+      const result = await this.execAsync(fullCmd);
+      this.reconnectAttempts = 0;
+      return { stdout: result.stdout, stderr: result.stderr };
+    }
+  }
+
+  /**
    * Execute an ADB shell command with auto-reconnect on failure.
    * If the command fails, attempt to reconnect once and retry.
    */
