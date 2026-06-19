@@ -706,7 +706,7 @@ export function HomePage() {
         }
       })();
 
-      // 宝石采集独立循环（采集/休息轮替）
+      // 宝石采集独立循环（普通+专注共用 active/rest 轮替）
       (async () => {
         let first = true;
         let localInitialCount: number | null = null;
@@ -717,84 +717,23 @@ export function HomePage() {
             if (!res.success) { console.error('[readCount] create failed', res); return null; }
             const run = await api.tasks.run(res.task.id);
             const logs = run.task?.logs ?? [];
-            console.log('[readCount] logs:', logs);
             const line = logs.find((l: string) => /\[GEM-COUNT\]\s+\d+/.test(l));
-            if (!line) { console.error('[readCount] no matching line found'); return null; }
+            if (!line) return null;
             const m = line.match(/\[GEM-COUNT\]\s+(\d+)/);
-            const result = m ? parseInt(m[1], 10) : null;
-            console.log('[readCount] result:', result);
-            return result;
+            return m ? parseInt(m[1], 10) : null;
           } catch (e) { console.error('[readCount] error:', e); return null; }
         };
 
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
+          if (offlineActive) { await sleep(30); continue; }
+
           const f = featuresRef.current;
           if (!f.gemGatherEnabled || f.gemGatherTeams.length === 0 || f.autoExplore || f.autoWorldChat) {
             await sleep(30); continue;
           }
 
-          // ── 专注模式：持续采集，不走 active/rest 周期 ──
-          if (f.gemGatherFocusMode) {
-            if (localInitialCount === null) {
-              const count = await readCount();
-              if (count !== null) {
-                localInitialCount = count;
-                moduleGemInitialCount = count;
-                moduleGemCollectedCount = 0;
-                setGemInitialCount(count);
-                setGemCollectedCount(0);
-              }
-            }
-            setGemRestCountdown('');
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🎯 专注采集模式运行中`]);
-            while (!loopStopped) {
-              if (!f.gemGatherFocusMode || !f.gemGatherEnabled) break;
-              if (!await acquireLock()) break;
-              try {
-                const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'gem-gather-focus', { teams: f.gemGatherTeams });
-                if (createResult.success) {
-                  runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
-                  setRunningTaskIds([...runningTaskIdsRef.current]);
-                  const runResult = await api.tasks.run(createResult.task.id);
-                  runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
-                  setRunningTaskIds([...runningTaskIdsRef.current]);
-                  const logs = runResult.task?.logs ?? [];
-                  const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
-                  if (hasExpiredLog) {
-                    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
-                    loopStopped = true;
-                    setExpiredMessage('激活码已到期，请重新激活');
-                    refreshStatus();
-                  } else {
-                    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💎 宝石采集(专注)完成`]);
-                  }
-                }
-
-                const current = await readCount();
-                if (current !== null && localInitialCount !== null) {
-                  moduleGemCollectedCount = Math.max(0, current - localInitialCount);
-                  setGemCollectedCount(moduleGemCollectedCount);
-                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💎 已采集: ${moduleGemCollectedCount} 颗`]);
-                }
-              } catch {} finally { releaseLock(); }
-
-              if (loopStopped) break;
-              // 专注模式缩短间隔 60-120s
-              const focusInterval = 60 * (0.85 + Math.random() * 0.3);
-              const startWait = Date.now();
-              while (!loopStopped && (Date.now() - startWait) < focusInterval * 1000) {
-                await sleep(1);
-              }
-            }
-            continue; // 回到外层 while，检查是否切换回普通模式
-          }
-
-          // ── 普通模式：采集/休息轮替 ──
-          const activeHours = Number(f.gemGatherActiveHours) || 2;
-          const restHours = Number(f.gemGatherRestHours) || 1;
-
-          // ── 读取初始宝石数量 ──
+          // ── 读取初始宝石数（首次进入或被 reset 后）──
           if (localInitialCount === null) {
             const count = await readCount();
             if (count !== null) {
@@ -806,15 +745,24 @@ export function HomePage() {
             }
           }
 
-          // ── 采集阶段 ──
+          const activeHours = Number(f.gemGatherActiveHours) || 2;
+          const restHours = Number(f.gemGatherRestHours) || 1;
+          const isFocus = f.gemGatherFocusMode;
+          const actionId = isFocus ? 'gem-gather-focus' : 'gem-gather';
+          const intervalSec = isFocus ? 60 : 300;
+
+          // ── active 阶段 ──
           const activeEnd = Date.now() + activeHours * 3600 * 1000;
           setGemRestCountdown('');
-          setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💎 采集阶段开始，持续 ${activeHours}h`]);
+          setLogs(prev => [...prev,
+            `[${new Date().toLocaleTimeString()}] 💎 ${isFocus ? '专注' : '普通'}采集开始，持续 ${activeHours}h`]);
+
           while (!loopStopped && Date.now() < activeEnd) {
-            if (loopStopped) break;
+            if (offlineActive) { await sleep(30); continue; }
             if (!await acquireLock()) break;
+            if (offlineActive) { releaseLock(); await sleep(30); continue; }
             try {
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'gem-gather', { teams: f.gemGatherTeams });
+              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, { teams: f.gemGatherTeams });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -829,11 +777,10 @@ export function HomePage() {
                   setExpiredMessage('激活码已到期，请重新激活');
                   refreshStatus();
                 } else {
-                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💎 宝石采集完成`]);
+                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💎 宝石采集${isFocus ? '(专注)' : ''}完成`]);
                 }
               }
 
-              // ── 采集后读取当前宝石数量 ──
               const current = await readCount();
               if (current !== null && localInitialCount !== null) {
                 moduleGemCollectedCount = Math.max(0, current - localInitialCount);
@@ -844,30 +791,29 @@ export function HomePage() {
 
             if (loopStopped) break;
             if (Date.now() >= activeEnd) break;
-            // 两次采集之间 5 分钟 CD
-            const gemInterval = 300 * (0.85 + Math.random() * 0.3);
+            const wait = intervalSec * (0.85 + Math.random() * 0.3);
             const startWait = Date.now();
-            while (!loopStopped && (Date.now() - startWait) < gemInterval * 1000 && Date.now() < activeEnd) {
+            while (!loopStopped && (Date.now() - startWait) < wait * 1000 && Date.now() < activeEnd) {
               await sleep(1);
             }
           }
-
           if (loopStopped) break;
 
-          // ── 休息阶段 ──
+          // ── rest 阶段（普通+专注共用，触发下线）──
           const restEnd = Date.now() + restHours * 3600 * 1000;
-          setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💤 宝石采集休息 ${restHours}h，${new Date(restEnd).toLocaleTimeString()} 恢复`]);
+          moduleGemRestActive = true;
+          setLogs(prev => [...prev,
+            `[${new Date().toLocaleTimeString()}] 💤 宝石采集休息 ${restHours}h，${new Date(restEnd).toLocaleTimeString()} 恢复`]);
           while (!loopStopped && Date.now() < restEnd) {
             const remaining = Math.max(0, restEnd - Date.now());
             const h = Math.floor(remaining / 3600000);
             const m = Math.floor((remaining % 3600000) / 60000);
             const s = Math.floor((remaining % 60000) / 1000);
-            const text = `${h}h ${m}m ${s}s`;
-            console.log('[gem rest]', text, 'gemRestCountdown:', gemRestCountdown);
-            setGemRestCountdown(text);
+            setGemRestCountdown(`${h}h ${m}m ${s}s`);
             await sleep(1);
           }
           setGemRestCountdown('');
+          moduleGemRestActive = false;
         }
       })();
 
