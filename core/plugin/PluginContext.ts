@@ -225,6 +225,19 @@ export class PluginContext {
     await this.device.inputText(text);
   }
 
+  /**
+   * 执行任意 ADB shell 命令。返回 stdout/stderr 字符串。
+   * 用于 am force-stop / monkey 等场景。
+   * 仅 AdbDevice 支持；非 ADB 设备会抛错。
+   */
+  async execShell(cmd: string): Promise<{ stdout: string; stderr: string }> {
+    this.checkCancellation();
+    if (!this.device.execShell) {
+      throw new Error('Device 不支持 execShell（仅 AdbDevice 支持）');
+    }
+    return await this.device.execShell(cmd);
+  }
+
   async waitForImage(templatePath: string, timeout: number = 30, threshold: number = 0.8): Promise<boolean> {
     const startTime = Date.now();
     while (Date.now() - startTime < timeout * 1000) {
