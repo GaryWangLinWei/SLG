@@ -316,6 +316,149 @@ export async function searchAndClickGem(
   }
 }
 
+export interface DispatchResult {
+  dispatched: boolean;
+  nextTeamIdx: number;
+  hasPaging: boolean | null;
+  allTeamsBusy: boolean;
+}
+
+/**
+ * 派出队伍弹窗内逐个尝试队伍：从 nextTeamIdx 开始向后尝试到 teams 末尾（不回绕）。
+ * 派出成功后追加当前坐标到 collectedCoords，再 OCR 检测剩余空闲队伍数。
+ *
+ * - hasPaging=null 时本函数会自检并写回结果（首次调用语义）
+ * - allTeamsBusy=true 表示全部已派出（OCR 显示 N/N），调用者应停止采集
+ * - dispatched=false 表示弹窗内所有可尝试队伍都不可用（已自动关闭弹窗）
+ */
+export async function dispatchToTeamPopup(
+  ctx: PluginContext,
+  config: RokConfig,
+  teams: number[],
+  nextTeamIdx: number,
+  hasPaging: boolean | null,
+  collectedCoords: Array<{ x: number; y: number }>
+): Promise<DispatchResult> {
+  ctx.log(`  [6/7] 点击选择队伍按钮 (${SELECT_TEAM_BUTTON.x}, ${SELECT_TEAM_BUTTON.y})`);
+  await ctx.tap(SELECT_TEAM_BUTTON.x, SELECT_TEAM_BUTTON.y);
+  await ctx.sleep(1);
+
+  let pageSwitchButton: { x: number; y: number } | null = null;
+  if (hasPaging === null) {
+    const pageResult = await ctx.findImageWithLocation(PAGE_INDICATOR_TEMPLATE, 0.8);
+    hasPaging = pageResult.found;
+    if (hasPaging) {
+      pageSwitchButton = { x: pageResult.x, y: pageResult.y };
+      ctx.log(`  [检测] 换页按钮: 存在 (>7组) @ (${pageResult.x},${pageResult.y})`);
+    } else {
+      ctx.log(`  [检测] 换页按钮: 不存在 (≤7组)`);
+    }
+  } else if (hasPaging) {
+    const pageResult = await ctx.findImageWithLocation(PAGE_INDICATOR_TEMPLATE, 0.8);
+    if (pageResult.found) {
+      pageSwitchButton = { x: pageResult.x, y: pageResult.y };
+    }
+  }
+
+  if (hasPaging && pageSwitchButton) {
+    const onTargetPage = await ensureTeamPage(ctx, 'gather', pageSwitchButton);
+    if (!onTargetPage) {
+      ctx.log(`  ⚠️ 未能切换到采集队伍页，关闭弹窗`);
+      await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
+      await ctx.sleep(0.5);
+      return { dispatched: false, nextTeamIdx, hasPaging, allTeamsBusy: false };
+    }
+  }
+
+  const teamButtons = (hasPaging ?? false) ? TEAM_BUTTONS_PAGED : TEAM_BUTTONS_NO_PAGE;
+
+  if (nextTeamIdx >= teams.length) {
+    ctx.log(`  所有配置队伍已派出（${teams.length}队），关闭弹窗`);
+    await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
+    await ctx.sleep(0.5);
+    return { dispatched: false, nextTeamIdx, hasPaging, allTeamsBusy: false };
+  }
+
+  let dispatched = false;
+  let allTeamsBusy = false;
+  let newNextTeamIdx = nextTeamIdx;
+
+  for (let ti = nextTeamIdx; ti < teams.length; ti++) {
+    const tryTeam = teams[ti];
+    const teamBtn = teamButtons[tryTeam];
+    if (!teamBtn) {
+      ctx.log(`  ❌ 无效的队伍序号: ${tryTeam}`);
+      continue;
+    }
+
+    ctx.log(`  [7/7] 尝试队伍 ${tryTeam} (配置第${ti + 1}队) 并检测状态变化...`);
+    const stateResult = await ctx.checkButtonStateChange(teamBtn.x, teamBtn.y, 150, 50, 0.1);
+    ctx.log(`  [debug] 像素变化率: ${(stateResult.diffPercentage * 100).toFixed(1)}%, changed: ${stateResult.changed}`);
+
+    if (!stateResult.changed) {
+      ctx.log(`  ⚠️ 队伍${tryTeam}不可用，尝试下一队`);
+      continue;
+    }
+
+    await ctx.sleep(0.3 + Math.random() * 0.4);
+    ctx.log(`  点击行军按钮 (${MARCH_BUTTON.x}, ${MARCH_BUTTON.y})`);
+    await ctx.tap(MARCH_BUTTON.x, MARCH_BUTTON.y);
+    await ctx.sleep(0.8 + Math.random() * 0.7);
+
+    newNextTeamIdx = (ti === teams.length - 1) ? 0 : ti + 1;
+    ctx.log(`  ✅ 队伍${tryTeam} 已派出（下次从第${newNextTeamIdx + 1}队开始）`);
+
+    {
+      const coordRegionPath = await ctx.captureRegion(
+        COORD_REGION.x, COORD_REGION.y, COORD_REGION.w, COORD_REGION.h
+      );
+      try {
+        const coordText = await ocrService.readText(coordRegionPath);
+        ctx.log(`  [坐标] 记录已采集: ${coordText}`);
+        const curCoord = parseCoord(coordText);
+        if (curCoord) {
+          collectedCoords.push(curCoord);
+        } else {
+          ctx.log(`  [坐标] 解析失败，跳过记录`);
+        }
+      } finally {
+        await fs.unlink(coordRegionPath).catch(() => {});
+      }
+    }
+
+    ctx.log(`  [OCR] 检测剩余空闲队伍数...`);
+    const teamRegionPath = await ctx.captureRegion(1507, 169, 55, 31);
+    try {
+      const teamText = await ocrService.readText(teamRegionPath);
+      ctx.log(`  [OCR] 结果: "${teamText}"`);
+      const tm = teamText.match(/(\d+)\s*\/\s*(\d+)/);
+      if (tm) {
+        const used = parseInt(tm[1], 10);
+        const total = parseInt(tm[2], 10);
+        if (used === total) {
+          ctx.log(`  ⏭️ 队伍已全部派出 (${used}/${total})`);
+          allTeamsBusy = true;
+        } else {
+          ctx.log(`  剩余空闲队伍: ${total - used} (${used}/${total})`);
+        }
+      }
+    } finally {
+      await fs.unlink(teamRegionPath).catch(() => {});
+    }
+
+    dispatched = true;
+    break;
+  }
+
+  if (!dispatched) {
+    ctx.log(`  所有队伍不可用，关闭弹窗`);
+    await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
+    await ctx.sleep(0.5);
+  }
+
+  return { dispatched, nextTeamIdx: newNextTeamIdx, hasPaging, allTeamsBusy };
+}
+
 export interface GemGatherOutcome {
   result: 'success' | 'not_found' | 'no_idle_teams' | 'team_unavailable';
   dispatched: number;
@@ -324,7 +467,8 @@ export interface GemGatherOutcome {
 export async function gatherGem(
   ctx: PluginContext,
   config: RokConfig,
-  teams: number[]
+  teams: number[],
+  options?: { collectedCoords?: Array<{ x: number; y: number }> }
 ): Promise<GemGatherOutcome> {
   ctx.log(`=== 智能采集宝石 队伍[${teams.join(', ')}] ===`);
 
@@ -335,7 +479,7 @@ export async function gatherGem(
   let dispatched = 0;
   let hasPaging: boolean | null = null;
   let nextTeamIdx = 0;  // 下次从 teams[nextTeamIdx] 开始尝试
-  const collectedCoords: Array<{ x: number; y: number }> = [];
+  const collectedCoords = options?.collectedCoords ?? [];
 
   // [1/7] 重置城外默认视角（所有队伍共一次）
   ctx.log('[1/7] 重置城外默认视角');
@@ -399,138 +543,16 @@ export async function gatherGem(
     }
     ctx.log(`  有空闲队伍，继续`);
 
-    // [6/7] 点击选择队伍按钮
-    ctx.log(`  [6/7] 点击选择队伍按钮 (${SELECT_TEAM_BUTTON.x}, ${SELECT_TEAM_BUTTON.y})`);
-    await ctx.tap(SELECT_TEAM_BUTTON.x, SELECT_TEAM_BUTTON.y);
-    await ctx.sleep(1);
+    const r = await dispatchToTeamPopup(ctx, config, teams, nextTeamIdx, hasPaging, collectedCoords);
+    hasPaging = r.hasPaging;
+    nextTeamIdx = r.nextTeamIdx;
+    if (r.dispatched) dispatched++;
 
-    // 检测分页（仅首轮）+ 拿到换页按钮坐标用于切换部队页
-    let pageSwitchButton: { x: number; y: number } | null = null;
-    if (hasPaging === null) {
-      const pageResult = await ctx.findImageWithLocation(PAGE_INDICATOR_TEMPLATE, 0.8);
-      hasPaging = pageResult.found;
-      if (hasPaging) {
-        pageSwitchButton = { x: pageResult.x, y: pageResult.y };
-        ctx.log(`  [检测] 换页按钮: 存在 (>7组) @ (${pageResult.x},${pageResult.y})`);
-      } else {
-        ctx.log(`  [检测] 换页按钮: 不存在 (≤7组)`);
-      }
-    } else if (hasPaging) {
-      const pageResult = await ctx.findImageWithLocation(PAGE_INDICATOR_TEMPLATE, 0.8);
-      if (pageResult.found) {
-        pageSwitchButton = { x: pageResult.x, y: pageResult.y };
-      }
-    }
-
-    // 如有换页按钮，确保在采集队伍页（蓝队）
-    if (hasPaging && pageSwitchButton) {
-      const onTargetPage = await ensureTeamPage(ctx, 'gather', pageSwitchButton);
-      if (!onTargetPage) {
-        ctx.log(`  ⚠️ 未能切换到采集队伍页，关闭弹窗，任务完成`);
-        await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
-        await ctx.sleep(0.5);
-        break;
-      }
-    }
-
-    // [7/7] 弹窗内逐个尝试队伍，从上一次派出队伍的下一个开始
-    const teamButtons = (hasPaging ?? false) ? TEAM_BUTTONS_PAGED : TEAM_BUTTONS_NO_PAGE;
-    let dispatchedThisGem = false;
-    let allTeamsBusy = false;
-
-    if (nextTeamIdx >= teams.length) {
-      ctx.log(`  所有配置队伍已派出（${teams.length}队），任务完成，关闭弹窗`);
-      await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
-      await ctx.sleep(0.5);
+    if (!r.dispatched) {
+      ctx.log(`  无可用队伍，任务完成`);
       break;
     }
-
-    for (let ti = nextTeamIdx; ti < teams.length; ti++) {
-      const tryTeam = teams[ti];
-      const teamBtn = teamButtons[tryTeam];
-      if (!teamBtn) {
-        ctx.log(`  ❌ 无效的队伍序号: ${tryTeam}`);
-        continue;
-      }
-
-      ctx.log(`  [7/7] 尝试队伍 ${tryTeam} (配置第${ti + 1}队) 并检测状态变化...`);
-      const stateResult = await ctx.checkButtonStateChange(teamBtn.x, teamBtn.y, 150, 50, 0.1);
-      ctx.log(`  [debug] 像素变化率: ${(stateResult.diffPercentage * 100).toFixed(1)}%, changed: ${stateResult.changed}`);
-
-      if (!stateResult.changed) {
-        ctx.log(`  ⚠️ 队伍${tryTeam}不可用，尝试下一队`);
-        continue;
-      }
-
-      // 点击行军
-      await ctx.sleep(0.3 + Math.random() * 0.4);  // 0.3-0.7s
-      ctx.log(`  点击行军按钮 (${MARCH_BUTTON.x}, ${MARCH_BUTTON.y})`);
-      await ctx.tap(MARCH_BUTTON.x, MARCH_BUTTON.y);
-      await ctx.sleep(0.8 + Math.random() * 0.7);   // 0.8-1.5s
-
-      dispatched++;
-      nextTeamIdx = (ti === teams.length - 1) ? 0 : ti + 1;
-      ctx.log(`  ✅ 队伍${tryTeam} 已派出采集宝石矿（累计 ${dispatched} 队，下次从第${nextTeamIdx + 1}队开始）`);
-
-      // 记录当前中心坐标，避免后续重复采集
-      {
-        const coordRegionPath = await ctx.captureRegion(
-          COORD_REGION.x, COORD_REGION.y, COORD_REGION.w, COORD_REGION.h
-        );
-        try {
-          const coordText = await ocrService.readText(coordRegionPath);
-          ctx.log(`  [坐标] 记录已采集: ${coordText}`);
-          const curCoord = parseCoord(coordText);
-          if (curCoord) {
-            collectedCoords.push(curCoord);
-          } else {
-            ctx.log(`  [坐标] 解析失败，跳过记录`);
-          }
-        } finally {
-          await fs.unlink(coordRegionPath).catch(() => {});
-        }
-      }
-
-      // OCR 检测剩余空闲队伍数（1507,169 - 1562,200）
-      ctx.log(`  [OCR] 检测剩余空闲队伍数...`);
-      const teamRegionPath = await ctx.captureRegion(1507, 169, 55, 31);
-      try {
-        const teamText = await ocrService.readText(teamRegionPath);
-        ctx.log(`  [OCR] 结果: "${teamText}"`);
-        const tm = teamText.match(/(\d+)\s*\/\s*(\d+)/);
-        if (tm) {
-          const used = parseInt(tm[1], 10);
-          const total = parseInt(tm[2], 10);
-          if (used === total) {
-            ctx.log(`  ⏭️ 队伍已全部派出 (${used}/${total})，停止宝石采集`);
-            allTeamsBusy = true;
-          } else {
-            ctx.log(`  剩余空闲队伍: ${total - used} (${used}/${total})`);
-          }
-        }
-      } finally {
-        await fs.unlink(teamRegionPath).catch(() => {});
-      }
-
-      if (allTeamsBusy) {
-        dispatchedThisGem = true;
-        break;
-      }
-
-      // dirSwipes 已记录当前方向进度，恢复螺旋时自动从剩余次数接续，无需人为进位
-
-      dispatchedThisGem = true;
-      break;  // 队伍已派出，退出 for 循环
-    }  // end for (try teams in popup)
-
-    if (!dispatchedThisGem) {
-      ctx.log(`  所有队伍不可用，任务完成，关闭弹窗`);
-      await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
-      await ctx.sleep(0.5);
-      break;
-    }
-
-    if (allTeamsBusy) {
+    if (r.allTeamsBusy) {
       ctx.log(`  队伍已全部派出，任务完成`);
       break;
     }
