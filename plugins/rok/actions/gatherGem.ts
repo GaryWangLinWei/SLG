@@ -183,19 +183,13 @@ export async function gatherGem(
     gemCount++;
     ctx.log(`--- 搜索第 ${gemCount} 颗宝石矿 ---`);
 
-    // [4/7] 搜索 → 点击采集（找不到采集按钮时缩地重搜，最多 3 次）
-    const maxCaijiRetries = 3;
+    // [4/7] 搜索 → 点击采集（找不到采集按钮时缩地重搜，直到耗尽螺旋搜索范围）
     let caijiFound = false;
     let gemFound = false;
     let gemX = 0;
     let gemY = 0;
 
-    for (let caijiRetry = 0; caijiRetry < maxCaijiRetries && !caijiFound; caijiRetry++) {
-      if (caijiRetry > 0) {
-        ctx.log(`  未找到采集按钮，缩地接续搜索 (${caijiRetry + 1}/${maxCaijiRetries})`);
-        // 缩地已在上一轮末尾执行
-      }
-
+    while (!caijiFound) {
       gemFound = false;
 
       // 仅在首次搜索时检测中心，之后从螺旋位置继续
@@ -335,15 +329,6 @@ export async function gatherGem(
 
     if (!gemFound) {
       ctx.log(`  ❌ 搜索耗尽(${moveCount}步)，未找到空闲宝石矿，任务完成`);
-      await ctx.tap(worldBtn.x, worldBtn.y);
-      await ctx.sleep(0.8 + Math.random() * 0.7);   // 0.8-1.5s
-      await ctx.tap(worldBtn.x, worldBtn.y);
-      await ctx.sleep(1.5 + Math.random() * 1.0);   // 1.5-2.5s
-      break;
-    }
-
-    if (!caijiFound) {
-      ctx.log(`  ❌ 重试${maxCaijiRetries}次仍未找到采集按钮，任务完成`);
       await ctx.tap(worldBtn.x, worldBtn.y);
       await ctx.sleep(0.8 + Math.random() * 0.7);   // 0.8-1.5s
       await ctx.tap(worldBtn.x, worldBtn.y);

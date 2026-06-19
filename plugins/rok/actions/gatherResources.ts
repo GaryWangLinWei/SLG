@@ -5,6 +5,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import sharp from 'sharp';
 import { ensureInWorld } from '../utils/location';
+import { ensureTeamPage } from '../utils/teamPage';
 
 const TEMPLATE_DIR = getTemplatesDir();
 const PAGE_INDICATOR_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_page_indicator.png');
@@ -153,9 +154,33 @@ export async function gatherSingleResource(
   await ctx.sleep(1);
 
   // Step 7.5: Detect page indicator (only on first call)
+  let pageSwitchButton: { x: number; y: number } | null = null;
   if (hasPaging === null) {
-    hasPaging = await ctx.findImage(PAGE_INDICATOR_TEMPLATE, 0.8);
-    ctx.log(`  [检测] 换页按钮: ${hasPaging ? '存在 (>7组)' : '不存在 (≤7组)'}`);
+    const pageResult = await ctx.findImageWithLocation(PAGE_INDICATOR_TEMPLATE, 0.8);
+    hasPaging = pageResult.found;
+    if (hasPaging) {
+      pageSwitchButton = { x: pageResult.x, y: pageResult.y };
+      ctx.log(`  [检测] 换页按钮: 存在 (>7组) @ (${pageResult.x},${pageResult.y})`);
+    } else {
+      ctx.log(`  [检测] 换页按钮: 不存在 (≤7组)`);
+    }
+  } else if (hasPaging) {
+    // 后续调用：换页按钮位置基本固定，这里也重新定位以避免坐标变化
+    const pageResult = await ctx.findImageWithLocation(PAGE_INDICATOR_TEMPLATE, 0.8);
+    if (pageResult.found) {
+      pageSwitchButton = { x: pageResult.x, y: pageResult.y };
+    }
+  }
+
+  // Step 7.6: 如有换页按钮，确保当前在采集队伍页（蓝队）
+  if (hasPaging && pageSwitchButton) {
+    const onTargetPage = await ensureTeamPage(ctx, 'gather', pageSwitchButton);
+    if (!onTargetPage) {
+      ctx.log(`  ⚠️ 未能切换到采集队伍页，跳过`);
+      await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
+      await ctx.sleep(0.5);
+      return { success: false, hasPaging: hasPaging ?? false };
+    }
   }
 
   // Step 8: Select team by number and check if state changed (button highlighted)
