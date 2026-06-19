@@ -1283,7 +1283,7 @@ export function HomePage() {
                     </span>
                   </label>
                 </div>
-                <p className="text-xs text-slate-400 mt-1">选择队伍请勿与采集队伍冲突</p>
+                <p className="text-xs text-slate-400 mt-1">请在红色队列中配置队伍</p>
               </div>
 
             </div>
@@ -1321,7 +1321,7 @@ export function HomePage() {
                   </div>
                 ))}
               </div>
-              <p className="text-xs text-slate-400 mt-1.5">5个队伍按顺序派出采集</p>
+              <p className="text-xs text-slate-400 mt-1.5">请在蓝色队列中配置队伍</p>
             </div>
 
             {/* 自动升级建筑 */}
@@ -1513,7 +1513,7 @@ export function HomePage() {
                 <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${features.gemGatherFocusMode ? 'bg-orange-500 border-orange-600' : 'bg-white border-slate-300'}`}>
                   {features.gemGatherFocusMode && <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
                 </span>
-                <span className="text-xs text-orange-600 font-medium">🎯 专注模式（独占运行，暂停其他功能）</span>
+                <span className="text-xs text-orange-600 font-medium">🎯 专注模式（采集驻扎，每分钟检测）</span>
               </label>
               <div className="flex items-center gap-2 mt-2">
                 <span className="text-xs text-slate-400 whitespace-nowrap">采集</span>
