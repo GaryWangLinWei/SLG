@@ -4,6 +4,15 @@ import { Vision } from '../../../core/vision';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import sharp from 'sharp';
+import { RokConfig } from '../index';
+import {
+  gatherGem,
+  zoomOutToWorld,
+  searchAndClickGem,
+  checkIdleTeamsAvailable,
+  dispatchToTeamPopup,
+  createSpiralState,
+} from './gatherGem';
 
 const vision = new Vision();
 const TEMPLATE_DIR = getTemplatesDir();
@@ -32,6 +41,12 @@ type TeamState = keyof typeof STATE_TEMPLATES;
 
 // 检测区域: (1530, 202) → (1582, 680)
 const STATUS_REGION = { x: 1530, y: 202, w: 52, h: 478 };
+const LARGE_REGION  = { x: 1443, y: 53,  w: 152, h: 753 };
+const ZHUZHA_BUTTON = { x: 800, y: 593 };
+const EXIT_LARGE_UI_BUTTON = { x: 70, y: 834 };
+const MARCH_BTN_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_xingjun.png');
+const MARCH_SEARCH_REGION = { x: 1068, y: 20, width: 362, height: 860 };
+const BACK_RETRY_LIMIT = 5;
 
 export interface DetectedState {
   state: TeamState;
@@ -142,23 +157,120 @@ export async function detectTeamStates(
 }
 
 /**
- * 宝石采集专注模式（占位 — 可行性测试阶段仅做状态检测）
+ * 宝石采集专注模式：持续将队伍维持在采集状态，直到外部停止或配额满。
+ * - step 1: 处理返回中的队伍（点击 → 驻扎，最多 5 次）
+ * - step 2: 检测采集 + 前往 + 驻扎；配额满则退出
+ * - step 3.1（无驻扎）: 走完整 gatherGem 流程
+ * - step 3.2（有驻扎）: 点驻扎队伍 → 缩地 → searchAndClickGem 接续派矿
+ * - step 4: 大 UI 中找驻扎队伍 → 点击行军按钮
  */
 export async function gatherGemFocus(
   ctx: PluginContext,
-  _config: any,
-  _teams: number[]
+  config: RokConfig,
+  teams: number[]
 ): Promise<GemGatherOutcome> {
-  ctx.log('[专注模式] 状态检测可行性测试');
+  ctx.log(`=== 宝石采集专注模式 队伍[${teams.join(', ')}] ===`);
+  const worldBtn = config.resourceCollect.worldSwitchButton;
+  const collectedCoords: Array<{ x: number; y: number }> = [];
+  const spiralState = createSpiralState(config);
+  let dispatched = 0;
+  let hasPaging: boolean | null = null;
 
-  const states = await detectTeamStates(ctx);
+  while (true) {
+    // === step 1: 处理返回中的队伍 ===
+    let backRetry = 0;
+    while (backRetry < BACK_RETRY_LIMIT) {
+      const back = await detectTeamStates(ctx, STATUS_REGION, ['back']);
+      if (back.length === 0) break;
+      const t = back[0];
+      const iconX = Math.round(STATUS_REGION.x + STATUS_REGION.w / 2);
+      ctx.log(`[step 1] 点击返回队伍 (${iconX}, ${t.y})`);
+      await ctx.tap(iconX, t.y);
+      await ctx.sleep(1.5);
+      ctx.log(`[step 1] 点击驻扎按钮 (${ZHUZHA_BUTTON.x}, ${ZHUZHA_BUTTON.y})`);
+      await ctx.tap(ZHUZHA_BUTTON.x, ZHUZHA_BUTTON.y);
+      await ctx.sleep(0.5);
+      backRetry++;
+    }
 
-  const counts: Record<string, number> = {};
-  for (const s of states) {
-    counts[s.state] = (counts[s.state] || 0) + 1;
+    // === step 2: 检测采集 + 前往 + 驻扎 ===
+    const states = await detectTeamStates(
+      ctx, STATUS_REGION, ['caiji', 'totarget', 'zhuzha']
+    );
+    const caijiCount = states.filter(s => s.state === 'caiji').length;
+    const totargetCount = states.filter(s => s.state === 'totarget').length;
+    const zhuzhaList = states.filter(s => s.state === 'zhuzha').sort((a, b) => a.y - b.y);
+    ctx.log(`[step 2] caiji=${caijiCount} totarget=${totargetCount} zhuzha=${zhuzhaList.length}`);
+
+    if (caijiCount + totargetCount >= teams.length) {
+      ctx.log(`[step 2] 配额已满（${caijiCount + totargetCount}/${teams.length}），退出循环`);
+      break;
+    }
+
+    if (zhuzhaList.length === 0) {
+      // step 3.1: 走完整 gatherGem
+      ctx.log('[step 3.1] 调用 gatherGem 完整流程');
+      const r = await gatherGem(ctx, config, teams, { collectedCoords });
+      dispatched += r.dispatched;
+      await ctx.sleep(2);
+      continue;
+    }
+
+    // === step 3.2: 驻扎队伍接续派矿 ===
+    const top = zhuzhaList[0];
+    const iconX = Math.round(STATUS_REGION.x + STATUS_REGION.w / 2);
+    ctx.log(`[step 3.2] 点击最上驻扎队伍 (${iconX}, ${top.y})`);
+    await ctx.tap(iconX, top.y);
+    await ctx.sleep(1.5);
+
+    await zoomOutToWorld(ctx, worldBtn);
+    const gem = await searchAndClickGem(ctx, config, spiralState, collectedCoords);
+    if (!gem.found) {
+      ctx.log('[step 3.2] 搜不到矿，退大 UI 回 step 1');
+      await ctx.tap(EXIT_LARGE_UI_BUTTON.x, EXIT_LARGE_UI_BUTTON.y);
+      await ctx.sleep(1);
+      continue;
+    }
+
+    // === step 4: 大 UI 中找驻扎队伍 + 行军按钮 ===
+    const stateIn4 = await detectTeamStates(ctx, LARGE_REGION, ['zhuzha']);
+    if (stateIn4.length === 0) {
+      // 兜底：图像识别误差导致没检测到驻扎，回退到派空闲队伍
+      ctx.log('[step 4] 兜底：未检测到驻扎，尝试派空闲队伍');
+      if (!await checkIdleTeamsAvailable(ctx)) {
+        ctx.log('[step 4] 兜底：也无空闲队伍，退出');
+        await ctx.tap(EXIT_LARGE_UI_BUTTON.x, EXIT_LARGE_UI_BUTTON.y);
+        break;
+      }
+      const r = await dispatchToTeamPopup(
+        ctx, config, teams, 0, hasPaging, collectedCoords
+      );
+      hasPaging = r.hasPaging;
+      if (r.dispatched) dispatched++;
+      continue;
+    }
+
+    const topInLarge = stateIn4.sort((a, b) => a.y - b.y)[0];
+    const largeIconX = Math.round(LARGE_REGION.x + LARGE_REGION.w / 2);
+    ctx.log(`[step 4] 点击最上驻扎队伍 (${largeIconX}, ${topInLarge.y})`);
+    await ctx.tap(largeIconX, topInLarge.y);
+    await ctx.sleep(1.5);
+
+    const march = await ctx.findImageWithLocation(
+      MARCH_BTN_TEMPLATE, 0.7, undefined, undefined, undefined, MARCH_SEARCH_REGION
+    );
+    if (!march.found) {
+      ctx.log(`[step 4] 行军按钮未找到，退大 UI 回 step 1`);
+      await ctx.tap(EXIT_LARGE_UI_BUTTON.x, EXIT_LARGE_UI_BUTTON.y);
+      await ctx.sleep(1);
+      continue;
+    }
+    ctx.log(`[step 4] 点击行军按钮 (${march.x}, ${march.y})`);
+    await ctx.tap(march.x, march.y);
+    await ctx.sleep(1.5);
+    dispatched++;
   }
 
-  ctx.log(`[专注模式] 检测完成: ${states.length} 个状态 → ${Object.entries(counts).map(([k, v]) => `${k}=${v}`).join(', ') || '无'}`);
-
-  return { result: 'success', dispatched: 0 };
+  ctx.log(`=== 专注模式结束：派出 ${dispatched} 队 ===`);
+  return { result: dispatched > 0 ? 'success' : 'not_found', dispatched };
 }
