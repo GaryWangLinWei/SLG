@@ -18,6 +18,7 @@ let moduleGemCollectedCount: number = 0;
 let offlineActive = false;             // 当前是否处于下线状态
 let lastOfflineState = false;          // 上次的状态（用于边沿检测）
 let moduleGemRestActive = false;       // 宝石采集 rest 阶段标志
+let bottomBarChecked = false;          // 主循环是否已确认底部菜单栏（launch-game 后需重置）
 
 const LOOP_STATE_KEY = 'loop-state';
 
@@ -37,6 +38,7 @@ function clearLoopState() {
   offlineActive = false;
   lastOfflineState = false;
   moduleGemRestActive = false;
+  bottomBarChecked = false;
   try { sessionStorage.removeItem(LOOP_STATE_KEY); } catch {}
 }
 
@@ -420,7 +422,6 @@ export function HomePage() {
     // Fire and forget, stop button will cancel via task IDs
     (async () => {
       let round = 0;
-      let bottomBarChecked = false;
 
       // 重置队列速览过滤状态（每次开始运行时重新检查）
       (async () => {
@@ -696,6 +697,8 @@ export function HomePage() {
             }
             offlineActive = false;
             lastOfflineState = false;
+            // 游戏重启后界面已变化，强制主循环重新检查底部菜单栏
+            bottomBarChecked = false;
           }
 
           // 等 30s 再检查（中途循环停止可立即退出）
