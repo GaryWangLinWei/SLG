@@ -15,6 +15,8 @@ import { gatherGemFocus } from './actions/gatherGemFocus';
 import { caveExplore } from './actions/caveExplore';
 import { readGemCount } from './actions/readGemCount';
 import { sendWorldChat, sendWorldChatFirstRun } from './actions/sendWorldChat';
+import { killGame } from './actions/killGame';
+import { launchGame } from './actions/launchGame';
 import { ensureInCity, ensureBottomBarCollapsed } from './utils/location';
 import { ocrService } from '../../core/ocr/OcrService';
 import * as fs from 'fs/promises';
@@ -764,6 +766,8 @@ export const RiseOfKingdomsPlugin: Plugin = {
         ctx.log(`宝石采集(专注): 队伍[${teams.join(', ')}] → ${outcome.result}，派出 ${outcome.dispatched} 队`);
       }
     },
+    killGame,
+    launchGame,
   ],
 
   onLoad: async () => {
