@@ -19,6 +19,7 @@ let offlineActive = false;             // 当前是否处于下线状态
 let lastOfflineState = false;          // 上次的状态（用于边沿检测）
 let moduleGemRestActive = false;       // 宝石采集 rest 阶段标志
 let bottomBarChecked = false;          // 主循环是否已确认底部菜单栏（launch-game 后需重置）
+let relaunchRequested = false;         // launch-game 后请求各子循环重置状态、从头开始（等价于重新点开始运行）
 
 const LOOP_STATE_KEY = 'loop-state';
 
@@ -39,6 +40,7 @@ function clearLoopState() {
   lastOfflineState = false;
   moduleGemRestActive = false;
   bottomBarChecked = false;
+  relaunchRequested = false;
   try { sessionStorage.removeItem(LOOP_STATE_KEY); } catch {}
 }
 
@@ -699,6 +701,8 @@ export function HomePage() {
             lastOfflineState = false;
             // 游戏重启后界面已变化，强制主循环重新检查底部菜单栏
             bottomBarChecked = false;
+            // 上线等价于重新点开始运行：通知各子循环重置状态、从头开始
+            relaunchRequested = true;
           }
 
           // 等 30s 再检查（中途循环停止可立即退出）
@@ -731,6 +735,21 @@ export function HomePage() {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
 
+          // ── 上线重置（launch-game 后等价于重新开始运行）──
+          // 重置宝石采集的初始计数/已采集计数，中断当前 active/rest 阶段从头开始
+          if (relaunchRequested) {
+            relaunchRequested = false;
+            localInitialCount = null;
+            moduleGemInitialCount = null;
+            moduleGemCollectedCount = 0;
+            setGemInitialCount(null);
+            setGemCollectedCount(0);
+            setGemRestCountdown('');
+            moduleGemRestActive = false;
+            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🔄 游戏重新上线，宝石采集从头开始`]);
+            continue;
+          }
+
           const f = featuresRef.current;
           if (!f.gemGatherEnabled || f.gemGatherTeams.length === 0 || f.autoExplore || f.autoWorldChat) {
             await sleep(30); continue;
@@ -760,7 +779,7 @@ export function HomePage() {
           setLogs(prev => [...prev,
             `[${new Date().toLocaleTimeString()}] 💎 ${isFocus ? '专注' : '普通'}采集开始，持续 ${activeHours}h`]);
 
-          while (!loopStopped && Date.now() < activeEnd) {
+          while (!loopStopped && !relaunchRequested && Date.now() < activeEnd) {
             if (offlineActive) { await sleep(30); continue; }
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
@@ -801,13 +820,15 @@ export function HomePage() {
             }
           }
           if (loopStopped) break;
+          // 上线重置请求：跳过 rest，回到外层 while 顶部重置状态、重新开始采集
+          if (relaunchRequested) continue;
 
           // ── rest 阶段（普通+专注共用，触发下线）──
           const restEnd = Date.now() + restHours * 3600 * 1000;
           moduleGemRestActive = true;
           setLogs(prev => [...prev,
             `[${new Date().toLocaleTimeString()}] 💤 宝石采集休息 ${restHours}h，${new Date(restEnd).toLocaleTimeString()} 恢复`]);
-          while (!loopStopped && Date.now() < restEnd) {
+          while (!loopStopped && !relaunchRequested && Date.now() < restEnd) {
             const remaining = Math.max(0, restEnd - Date.now());
             const h = Math.floor(remaining / 3600000);
             const m = Math.floor((remaining % 3600000) / 60000);
