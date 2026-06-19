@@ -24,7 +24,7 @@ export interface HomeFeatures {
   gemGatherActiveHours: number;
   gemGatherRestHours: number;
   autoCaveExplore: boolean;
-  loopInterval: number;
+  nightMode: boolean;
 }
 
 export const DEFAULT_HOME_FEATURES: HomeFeatures = {
@@ -59,5 +59,5 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   gemGatherActiveHours: 2,
   gemGatherRestHours: 1,
   autoCaveExplore: false,
-  loopInterval: 300,
+  nightMode: false,
 };
