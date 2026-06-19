@@ -760,34 +760,6 @@ export const RiseOfKingdomsPlugin: Plugin = {
       run: async (ctx, params: { teams?: number[] } = {}) => {
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const teams = params.teams || [1];
-
-        // Pre-check: OCR team count
-        ctx.log('[预备] OCR 检测空闲队伍数...');
-        const regionPath = await ctx.captureRegion(1507, 169, 55, 31);
-        const teamCountText = await ocrService.readText(regionPath);
-        await fs.unlink(regionPath).catch(() => {});
-        ctx.log(`[预备] OCR 结果: "${teamCountText}"`);
-
-        const match = teamCountText.match(/(\d+)\s*\/\s*(\d+)/);
-        if (match) {
-          const used = parseInt(match[1], 10);
-          const total = parseInt(match[2], 10);
-          if (used === total) {
-            // 专注模式：即使 OCR 显示全部忙碌，仍进入 gatherGemFocus
-            // 因为状态栏可能检测到"返回中"的队伍即将可用
-            ctx.log(`⚠️ OCR 显示无空闲队伍 (${used}/${total})，但仍进入专注检测（状态栏可能发现返回中的队伍）`);
-          } else {
-            ctx.log(`有空闲队伍 (${used}/${total})，继续宝石采集`);
-          }
-        } else {
-          const digitsOnly = teamCountText.replace(/\D/g, '');
-          if (digitsOnly.length >= 2 && /^(\d)\1+$/.test(digitsOnly)) {
-            ctx.log(`⚠️ OCR 推测全部忙碌 ("${digitsOnly}")，但仍进入专注检测`);
-          } else {
-            ctx.log('⚠️ 未识别到队伍计数，继续宝石采集');
-          }
-        }
-
         const outcome = await gatherGemFocus(ctx, config, teams);
         ctx.log(`宝石采集(专注): 队伍[${teams.join(', ')}] → ${outcome.result}，派出 ${outcome.dispatched} 队`);
       }
