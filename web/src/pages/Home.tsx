@@ -736,16 +736,11 @@ export function HomePage() {
           if (offlineActive) { await sleep(30); continue; }
 
           // ── 上线重置（launch-game 后等价于重新开始运行）──
-          // 重置宝石采集的初始计数/已采集计数，中断当前 active/rest 阶段从头开始
+          // 只中断当前 active/rest 阶段从头开始，保留已采集计数与初始基准
           if (relaunchRequested) {
             relaunchRequested = false;
-            localInitialCount = null;
-            moduleGemInitialCount = null;
-            moduleGemCollectedCount = 0;
-            setGemInitialCount(null);
-            setGemCollectedCount(0);
-            setGemRestCountdown('');
             moduleGemRestActive = false;
+            setGemRestCountdown('');
             setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🔄 游戏重新上线，宝石采集从头开始`]);
             continue;
           }
@@ -784,6 +779,14 @@ export function HomePage() {
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             try {
+              // 采集前先读一次宝石数，更新已采集计数
+              const current = await readCount();
+              if (current !== null && localInitialCount !== null) {
+                moduleGemCollectedCount = Math.max(0, current - localInitialCount);
+                setGemCollectedCount(moduleGemCollectedCount);
+                setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💎 已采集: ${moduleGemCollectedCount} 颗`]);
+              }
+
               const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, { teams: f.gemGatherTeams });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
@@ -801,13 +804,6 @@ export function HomePage() {
                 } else {
                   setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💎 宝石采集${isFocus ? '(专注)' : ''}完成`]);
                 }
-              }
-
-              const current = await readCount();
-              if (current !== null && localInitialCount !== null) {
-                moduleGemCollectedCount = Math.max(0, current - localInitialCount);
-                setGemCollectedCount(moduleGemCollectedCount);
-                setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💎 已采集: ${moduleGemCollectedCount} 颗`]);
               }
             } catch {} finally { releaseLock(); }
 
