@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAccount } from '../contexts/AccountContext';
 import { useLicense } from '../contexts/LicenseContext';
-import { DEFAULT_HOME_FEATURES } from '../../../plugins/rok/homeFeatures';
+import { DEFAULT_HOME_FEATURES, TeamPageChoice } from '../../../plugins/rok/homeFeatures';
 
 // Module-level loop state — survives component unmount/remount during SPA navigation
 let loopStopped = false;
@@ -13,6 +13,7 @@ let loopCompletedBuildings: boolean[] = [false, false, false, false, false];
 let loopCompletedTechs: boolean[] = [false, false, false, false, false];
 let deviceBusy = false;
 const GATHER_LOOP_INTERVAL = 300; // 城外采集独立循环间隔（秒）
+const monotonicNow = () => performance.now(); // 不受用户修改系统时间影响，用于持续时间计时
 let moduleGemInitialCount: number | null = null;
 let moduleGemCollectedCount: number = 0;
 let offlineActive = false;             // 当前是否处于下线状态
@@ -22,6 +23,12 @@ let bottomBarChecked = false;          // 主循环是否已确认底部菜单�
 let relaunchRequested = false;         // launch-game 后请求各子循环重置状态、从头开始（等价于重新点开始运行）
 
 const LOOP_STATE_KEY = 'loop-state';
+const TEAM_PAGE_OPTIONS: Array<{ value: TeamPageChoice; label: string }> = [
+  { value: 'gather', label: '蓝' },
+  { value: 'attack', label: '红' },
+  { value: 'other', label: '黄' },
+];
+const isTeamPageChoice = (value: unknown): value is TeamPageChoice => value === 'gather' || value === 'attack' || value === 'other';
 
 function saveLoopState(accountId: string) {
   try {
@@ -182,6 +189,9 @@ export function HomePage() {
         }
         if (typeof merged.rallyFortLevel !== 'number') merged.rallyFortLevel = DEFAULT_FEATURES.rallyFortLevel;
         if (typeof merged.rallyFortTeam !== 'number') merged.rallyFortTeam = DEFAULT_FEATURES.rallyFortTeam;
+        if (!isTeamPageChoice(merged.rallyFortTeamPage)) merged.rallyFortTeamPage = DEFAULT_FEATURES.rallyFortTeamPage;
+        if (!isTeamPageChoice(merged.resourceGatherTeamPage)) merged.resourceGatherTeamPage = DEFAULT_FEATURES.resourceGatherTeamPage;
+        if (!isTeamPageChoice(merged.gemGatherTeamPage)) merged.gemGatherTeamPage = DEFAULT_FEATURES.gemGatherTeamPage;
         if (typeof merged.rallyFortDowngrade !== 'boolean') merged.rallyFortDowngrade = DEFAULT_FEATURES.rallyFortDowngrade;
         return merged;
       }
@@ -216,6 +226,16 @@ export function HomePage() {
   const RESOURCE_TYPES = ['农田', '伐木场', '石矿', '金矿'];
   const RESOURCE_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8];
   const TRAIN_TIERS = [1, 2, 3, 4, 5];
+  const renderTeamPageSelect = (value: TeamPageChoice, onChange: (value: TeamPageChoice) => void, disabled: boolean = false) => (
+    <select
+      value={value}
+      disabled={disabled}
+      onChange={(e) => onChange(e.target.value as TeamPageChoice)}
+      className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-16"
+    >
+      {TEAM_PAGE_OPTIONS.map(opt => (<option key={opt.value} value={opt.value}>{opt.label}</option>))}
+    </select>
+  );
 
   const [buildingOptions, setBuildingOptions] = useState<string[]>([]);
   const [_techOptions, setTechOptions] = useState<string[]>(['耕犁', '锯木厂', '铸币', '机械']);
@@ -447,7 +467,7 @@ export function HomePage() {
               if (!await acquireLock()) break;
               if (offlineActive) { releaseLock(); await sleep(30); continue; }
               try {
-                const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'gather-resources', { gatherTasks });
+                const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'gather-resources', { gatherTasks, teamPage: features.resourceGatherTeamPage });
                 if (createResult.success) {
                   runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                   setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -469,8 +489,8 @@ export function HomePage() {
             }
           }
           const jitteredInterval = GATHER_LOOP_INTERVAL * (0.85 + Math.random() * 0.3);
-          const startWait = Date.now();
-          while (!loopStopped && (Date.now() - startWait) < jitteredInterval * 1000) {
+          const startWait = monotonicNow();
+          while (!loopStopped && (monotonicNow() - startWait) < jitteredInterval * 1000) {
             await sleep(1);
           }
         }
@@ -507,8 +527,8 @@ export function HomePage() {
             } catch {} finally { releaseLock(); }
           }
           const helpInterval = 60 * (0.85 + Math.random() * 0.3); // 51-69s
-          const startWait = Date.now();
-          while (!loopStopped && (Date.now() - startWait) < helpInterval * 1000) {
+          const startWait = monotonicNow();
+          while (!loopStopped && (monotonicNow() - startWait) < helpInterval * 1000) {
             await sleep(1);
           }
         }
@@ -545,8 +565,8 @@ export function HomePage() {
             } catch {} finally { releaseLock(); }
           }
           const collectInterval = 4 * 3600 * (0.85 + Math.random() * 0.3); // 3.4-4.6h
-          const startWait = Date.now();
-          while (!loopStopped && (Date.now() - startWait) < collectInterval * 1000) {
+          const startWait = monotonicNow();
+          while (!loopStopped && (monotonicNow() - startWait) < collectInterval * 1000) {
             await sleep(1);
           }
         }
@@ -564,7 +584,7 @@ export function HomePage() {
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             let cd = 600; // 默认 CD，实际根据结果确定
             try {
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'rally-fort', { level: features.rallyFortLevel, team: features.rallyFortTeam, downgrade: features.rallyFortDowngrade });
+              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'rally-fort', { level: features.rallyFortLevel, team: features.rallyFortTeam, downgrade: features.rallyFortDowngrade, teamPage: features.rallyFortTeamPage });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -604,8 +624,8 @@ export function HomePage() {
             if (loopStopped) break;
             const cdJitter = cd * (0.85 + Math.random() * 0.3);
             setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏰 城寨完成，${cdJitter.toFixed(0)} 秒后下一轮`]);
-            const startWait = Date.now();
-            while (!loopStopped && (Date.now() - startWait) < cdJitter * 1000) {
+            const startWait = monotonicNow();
+            while (!loopStopped && (monotonicNow() - startWait) < cdJitter * 1000) {
               await sleep(1);
             }
           } else {
@@ -650,8 +670,8 @@ export function HomePage() {
             }
           }
           const caveInterval = 120 * (0.85 + Math.random() * 0.3);
-          const startWait = Date.now();
-          while (!loopStopped && (Date.now() - startWait) < caveInterval * 1000) {
+          const startWait = monotonicNow();
+          while (!loopStopped && (monotonicNow() - startWait) < caveInterval * 1000) {
             await sleep(1);
           }
         }
@@ -706,8 +726,8 @@ export function HomePage() {
           }
 
           // 等 30s 再检查（中途循环停止可立即退出）
-          const startWait = Date.now();
-          while (!loopStopped && (Date.now() - startWait) < 30000) {
+          const startWait = monotonicNow();
+          while (!loopStopped && (monotonicNow() - startWait) < 30000) {
             await sleep(1);
           }
         }
@@ -769,12 +789,12 @@ export function HomePage() {
           const intervalSec = isFocus ? 60 : 300;
 
           // ── active 阶段 ──
-          const activeEnd = Date.now() + activeHours * 3600 * 1000;
+          const activeEnd = monotonicNow() + activeHours * 3600 * 1000;
           setGemRestCountdown('');
           setLogs(prev => [...prev,
             `[${new Date().toLocaleTimeString()}] 💎 ${isFocus ? '专注' : '普通'}采集开始，持续 ${activeHours}h`]);
 
-          while (!loopStopped && !relaunchRequested && Date.now() < activeEnd) {
+          while (!loopStopped && !relaunchRequested && monotonicNow() < activeEnd) {
             if (offlineActive) { await sleep(30); continue; }
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
@@ -787,7 +807,7 @@ export function HomePage() {
                 setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💎 已采集: ${moduleGemCollectedCount} 颗`]);
               }
 
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, { teams: f.gemGatherTeams });
+              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, { teams: f.gemGatherTeams, teamPage: f.gemGatherTeamPage });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -808,10 +828,10 @@ export function HomePage() {
             } catch {} finally { releaseLock(); }
 
             if (loopStopped) break;
-            if (Date.now() >= activeEnd) break;
+            if (monotonicNow() >= activeEnd) break;
             const wait = intervalSec * (0.85 + Math.random() * 0.3);
-            const startWait = Date.now();
-            while (!loopStopped && (Date.now() - startWait) < wait * 1000 && Date.now() < activeEnd) {
+            const startWait = monotonicNow();
+            while (!loopStopped && (monotonicNow() - startWait) < wait * 1000 && monotonicNow() < activeEnd) {
               await sleep(1);
             }
           }
@@ -820,12 +840,14 @@ export function HomePage() {
           if (relaunchRequested) continue;
 
           // ── rest 阶段（普通+专注共用，触发下线）──
-          const restEnd = Date.now() + restHours * 3600 * 1000;
+          const restDurationMs = restHours * 3600 * 1000;
+          const restEnd = monotonicNow() + restDurationMs;
+          const restEndWall = Date.now() + restDurationMs;
           moduleGemRestActive = true;
           setLogs(prev => [...prev,
-            `[${new Date().toLocaleTimeString()}] 💤 宝石采集休息 ${restHours}h，${new Date(restEnd).toLocaleTimeString()} 恢复`]);
-          while (!loopStopped && !relaunchRequested && Date.now() < restEnd) {
-            const remaining = Math.max(0, restEnd - Date.now());
+            `[${new Date().toLocaleTimeString()}] 💤 宝石采集休息 ${restHours}h，${new Date(restEndWall).toLocaleTimeString()} 恢复`]);
+          while (!loopStopped && !relaunchRequested && monotonicNow() < restEnd) {
+            const remaining = Math.max(0, restEnd - monotonicNow());
             const h = Math.floor(remaining / 3600000);
             const m = Math.floor((remaining % 3600000) / 60000);
             const s = Math.floor((remaining % 60000) / 1000);
@@ -938,8 +960,8 @@ export function HomePage() {
           const exploreDragWindow = exploreNextWake - exploreDragSafety;
           if (exploreDragWindow > 20 && Math.random() < 0.05) {
             const dragDelay = 5 + Math.random() * (exploreDragWindow * 0.7);
-            const exploreStartWait = Date.now();
-            while (!loopStopped && (Date.now() - exploreStartWait) < dragDelay * 1000) {
+            const exploreStartWait = monotonicNow();
+            while (!loopStopped && (monotonicNow() - exploreStartWait) < dragDelay * 1000) {
               await sleep(1);
             }
             if (!loopStopped) {
@@ -947,7 +969,7 @@ export function HomePage() {
                 try { if (!offlineActive) await runTask('idle-drag'); } catch {} finally { releaseLock(); }
               }
             }
-            while (!loopStopped && (Date.now() - exploreStartWait) < exploreNextWake * 1000) {
+            while (!loopStopped && (monotonicNow() - exploreStartWait) < exploreNextWake * 1000) {
               await sleep(1);
             }
           } else {
@@ -990,12 +1012,12 @@ export function HomePage() {
             const cdJitter = cd * (0.85 + Math.random() * 0.3);
             setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📢 一轮喊话完成，${cdJitter.toFixed(0)} 秒后开始下一轮`]);
 
-            const cdStartWait = Date.now();
+            const cdStartWait = monotonicNow();
             const dragSafety = 5;
             const dragWindow = cdJitter - dragSafety;
             if (dragWindow > 20 && Math.random() < 0.05) {
               const dragDelay = 5 + Math.random() * (dragWindow * 0.7);
-              while (!loopStopped && (Date.now() - cdStartWait) < dragDelay * 1000) {
+              while (!loopStopped && (monotonicNow() - cdStartWait) < dragDelay * 1000) {
                 await sleep(1);
               }
               if (!loopStopped) {
@@ -1003,7 +1025,7 @@ export function HomePage() {
                   try { if (!offlineActive) await runTask('idle-drag'); } catch {} finally { releaseLock(); }
                 }
               }
-              while (!loopStopped && (Date.now() - cdStartWait) < cdJitter * 1000) {
+              while (!loopStopped && (monotonicNow() - cdStartWait) < cdJitter * 1000) {
                 await sleep(1);
               }
             } else {
@@ -1159,8 +1181,8 @@ export function HomePage() {
         const dragWindow = nextWake - dragSafetyMargin;
         if (dragWindow > 120 && Math.random() < 0.4) {
           const dragDelay = 5 + Math.random() * (dragWindow * 0.7);
-          const startWait = Date.now();
-          while (!loopStopped && (Date.now() - startWait) < dragDelay * 1000) {
+          const startWait = monotonicNow();
+          while (!loopStopped && (monotonicNow() - startWait) < dragDelay * 1000) {
             await sleep(1);
           }
           if (!loopStopped) {
@@ -1168,12 +1190,12 @@ export function HomePage() {
               try { if (!offlineActive) await runTask('idle-drag'); } catch {} finally { releaseLock(); }
             }
           }
-          while (!loopStopped && (Date.now() - startWait) < nextWake * 1000) {
+          while (!loopStopped && (monotonicNow() - startWait) < nextWake * 1000) {
             await sleep(1);
           }
         } else {
-          const startWait = Date.now();
-          while (!loopStopped && (Date.now() - startWait) < nextWake * 1000) {
+          const startWait = monotonicNow();
+          while (!loopStopped && (monotonicNow() - startWait) < nextWake * 1000) {
             await sleep(1);
           }
         }
@@ -1317,8 +1339,9 @@ export function HomePage() {
                   <span className="text-xs text-slate-400 whitespace-nowrap">队伍</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-500 w-16">降级搜索</span>
-                  <label className={`relative inline-flex items-center ${features.gemGatherFocusMode ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                  <span className="text-xs text-slate-500 w-16" title="当搜索不到对应等级的城寨后，降级搜索。">降级搜索</span>
+                  <label className={`relative inline-flex items-center ${features.gemGatherFocusMode ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
+                    title="当搜索不到对应等级的城寨后，降级搜索。">
                     <input type="checkbox" checked={features.rallyFortDowngrade}
                       disabled={features.gemGatherFocusMode}
                       onChange={(e) => setFeatures({ ...features, rallyFortDowngrade: e.target.checked })}
@@ -1332,7 +1355,10 @@ export function HomePage() {
                     </span>
                   </label>
                 </div>
-                <p className="text-xs text-slate-400 mt-1">请在红色队列中配置队伍</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-400 whitespace-nowrap">队伍页</span>
+                  {renderTeamPageSelect(features.rallyFortTeamPage, (v) => setFeatures({ ...features, rallyFortTeamPage: v }), features.gemGatherFocusMode)}
+                </div>
               </div>
 
             </div>
@@ -1370,7 +1396,10 @@ export function HomePage() {
                   </div>
                 ))}
               </div>
-              <p className="text-xs text-slate-400 mt-1.5">请在蓝色队列中配置队伍</p>
+              <div className="flex items-center gap-2 mt-1.5">
+                <span className="text-xs text-slate-400 whitespace-nowrap">队伍页</span>
+                {renderTeamPageSelect(features.resourceGatherTeamPage, (v) => setFeatures({ ...features, resourceGatherTeamPage: v }), features.autoExplore || features.autoWorldChat || features.gemGatherFocusMode)}
+              </div>
             </div>
 
             {/* 自动升级建筑 */}
@@ -1552,6 +1581,8 @@ export function HomePage() {
                   </label>
                 ))}
                 <span className="text-xs text-slate-400 whitespace-nowrap">队伍</span>
+                <span className="text-xs text-slate-400 whitespace-nowrap ml-2">队伍页</span>
+                {renderTeamPageSelect(features.gemGatherTeamPage, (v) => setFeatures({ ...features, gemGatherTeamPage: v }), features.autoExplore || features.autoWorldChat || !features.gemGatherEnabled || isFeatureLocked('gemGather'))}
               </div>
               <label className={`flex items-center gap-1.5 mt-2 ${(!features.gemGatherEnabled || isFeatureLocked('gemGather') || features.autoExplore || features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
                 <input type="checkbox"
@@ -1594,7 +1625,7 @@ export function HomePage() {
                   升级到 Pro 解锁宝石采集
                 </p>
               ) : (
-                <p className="text-xs text-slate-400 mt-1.5">推荐默认配置，经测试不易被查</p>
+                <p className="text-xs text-slate-400 mt-1.5">推荐默认配置，不要挂全天！</p>
               )}
             </div>
 

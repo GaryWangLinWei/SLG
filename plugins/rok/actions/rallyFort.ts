@@ -2,7 +2,7 @@ import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import { ensureInWorld } from '../utils/location';
-import { ensureTeamPage } from '../utils/teamPage';
+import { ensureTeamPage, TeamPage } from '../utils/teamPage';
 import * as path from 'path';
 
 const TEMPLATE_DIR = getTemplatesDir();
@@ -24,6 +24,8 @@ const CLOSE_TEAM_PANEL_BUTTON = { x: 1394, y: 60 };
 const CONFIRM_TIME_BUTTON = { x: 1177, y: 396 };
 const SWITCH_IN_CITY_TEMPLATE = path.join(TEMPLATE_DIR, 'switch_in_city.png');
 const SWITCH_IN_WORLD_TEMPLATE = path.join(TEMPLATE_DIR, 'switch_in_world.png');
+const TILI_BUTTON_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_tili.png');
+const TILI_BUTTON_REGION = { x: 1014, y: 242, width: 1358 - 1014, height: 407 - 242 };
 
 export interface RallyFortOutcome {
   result: 'success' | 'not_found' | 'team_unavailable' | 'rally_full' | 'stamina_insufficient';
@@ -36,7 +38,8 @@ export async function rallyFort(
   config: RokConfig,
   targetLevel: number,
   team: number,
-  downgrade: boolean = true
+  downgrade: boolean = true,
+  teamPage: TeamPage = 'attack'
 ): Promise<RallyFortOutcome> {
   ctx.log(`=== 自动攻打城寨 Lv.${targetLevel} 队伍${team} ===`);
 
@@ -149,17 +152,17 @@ export async function rallyFort(
     ctx.log(`  [检测] 换页按钮: 不存在 (≤7组)`);
   }
 
-  // 如有换页按钮，确保在攻击队伍页（红队）
+  // 如有换页按钮，确保在目标队伍页
   // rallyFort 弹窗的部队页指示器位于 (1361,378)-(1397,413)
   if (hasPaging) {
     const onTargetPage = await ensureTeamPage(
       ctx,
-      'attack',
+      teamPage,
       { x: pageResult.x, y: pageResult.y },
       { x: 1361, y: 378, w: 36, h: 35 }
     );
     if (!onTargetPage) {
-      ctx.log(`  ⚠️ 未能切换到攻击队伍页`);
+      ctx.log(`  ⚠️ 未能切换到目标队伍页`);
       return { result: 'team_unavailable', dispatched: 0, foundLevel: currentLevel };
     }
   }
@@ -183,19 +186,38 @@ export async function rallyFort(
     return { result: 'team_unavailable', dispatched: 0, foundLevel: currentLevel };
   }
 
-  // 点击行军
-  await ctx.sleep(0.5);
-  ctx.log(`  点击行军按钮 (${MARCH_BUTTON.x}, ${MARCH_BUTTON.y})`);
-  await ctx.tap(MARCH_BUTTON.x, MARCH_BUTTON.y);
-  await ctx.sleep(1);
+  // 点击行军；若弹出行动力不足且存在免费体力，领取后重试一次
+  for (let marchAttempt = 1; marchAttempt <= 2; marchAttempt++) {
+    await ctx.sleep(0.5);
+    ctx.log(`  点击行军按钮 (${MARCH_BUTTON.x}, ${MARCH_BUTTON.y})${marchAttempt > 1 ? '（领取体力后重试）' : ''}`);
+    await ctx.tap(MARCH_BUTTON.x, MARCH_BUTTON.y);
+    await ctx.sleep(1);
 
-  // 检测行动力不足弹窗：城内外切换按钮不可见则认为被弹窗遮挡
-  const switchCityResult = await ctx.findImageWithLocation(SWITCH_IN_CITY_TEMPLATE, 0.7);
-  const switchWorldResult = await ctx.findImageWithLocation(SWITCH_IN_WORLD_TEMPLATE, 0.7);
-  ctx.log(`  切换按钮: city=${switchCityResult.found ? switchCityResult.confidence.toFixed(3) : 'not found'}, world=${switchWorldResult.found ? switchWorldResult.confidence.toFixed(3) : 'not found'}`);
-  const isStaminaInsufficient = !switchCityResult.found && !switchWorldResult.found;
-  if (isStaminaInsufficient) {
+    // 检测行动力不足弹窗：城内外切换按钮不可见则认为被弹窗遮挡
+    const switchCityResult = await ctx.findImageWithLocation(SWITCH_IN_CITY_TEMPLATE, 0.7);
+    const switchWorldResult = await ctx.findImageWithLocation(SWITCH_IN_WORLD_TEMPLATE, 0.7);
+    ctx.log(`  切换按钮: city=${switchCityResult.found ? switchCityResult.confidence.toFixed(3) : 'not found'}, world=${switchWorldResult.found ? switchWorldResult.confidence.toFixed(3) : 'not found'}`);
+    const isStaminaInsufficient = !switchCityResult.found && !switchWorldResult.found;
+    if (!isStaminaInsufficient) {
+      ctx.log(`  ✅ 队伍${team} 已发起 Lv.${currentLevel} 城寨集结`);
+      return { result: 'success', dispatched: 1, foundLevel: currentLevel };
+    }
+
     ctx.log(`  ⚠️ 切换按钮不可见 → 行动力不足弹窗`);
+
+    if (marchAttempt === 1) {
+      const tiliButton = await ctx.findImageWithLocation(TILI_BUTTON_TEMPLATE, 0.8, [0.9, 1.0, 1.1], false, undefined, TILI_BUTTON_REGION);
+      ctx.log(`  [体力] 免费体力按钮: found=${tiliButton.found} conf=${tiliButton.confidence.toFixed(3)}`);
+      if (tiliButton.found) {
+        ctx.log(`  [体力] 领取免费体力 (${tiliButton.x}, ${tiliButton.y})`);
+        await ctx.tap(tiliButton.x, tiliButton.y);
+        await ctx.sleep(0.8);
+        await ctx.tap(1363, 103);  // 关闭行动力不足弹窗
+        await ctx.sleep(0.8);
+        continue;
+      }
+    }
+
     await ctx.tap(1363, 103);  // 关闭行动力不足弹窗
     await ctx.sleep(0.5);
     await ctx.tap(CLOSE_TEAM_PANEL_BUTTON.x, CLOSE_TEAM_PANEL_BUTTON.y);  // 关闭队伍面板
@@ -205,6 +227,5 @@ export async function rallyFort(
     return { result: 'stamina_insufficient', dispatched: 0, foundLevel: currentLevel };
   }
 
-  ctx.log(`  ✅ 队伍${team} 已发起 Lv.${currentLevel} 城寨集结`);
-  return { result: 'success', dispatched: 1, foundLevel: currentLevel };
+  return { result: 'stamina_insufficient', dispatched: 0, foundLevel: currentLevel };
 }

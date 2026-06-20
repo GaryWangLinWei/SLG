@@ -1,3 +1,5 @@
+export type TeamPageChoice = 'gather' | 'attack' | 'other';
+
 export interface HomeFeatures {
   collectResources: boolean;
   upgradeBuildings: boolean;
@@ -6,6 +8,7 @@ export interface HomeFeatures {
   selectedTechs: string[];
   gatherResources: boolean;
   gatherTasks: { type: string; level: number }[];
+  resourceGatherTeamPage: TeamPageChoice;
   trainTroops: boolean;
   trainTasks: Record<string, number>;
   autoExplore: boolean;
@@ -17,10 +20,12 @@ export interface HomeFeatures {
   autoRallyFort: boolean;
   rallyFortLevel: number;
   rallyFortTeam: number;
+  rallyFortTeamPage: TeamPageChoice;
   rallyFortDowngrade: boolean;
   gemGatherEnabled: boolean;
   gemGatherFocusMode: boolean;
   gemGatherTeams: number[];
+  gemGatherTeamPage: TeamPageChoice;
   gemGatherActiveHours: number;
   gemGatherRestHours: number;
   autoCaveExplore: boolean;
@@ -41,6 +46,7 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
     { type: '金矿', level: 2 },
     { type: '', level: 1 },
   ],
+  resourceGatherTeamPage: 'gather',
   trainTroops: false,
   trainTasks: { '兵营': 0, '马厩': 0, '靶场': 0, '攻城武器厂': 0 },
   autoExplore: false,
@@ -52,10 +58,12 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   autoRallyFort: false,
   rallyFortLevel: 0,
   rallyFortTeam: 1,
+  rallyFortTeamPage: 'attack',
   rallyFortDowngrade: true,
   gemGatherEnabled: false,
   gemGatherFocusMode: false,
   gemGatherTeams: [1],
+  gemGatherTeamPage: 'gather',
   gemGatherActiveHours: 2,
   gemGatherRestHours: 1,
   autoCaveExplore: false,

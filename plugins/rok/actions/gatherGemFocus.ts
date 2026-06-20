@@ -5,6 +5,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import sharp from 'sharp';
 import { RokConfig } from '../index';
+import { TeamPage } from '../utils/teamPage';
 import {
   gatherGem,
   zoomOutToWorld,
@@ -167,7 +168,8 @@ export async function detectTeamStates(
 export async function gatherGemFocus(
   ctx: PluginContext,
   config: RokConfig,
-  teams: number[]
+  teams: number[],
+  teamPage: TeamPage = 'gather'
 ): Promise<GemGatherOutcome> {
   ctx.log(`=== 宝石采集专注模式 队伍[${teams.join(', ')}] ===`);
   const worldBtn = config.resourceCollect.worldSwitchButton;
@@ -212,7 +214,7 @@ export async function gatherGemFocus(
     if (zhuzhaList.length === 0) {
       // step 3.1: 走完整 gatherGem
       ctx.log('[step 3.1] 调用 gatherGem 完整流程');
-      const r = await gatherGem(ctx, config, teams, { collectedCoords });
+      const r = await gatherGem(ctx, config, teams, { collectedCoords, teamPage });
       dispatched += r.dispatched;
       // gatherGem 内部独立维护 spiralState 且可能让视角回到城内，
       // 重置焦点循环的 spiralState 以避免与实际视角错位
@@ -249,7 +251,7 @@ export async function gatherGemFocus(
         break;
       }
       const r = await dispatchToTeamPopup(
-        ctx, config, teams, 0, hasPaging, collectedCoords
+        ctx, config, teams, 0, hasPaging, collectedCoords, teamPage
       );
       hasPaging = r.hasPaging;
       if (r.dispatched) dispatched++;

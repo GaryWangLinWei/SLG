@@ -7,7 +7,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import sharp from 'sharp';
 import { ocrService } from '../../../core/ocr/OcrService';
-import { ensureTeamPage } from '../utils/teamPage';
+import { ensureTeamPage, TeamPage } from '../utils/teamPage';
 
 const vision = new Vision();
 
@@ -337,7 +337,8 @@ export async function dispatchToTeamPopup(
   teams: number[],
   nextTeamIdx: number,
   hasPaging: boolean | null,
-  collectedCoords: Array<{ x: number; y: number }>
+  collectedCoords: Array<{ x: number; y: number }>,
+  teamPage: TeamPage = 'gather'
 ): Promise<DispatchResult> {
   ctx.log(`  [6/7] 点击选择队伍按钮 (${SELECT_TEAM_BUTTON.x}, ${SELECT_TEAM_BUTTON.y})`);
   await ctx.tap(SELECT_TEAM_BUTTON.x, SELECT_TEAM_BUTTON.y);
@@ -361,9 +362,9 @@ export async function dispatchToTeamPopup(
   }
 
   if (hasPaging && pageSwitchButton) {
-    const onTargetPage = await ensureTeamPage(ctx, 'gather', pageSwitchButton);
+    const onTargetPage = await ensureTeamPage(ctx, teamPage, pageSwitchButton);
     if (!onTargetPage) {
-      ctx.log(`  ⚠️ 未能切换到采集队伍页，关闭弹窗`);
+      ctx.log(`  ⚠️ 未能切换到目标队伍页，关闭弹窗`);
       await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
       await ctx.sleep(0.5);
       return { dispatched: false, nextTeamIdx, hasPaging, allTeamsBusy: false };
@@ -468,7 +469,7 @@ export async function gatherGem(
   ctx: PluginContext,
   config: RokConfig,
   teams: number[],
-  options?: { collectedCoords?: Array<{ x: number; y: number }> }
+  options?: { collectedCoords?: Array<{ x: number; y: number }>; teamPage?: TeamPage }
 ): Promise<GemGatherOutcome> {
   ctx.log(`=== 智能采集宝石 队伍[${teams.join(', ')}] ===`);
 
@@ -480,6 +481,7 @@ export async function gatherGem(
   let hasPaging: boolean | null = null;
   let nextTeamIdx = 0;  // 下次从 teams[nextTeamIdx] 开始尝试
   const collectedCoords = options?.collectedCoords ?? [];
+  const teamPage = options?.teamPage ?? 'gather';
 
   // [1/7] 重置城外默认视角（所有队伍共一次）
   ctx.log('[1/7] 重置城外默认视角');
@@ -543,7 +545,7 @@ export async function gatherGem(
     }
     ctx.log(`  有空闲队伍，继续`);
 
-    const r = await dispatchToTeamPopup(ctx, config, teams, nextTeamIdx, hasPaging, collectedCoords);
+    const r = await dispatchToTeamPopup(ctx, config, teams, nextTeamIdx, hasPaging, collectedCoords, teamPage);
     hasPaging = r.hasPaging;
     nextTeamIdx = r.nextTeamIdx;
     if (r.dispatched) dispatched++;

@@ -5,7 +5,7 @@ import * as path from 'path';
 import * as fs from 'fs/promises';
 import sharp from 'sharp';
 import { ensureInWorld } from '../utils/location';
-import { ensureTeamPage } from '../utils/teamPage';
+import { ensureTeamPage, TeamPage } from '../utils/teamPage';
 
 const TEMPLATE_DIR = getTemplatesDir();
 const PAGE_INDICATOR_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_page_indicator.png');
@@ -39,7 +39,8 @@ export async function gatherSingleResource(
   ctx: PluginContext,
   config: RokConfig,
   task: GatherTask,
-  hasPaging: boolean | null = null
+  hasPaging: boolean | null = null,
+  teamPage: TeamPage = 'gather'
 ): Promise<{ success: boolean; hasPaging: boolean; noIdleTeams?: boolean }> {
   const rc = config.resourceCollect;
   const rt = rc.resourceTypes[task.type];
@@ -172,11 +173,11 @@ export async function gatherSingleResource(
     }
   }
 
-  // Step 7.6: 如有换页按钮，确保当前在采集队伍页（蓝队）
+  // Step 7.6: 如有换页按钮，确保当前在目标队伍页
   if (hasPaging && pageSwitchButton) {
-    const onTargetPage = await ensureTeamPage(ctx, 'gather', pageSwitchButton);
+    const onTargetPage = await ensureTeamPage(ctx, teamPage, pageSwitchButton);
     if (!onTargetPage) {
-      ctx.log(`  ⚠️ 未能切换到采集队伍页，跳过`);
+      ctx.log(`  ⚠️ 未能切换到目标队伍页，跳过`);
       await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
       await ctx.sleep(0.5);
       return { success: false, hasPaging: hasPaging ?? false };

@@ -18,6 +18,7 @@ import { sendWorldChat, sendWorldChatFirstRun } from './actions/sendWorldChat';
 import { killGame } from './actions/killGame';
 import { launchGame } from './actions/launchGame';
 import { ensureInCity, ensureBottomBarCollapsed } from './utils/location';
+import { TeamPage } from './utils/teamPage';
 import { ocrService } from '../../core/ocr/OcrService';
 import * as fs from 'fs/promises';
 import { getTemplatesDir } from '../../core/resourcePath';
@@ -381,9 +382,10 @@ export const RiseOfKingdomsPlugin: Plugin = {
       id: 'gather-resources',
       name: '采集城外资源',
       description: '按队列采集城外资源，5个队伍按顺序派出',
-      run: async (ctx, params: { gatherTasks: GatherTask[] }) => {
+      run: async (ctx, params: { gatherTasks: GatherTask[]; teamPage?: TeamPage }) => {
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         let hasPaging: boolean | null = null;
+        const teamPage = params.teamPage ?? 'gather';
 
         // Pre-check: OCR team count to skip round if no idle teams
         ctx.log('[预备] OCR 检测空闲队伍数...');
@@ -432,7 +434,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
         for (let i = 0; i < params.gatherTasks.length; i++) {
           const task = params.gatherTasks[i];
           ctx.log(`--- 队伍 ${task.team} ---`);
-          const result = await gatherSingleResource(ctx, config, task, hasPaging);
+          const result = await gatherSingleResource(ctx, config, task, hasPaging, teamPage);
           if (hasPaging === null) hasPaging = result.hasPaging;
           if (result.noIdleTeams) {
             ctx.log('⛔ 没有空闲队伍，停止采集任务');
@@ -643,7 +645,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       id: 'rally-fort',
       name: '攻打城寨',
       description: '使用游戏内置搜索查找野蛮人城寨并发起集结',
-      run: async (ctx, params: { level?: number; team?: number; downgrade?: boolean } = {}) => {
+      run: async (ctx, params: { level?: number; team?: number; downgrade?: boolean; teamPage?: TeamPage } = {}) => {
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const level = params.level || 5;
         const team = params.team || 1;
@@ -676,7 +678,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
           ctx.log('⚠️ 未识别到队伍计数，继续城寨集结');
         }
 
-        const outcome = await rallyFort(ctx, config, level, team, downgrade);
+        const outcome = await rallyFort(ctx, config, level, team, downgrade, params.teamPage ?? 'attack');
         ctx.log(`城寨集结: Lv.${outcome.foundLevel || level} 队伍${team} → ${outcome.result}`);
       }
     },
@@ -722,7 +724,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       id: 'gem-gather',
       name: '智能采集宝石',
       description: '使用图像识别螺旋搜索宝石矿并派出队伍采集',
-      run: async (ctx, params: { teams?: number[] } = {}) => {
+      run: async (ctx, params: { teams?: number[]; teamPage?: TeamPage } = {}) => {
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const teams = params.teams || [1];
 
@@ -751,7 +753,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
           ctx.log('⚠️ 未识别到队伍计数，继续宝石采集');
         }
 
-        const outcome = await gatherGem(ctx, config, teams);
+        const outcome = await gatherGem(ctx, config, teams, { teamPage: params.teamPage ?? 'gather' });
         ctx.log(`宝石采集: 队伍[${teams.join(', ')}] → ${outcome.result}，派出 ${outcome.dispatched} 队`);
       }
     },
@@ -759,10 +761,10 @@ export const RiseOfKingdomsPlugin: Plugin = {
       id: 'gem-gather-focus',
       name: '宝石采集专注模式',
       description: '独占运行，持续采集宝石，暂停城寨/资源/建筑/科技/练兵/社交等所有其他功能',
-      run: async (ctx, params: { teams?: number[] } = {}) => {
+      run: async (ctx, params: { teams?: number[]; teamPage?: TeamPage } = {}) => {
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const teams = params.teams || [1];
-        const outcome = await gatherGemFocus(ctx, config, teams);
+        const outcome = await gatherGemFocus(ctx, config, teams, params.teamPage ?? 'gather');
         ctx.log(`宝石采集(专注): 队伍[${teams.join(', ')}] → ${outcome.result}，派出 ${outcome.dispatched} 队`);
       }
     },
