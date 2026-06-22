@@ -1,7 +1,16 @@
 export type TeamPageChoice = 'gather' | 'attack' | 'other';
 
+export const DEFAULT_COLLECT_RESOURCES_INTERVAL_MINUTES = 240;
+export const MIN_COLLECT_RESOURCES_INTERVAL_MINUTES = 2;
+
+export function getCollectResourcesIntervalSeconds(minutes: number): number {
+  const baseMinutes = Number.isFinite(minutes) ? Math.max(MIN_COLLECT_RESOURCES_INTERVAL_MINUTES, minutes) : DEFAULT_COLLECT_RESOURCES_INTERVAL_MINUTES;
+  return baseMinutes * 60 * (0.85 + Math.random() * 0.3);
+}
+
 export interface HomeFeatures {
   collectResources: boolean;
+  collectResourcesIntervalMinutes: number;
   upgradeBuildings: boolean;
   selectedBuildings: string[];
   autoResearch: boolean;
@@ -34,6 +43,7 @@ export interface HomeFeatures {
 
 export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   collectResources: true,
+  collectResourcesIntervalMinutes: DEFAULT_COLLECT_RESOURCES_INTERVAL_MINUTES,
   upgradeBuildings: true,
   selectedBuildings: ['', '', '', '', ''],
   autoResearch: false,

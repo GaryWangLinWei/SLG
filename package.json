@@ -1,6 +1,6 @@
 {
   "name": "rok-automation",
-  "version": "1.0.4",
+  "version": "1.0.8",
   "description": "万国觉醒自动化助手",
   "main": "dist/electron/main.js",
   "scripts": {
@@ -18,6 +18,9 @@
   "build": {
     "appId": "com.rok.automation",
     "productName": "ROK助手",
+    "releaseInfo": {
+      "releaseNotes": "1.0.8更新内容\n1. 点击行为优化：之前是中心加随机偏移，现在改成中心偏置随机，更像真人习惯。\n   高概率点中心附近，中概率中间偏外，低概率边缘，极低概率角落。\n2. 优化自动收集资源逻辑。\n3. 开放自动收集资源CD时间设置，方便配合林间夏夜活动。"
+    },
     "directories": {
       "output": "release"
     },

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAccount } from '../contexts/AccountContext';
 import { useLicense } from '../contexts/LicenseContext';
-import { DEFAULT_HOME_FEATURES, TeamPageChoice } from '../../../plugins/rok/homeFeatures';
+import { DEFAULT_HOME_FEATURES, DEFAULT_COLLECT_RESOURCES_INTERVAL_MINUTES, MIN_COLLECT_RESOURCES_INTERVAL_MINUTES, TeamPageChoice, getCollectResourcesIntervalSeconds } from '../../../plugins/rok/homeFeatures';
 
 // Module-level loop state — survives component unmount/remount during SPA navigation
 let loopStopped = false;
@@ -13,12 +13,21 @@ let loopCompletedBuildings: boolean[] = [false, false, false, false, false];
 let loopCompletedTechs: boolean[] = [false, false, false, false, false];
 let deviceBusy = false;
 const GATHER_LOOP_INTERVAL = 300; // 城外采集独立循环间隔（秒）
+const GEM_FOCUS_MODE_DISABLED = true; // 专注模式暂时禁用，保留代码和配置字段便于后续恢复
+const NIGHT_START_MINUTE = 2 * 60;
+const NIGHT_END_MINUTE = 5 * 60;
+const NIGHT_START_JITTER_MIN = -15;
+const NIGHT_START_JITTER_MAX = 20;
+const NIGHT_END_JITTER_MIN = -10;
+const NIGHT_END_JITTER_MAX = 30;
 const monotonicNow = () => performance.now(); // 不受用户修改系统时间影响，用于持续时间计时
 let moduleGemInitialCount: number | null = null;
 let moduleGemCollectedCount: number = 0;
 let offlineActive = false;             // 当前是否处于下线状态
 let lastOfflineState = false;          // 上次的状态（用于边沿检测）
 let moduleGemRestActive = false;       // 宝石采集 rest 阶段标志
+let nightStartOffsetMinutes = 0;       // 夜间下线开始抖动（每次开始运行生成一次）
+let nightEndOffsetMinutes = 0;         // 夜间下线结束抖动（每次开始运行生成一次）
 let bottomBarChecked = false;          // 主循环是否已确认底部菜单栏（launch-game 后需重置）
 let relaunchRequested = false;         // launch-game 后请求各子循环重置状态、从头开始（等价于重新点开始运行）
 
@@ -29,6 +38,20 @@ const TEAM_PAGE_OPTIONS: Array<{ value: TeamPageChoice; label: string }> = [
   { value: 'other', label: '黄' },
 ];
 const isTeamPageChoice = (value: unknown): value is TeamPageChoice => value === 'gather' || value === 'attack' || value === 'other';
+const randomBiasedOffset = (min: number, max: number) => {
+  const negativeSize = Math.abs(Math.min(0, min));
+  const positiveSize = Math.max(0, max);
+  const chooseNegative = Math.random() < negativeSize / (negativeSize + positiveSize);
+  const limit = chooseNegative ? negativeSize : positiveSize;
+  const magnitude = Math.round(limit * Math.random() * Math.random());
+  return chooseNegative ? -magnitude : magnitude;
+};
+const formatMinuteOfDay = (minute: number) => {
+  const normalized = ((minute % 1440) + 1440) % 1440;
+  const h = Math.floor(normalized / 60);
+  const m = normalized % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+};
 
 function saveLoopState(accountId: string) {
   try {
@@ -46,6 +69,8 @@ function clearLoopState() {
   offlineActive = false;
   lastOfflineState = false;
   moduleGemRestActive = false;
+  nightStartOffsetMinutes = 0;
+  nightEndOffsetMinutes = 0;
   bottomBarChecked = false;
   relaunchRequested = false;
   try { sessionStorage.removeItem(LOOP_STATE_KEY); } catch {}
@@ -193,6 +218,9 @@ export function HomePage() {
         if (!isTeamPageChoice(merged.resourceGatherTeamPage)) merged.resourceGatherTeamPage = DEFAULT_FEATURES.resourceGatherTeamPage;
         if (!isTeamPageChoice(merged.gemGatherTeamPage)) merged.gemGatherTeamPage = DEFAULT_FEATURES.gemGatherTeamPage;
         if (typeof merged.rallyFortDowngrade !== 'boolean') merged.rallyFortDowngrade = DEFAULT_FEATURES.rallyFortDowngrade;
+        if (!Number.isFinite(Number(merged.collectResourcesIntervalMinutes))) merged.collectResourcesIntervalMinutes = DEFAULT_COLLECT_RESOURCES_INTERVAL_MINUTES;
+        merged.collectResourcesIntervalMinutes = Math.max(MIN_COLLECT_RESOURCES_INTERVAL_MINUTES, Number(merged.collectResourcesIntervalMinutes));
+        if (GEM_FOCUS_MODE_DISABLED) merged.gemGatherFocusMode = false;
         return merged;
       }
     } catch {}
@@ -309,6 +337,7 @@ export function HomePage() {
           setFeatures((prev: typeof DEFAULT_FEATURES) => ({
             ...DEFAULT_HOME_FEATURES,
             ...res.config.homeFeatures,
+            gemGatherFocusMode: GEM_FOCUS_MODE_DISABLED ? false : res.config.homeFeatures.gemGatherFocusMode,
             completedBuildings: prev.completedBuildings,
             completedTechs: prev.completedTechs,
           }));
@@ -347,6 +376,7 @@ export function HomePage() {
         setFeatures({
           ...DEFAULT_HOME_FEATURES,
           ...res.config.homeFeatures,
+          gemGatherFocusMode: GEM_FOCUS_MODE_DISABLED ? false : res.config.homeFeatures.gemGatherFocusMode,
           completedBuildings: [false, false, false, false, false],
           completedTechs: [false, false, false, false, false],
         });
@@ -419,8 +449,14 @@ export function HomePage() {
     const isWorldChatMode = features.autoWorldChat;
     const interval = isExploreMode ? 60 : isWorldChatMode ? features.worldChatInterval : GATHER_LOOP_INTERVAL;
     clearLoopState();
+    nightStartOffsetMinutes = randomBiasedOffset(NIGHT_START_JITTER_MIN, NIGHT_START_JITTER_MAX);
+    nightEndOffsetMinutes = randomBiasedOffset(NIGHT_END_JITTER_MIN, NIGHT_END_JITTER_MAX);
     const modeLabel = isExploreMode ? '迷雾探索' : isWorldChatMode ? '自动喊话' : '自动循环';
-    setLogs([`[${new Date().toLocaleTimeString()}] 🚀 开始${modeLabel} (间隔${interval}秒)`]);
+    const initialLogs = [`[${new Date().toLocaleTimeString()}] 🚀 开始${modeLabel} (间隔${interval}秒)`];
+    if (features.nightMode) {
+      initialLogs.push(`[${new Date().toLocaleTimeString()}] 🌙 夜间下线窗口：${formatMinuteOfDay(NIGHT_START_MINUTE + nightStartOffsetMinutes)} - ${formatMinuteOfDay(NIGHT_END_MINUTE + nightEndOffsetMinutes)}`);
+    }
+    setLogs(initialLogs);
 
     // Reset completion state for a fresh run (module-level for loop, state for UI)
     loopCompletedBuildings = [false, false, false, false, false];
@@ -534,11 +570,11 @@ export function HomePage() {
         }
       })();
 
-      // 收集资源独立循环 — 每 4h
+      // 收集资源独立循环 — 按用户设置间隔执行，并叠加随机抖动
       const collectLoop = (async () => {
         let first = true;
         while (!loopStopped) {
-          if (first) { first = false; await sleep(4 * 3600); continue; }
+          if (first) { first = false; continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (features.collectResources && !features.autoExplore && !features.autoWorldChat && !features.gemGatherFocusMode) {
             if (!await acquireLock()) break;
@@ -564,7 +600,7 @@ export function HomePage() {
               }
             } catch {} finally { releaseLock(); }
           }
-          const collectInterval = 4 * 3600 * (0.85 + Math.random() * 0.3); // 3.4-4.6h
+          const collectInterval = getCollectResourcesIntervalSeconds(features.collectResourcesIntervalMinutes);
           const startWait = monotonicNow();
           while (!loopStopped && (monotonicNow() - startWait) < collectInterval * 1000) {
             await sleep(1);
@@ -682,8 +718,10 @@ export function HomePage() {
         while (!loopStopped) {
           const f = featuresRef.current;
           const now = new Date();
-          const hour = now.getHours();
-          const inNightWindow = f.nightMode && hour >= 2 && hour < 5;
+          const minuteOfDay = now.getHours() * 60 + now.getMinutes();
+          const nightStartMinute = NIGHT_START_MINUTE + nightStartOffsetMinutes;
+          const nightEndMinute = NIGHT_END_MINUTE + nightEndOffsetMinutes;
+          const inNightWindow = f.nightMode && minuteOfDay >= nightStartMinute && minuteOfDay < nightEndMinute;
           const inGemRest = moduleGemRestActive;
           const shouldOffline = inNightWindow || inGemRest;
 
@@ -1584,16 +1622,16 @@ export function HomePage() {
                 <span className="text-xs text-slate-400 whitespace-nowrap ml-2">队伍页</span>
                 {renderTeamPageSelect(features.gemGatherTeamPage, (v) => setFeatures({ ...features, gemGatherTeamPage: v }), features.autoExplore || features.autoWorldChat || !features.gemGatherEnabled || isFeatureLocked('gemGather'))}
               </div>
-              <label className={`flex items-center gap-1.5 mt-2 ${(!features.gemGatherEnabled || isFeatureLocked('gemGather') || features.autoExplore || features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+              <label className={`flex items-center gap-1.5 mt-2 ${(GEM_FOCUS_MODE_DISABLED || !features.gemGatherEnabled || isFeatureLocked('gemGather') || features.autoExplore || features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
                 <input type="checkbox"
-                  checked={features.gemGatherFocusMode}
-                  disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather') || features.autoExplore || features.autoWorldChat}
-                  onChange={(e) => setFeatures({ ...features, gemGatherFocusMode: e.target.checked })}
+                  checked={!GEM_FOCUS_MODE_DISABLED && features.gemGatherFocusMode}
+                  disabled={GEM_FOCUS_MODE_DISABLED || !features.gemGatherEnabled || isFeatureLocked('gemGather') || features.autoExplore || features.autoWorldChat}
+                  onChange={(e) => setFeatures({ ...features, gemGatherFocusMode: GEM_FOCUS_MODE_DISABLED ? false : e.target.checked })}
                   className="sr-only" />
-                <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${features.gemGatherFocusMode ? 'bg-orange-500 border-orange-600' : 'bg-white border-slate-300'}`}>
-                  {features.gemGatherFocusMode && <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
+                <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${(!GEM_FOCUS_MODE_DISABLED && features.gemGatherFocusMode) ? 'bg-orange-500 border-orange-600' : 'bg-white border-slate-300'}`}>
+                  {(!GEM_FOCUS_MODE_DISABLED && features.gemGatherFocusMode) && <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
                 </span>
-                <span className="text-xs text-orange-600 font-medium">🎯 专注模式（采集驻扎，每分钟检测）</span>
+                <span className="text-xs text-slate-400 font-medium">🎯 专注模式（暂时禁用）</span>
               </label>
               <div className="flex items-center gap-2 mt-2">
                 <span className="text-xs text-slate-400 whitespace-nowrap">采集</span>
@@ -1654,15 +1692,29 @@ export function HomePage() {
                 <span className="flex items-center gap-2 text-sm text-slate-700">
                   <span className="w-6 h-6 bg-emerald-100 rounded flex items-center justify-center text-xs">📦</span>
                   自动收集资源
-                  <span className="text-xs text-slate-400">· 需标记资源建筑</span>
                 </span>
-                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.collectResources} disabled={features.autoExplore || features.autoWorldChat || features.gemGatherFocusMode}
-                    onChange={(e) => setFeatures({ ...features, collectResources: e.target.checked })}
-                    className="sr-only" />
-                  <span className={`absolute inset-0 rounded-full transition-colors ${features.collectResources ? 'bg-emerald-500' : 'bg-slate-200'}`} />
-                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.collectResources ? 'translate-x-[18px]' : ''}`} />
-                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={MIN_COLLECT_RESOURCES_INTERVAL_MINUTES}
+                    step={1}
+                    value={features.collectResourcesIntervalMinutes}
+                    disabled={features.autoExplore || features.autoWorldChat || features.gemGatherFocusMode}
+                    onChange={(e) => setFeatures({
+                      ...features,
+                      collectResourcesIntervalMinutes: Math.max(MIN_COLLECT_RESOURCES_INTERVAL_MINUTES, Number(e.target.value) || MIN_COLLECT_RESOURCES_INTERVAL_MINUTES),
+                    })}
+                    className="w-16 px-2 py-1 bg-white border border-slate-200 rounded text-xs"
+                  />
+                  <span className="text-xs text-slate-400">分钟</span>
+                  <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+                    <input type="checkbox" checked={features.collectResources} disabled={features.autoExplore || features.autoWorldChat || features.gemGatherFocusMode}
+                      onChange={(e) => setFeatures({ ...features, collectResources: e.target.checked })}
+                      className="sr-only" />
+                    <span className={`absolute inset-0 rounded-full transition-colors ${features.collectResources ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                    <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.collectResources ? 'translate-x-[18px]' : ''}`} />
+                  </label>
+                </div>
               </div>
               {/* 迷雾探索 */}
               <div className="flex items-center justify-between py-2">

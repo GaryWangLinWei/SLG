@@ -46,7 +46,27 @@ export class AdbDevice implements Device {
   private jitterCoord(v: number): number {
     if (!this.randConfig.enabled) return v;
     const offset = this.randConfig.tapOffset;
-    return Math.round(v + (Math.random() * 2 - 1) * offset);
+    const sign = Math.random() < 0.5 ? -1 : 1;
+    const magnitude = offset * Math.random() * Math.random();
+    return Math.round(v + sign * magnitude);
+  }
+
+  private biasedPointInRect(x1: number, y1: number, x2: number, y2: number): { x: number; y: number } {
+    const left = Math.min(x1, x2);
+    const right = Math.max(x1, x2);
+    const top = Math.min(y1, y2);
+    const bottom = Math.max(y1, y2);
+    const centerX = (left + right) / 2;
+    const centerY = (top + bottom) / 2;
+    const halfW = (right - left) / 2;
+    const halfH = (bottom - top) / 2;
+    const biasedOffset = (range: number) => {
+      const sign = Math.random() < 0.5 ? -1 : 1;
+      return sign * range * Math.random() * Math.random();
+    };
+    const x = Math.max(left, Math.min(right, Math.round(centerX + biasedOffset(halfW))));
+    const y = Math.max(top, Math.min(bottom, Math.round(centerY + biasedOffset(halfH))));
+    return { x, y };
   }
 
   setRandomizationEnabled(enabled: boolean): void {
@@ -230,6 +250,24 @@ export class AdbDevice implements Device {
       await this.execAdb(
         `"${getAdbPath()}" -s ${this.deviceId} shell input tap ${tx} ${ty}`,
         `点击 (${x},${y})→(${tx},${ty})`
+      );
+    }
+  }
+
+  async tapRect(x1: number, y1: number, x2: number, y2: number): Promise<void> {
+    const { x, y } = this.randConfig.enabled
+      ? this.biasedPointInRect(x1, y1, x2, y2)
+      : { x: Math.round((x1 + x2) / 2), y: Math.round((y1 + y2) / 2) };
+    if (this.randConfig.enabled) {
+      const pressDuration = 50 + Math.floor(Math.random() * 101); // 50-150ms
+      await this.execAdb(
+        `"${getAdbPath()}" -s ${this.deviceId} shell input swipe ${x} ${y} ${x} ${y} ${pressDuration}`,
+        `范围按压 (${x1},${y1})-(${x2},${y2})→(${x},${y}) dur=${pressDuration}`
+      );
+    } else {
+      await this.execAdb(
+        `"${getAdbPath()}" -s ${this.deviceId} shell input tap ${x} ${y}`,
+        `范围点击 (${x1},${y1})-(${x2},${y2})→(${x},${y})`
       );
     }
   }
