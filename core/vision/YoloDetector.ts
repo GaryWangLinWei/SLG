@@ -5,9 +5,15 @@ import { postProcess, Detection } from './yoloPostProcess';
 
 export { Detection };
 
+export function extractSquareModelSize(dims?: readonly unknown[]): number {
+  const h = Number(dims?.[2]);
+  const w = Number(dims?.[3]);
+  return Number.isFinite(h) && Number.isFinite(w) && h > 0 && h === w ? h : 640;
+}
+
 export class YoloDetector {
   private session: ort.InferenceSession | null = null;
-  private readonly modelSize: number = 640;
+  private modelSize: number = 640;
 
   private constructor(private modelPath: string) {}
 
@@ -25,11 +31,14 @@ export class YoloDetector {
       executionProviders: ['cpu'],
     });
 
+    const inputName = this.session.inputNames[0];
+    const inputMetadata = (this.session as any).inputMetadata?.[inputName];
+    this.modelSize = extractSquareModelSize(inputMetadata?.dimensions);
+
     // 预热：跑一次空推理让 ONNX 初始化内部 buffer
     const dummyInput = new Float32Array(3 * this.modelSize * this.modelSize);
     const tensor = new ort.Tensor('float32', dummyInput, [1, 3, this.modelSize, this.modelSize]);
     const feeds: Record<string, ort.Tensor> = {};
-    const inputName = this.session.inputNames[0];
     feeds[inputName] = tensor;
     await this.session.run(feeds);
   }
@@ -80,13 +89,14 @@ export class YoloDetector {
   }
 
   /**
-   * 检测图片中的所有目标。
-   * 返回按置信度降序排列，只保留 gem（class 0），过滤 tieshou（class 1）。
+   * 检测图片中的目标。
+   * 默认只保留 gem（class 0）；传入 classIndices 可检测指定类别。
    */
   async detect(
     imagePath: string,
     threshold: number = 0.5,
-    iouThreshold: number = 0.45
+    iouThreshold: number = 0.45,
+    classIndices: number[] = [0]
   ): Promise<Detection[]> {
     if (!this.session) throw new Error('YoloDetector not loaded');
 
@@ -136,7 +146,6 @@ export class YoloDetector {
       numClasses
     );
 
-    // 只保留 gem（class 0），过滤掉 tieshou（class 1）
-    return allDetections.filter(d => d.classIndex === 0);
+    return allDetections.filter(d => classIndices.includes(d.classIndex));
   }
 }

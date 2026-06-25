@@ -18,6 +18,37 @@ export interface GatherTask {
 }
 
 const SELECT_TEAM_BUTTON = { x: 1259, y: 180 };
+const WORLD_SWITCH_BUTTON_RECT = { x1: 39, y1: 776, x2: 115, y2: 858 };
+const SEARCH_ENTRY_RECT = { x1: 42, y1: 645, x2: 110, y2: 704 };
+const GATHER_BUTTON_RECT = { x1: 1053, y1: 584, x2: 1280, y2: 649 };
+const SELECT_TEAM_BUTTON_RECT = { x1: 1154, y1: 151, x2: 1373, y2: 214 };
+const MARCH_BUTTON_RECT = { x1: 1031, y1: 754, x2: 1292, y2: 820 };
+const RESOURCE_BUTTON_RECTS: Record<string, {
+  minus: { x1: number; y1: number; x2: number; y2: number };
+  plus: { x1: number; y1: number; x2: number; y2: number };
+  search: { x1: number; y1: number; x2: number; y2: number };
+}> = {
+  '农田': {
+    minus: { x1: 370, y1: 512, x2: 397, y2: 536 },
+    plus: { x1: 722, y1: 512, x2: 750, y2: 536 },
+    search: { x1: 483, y1: 583, x2: 639, y2: 634 },
+  },
+  '伐木场': {
+    minus: { x1: 609, y1: 509, x2: 638, y2: 538 },
+    plus: { x1: 960, y1: 509, x2: 991, y2: 538 },
+    search: { x1: 723, y1: 583, x2: 879, y2: 634 },
+  },
+  '石矿': {
+    minus: { x1: 850, y1: 509, x2: 878, y2: 535 },
+    plus: { x1: 1200, y1: 509, x2: 1230, y2: 538 },
+    search: { x1: 962, y1: 587, x2: 1118, y2: 636 },
+  },
+  '金矿': {
+    minus: { x1: 1086, y1: 509, x2: 1114, y2: 535 },
+    plus: { x1: 1437, y1: 509, x2: 1465, y2: 538 },
+    search: { x1: 1203, y1: 584, x2: 1351, y2: 637 },
+  },
+};
 const TEAM_BUTTONS_NO_PAGE: Record<number, { x: number; y: number }> = {
   1: { x: 1378, y: 292 },
   2: { x: 1378, y: 359 },
@@ -57,7 +88,7 @@ export async function gatherSingleResource(
 
   // Step 2: Open search panel
   ctx.log(`  [2/9] 打开搜索面板`);
-  await ctx.tap(rc.searchButton.x, rc.searchButton.y);
+  await ctx.tapRect(SEARCH_ENTRY_RECT.x1, SEARCH_ENTRY_RECT.y1, SEARCH_ENTRY_RECT.x2, SEARCH_ENTRY_RECT.y2);
   await ctx.sleep(1.5);
 
   // Step 3: Select resource type
@@ -73,9 +104,12 @@ export async function gatherSingleResource(
   const searchX = rt.button.x + rt.searchOffset.x;
   const searchY = rt.button.y + rt.searchOffset.y;
 
+  const buttonRects = RESOURCE_BUTTON_RECTS[task.type];
+
   ctx.log(`  [4/9] 重置到1级: 快速点击 - ×7`);
   for (let i = 0; i < 7; i++) {
-    await ctx.tap(minusX, minusY);
+    if (buttonRects) await ctx.tapRect(buttonRects.minus.x1, buttonRects.minus.y1, buttonRects.minus.x2, buttonRects.minus.y2);
+    else await ctx.tap(minusX, minusY);
     await ctx.sleep(0.15);
   }
 
@@ -88,7 +122,8 @@ export async function gatherSingleResource(
   if (initialClicks > 0) {
     ctx.log(`  [5/9] 设置 Lv.${task.level}: + ×${initialClicks}`);
     for (let i = 0; i < initialClicks; i++) {
-      await ctx.tap(plusX, plusY);
+      if (buttonRects) await ctx.tapRect(buttonRects.plus.x1, buttonRects.plus.y1, buttonRects.plus.x2, buttonRects.plus.y2);
+      else await ctx.tap(plusX, plusY);
       await ctx.sleep(0.15);
     }
   }
@@ -96,7 +131,9 @@ export async function gatherSingleResource(
 
   while (currentLevel >= 1) {
     ctx.log(`  [5/9] 搜索 Lv.${currentLevel} (${searchX}, ${searchY})`);
-    const stateResult = await ctx.checkButtonStateChange(searchX, searchY, 100, 40, 0.05);
+    const stateResult = buttonRects
+      ? await ctx.checkButtonStateChangeRect(buttonRects.search.x1, buttonRects.search.y1, buttonRects.search.x2, buttonRects.search.y2, 0.05)
+      : await ctx.checkButtonStateChange(searchX, searchY, 100, 40, 0.05);
 
     if (stateResult.changed) {
       if (currentLevel < task.level) {
@@ -108,7 +145,8 @@ export async function gatherSingleResource(
 
     if (currentLevel > 1) {
       ctx.log(`  Lv.${currentLevel} 未搜索到，降级重试...`);
-      await ctx.tap(minusX, minusY);
+      if (buttonRects) await ctx.tapRect(buttonRects.minus.x1, buttonRects.minus.y1, buttonRects.minus.x2, buttonRects.minus.y2);
+      else await ctx.tap(minusX, minusY);
       await ctx.sleep(0.15);
       currentLevel--;
     } else {
@@ -127,7 +165,7 @@ export async function gatherSingleResource(
 
   // Step 6: Tap gather button at fixed coordinates
   ctx.log(`  [6/9] 点击采集按钮 (1193, 604)`);
-  await ctx.tap(1193, 604);
+  await ctx.tapRect(GATHER_BUTTON_RECT.x1, GATHER_BUTTON_RECT.y1, GATHER_BUTTON_RECT.x2, GATHER_BUTTON_RECT.y2);
   await ctx.sleep(1.5);
 
   // Step 6.5: Check if there are idle teams by detecting AddTeamBtn at (1517, 130)
@@ -142,7 +180,7 @@ export async function gatherSingleResource(
   if (addTeamDiff >= 0.3) {
     ctx.log(`  ⚠️ 没有空闲队伍，停止采集，切换回城内`);
     await fs.unlink(addTeamRegionPath).catch(() => {});
-    await ctx.tap(rc.worldSwitchButton.x, rc.worldSwitchButton.y);
+    await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
     await ctx.sleep(2);
     return { success: false, hasPaging: hasPaging ?? false, noIdleTeams: true };
   }
@@ -151,7 +189,7 @@ export async function gatherSingleResource(
 
   // Step 7: Click select team button
   ctx.log(`  [7/9] 点击选择队伍按钮 (${SELECT_TEAM_BUTTON.x}, ${SELECT_TEAM_BUTTON.y})`);
-  await ctx.tap(SELECT_TEAM_BUTTON.x, SELECT_TEAM_BUTTON.y);
+  await ctx.tapRect(SELECT_TEAM_BUTTON_RECT.x1, SELECT_TEAM_BUTTON_RECT.y1, SELECT_TEAM_BUTTON_RECT.x2, SELECT_TEAM_BUTTON_RECT.y2);
   await ctx.sleep(1);
 
   // Step 7.5: Detect page indicator (only on first call)
@@ -207,7 +245,7 @@ export async function gatherSingleResource(
 
   // Step 9: Team available, click march button
   ctx.log(`  [9/9] 点击行军按钮 (${MARCH_BUTTON.x}, ${MARCH_BUTTON.y})`);
-  await ctx.tap(MARCH_BUTTON.x, MARCH_BUTTON.y);
+  await ctx.tapRect(MARCH_BUTTON_RECT.x1, MARCH_BUTTON_RECT.y1, MARCH_BUTTON_RECT.x2, MARCH_BUTTON_RECT.y2);
   await ctx.sleep(1);
 
   ctx.log(`  ✅ 队伍${task.team}已派出采集 ${task.type} Lv.${currentLevel}`);

@@ -17,6 +17,7 @@ class PluginService {
   private managers = new Map<string, PluginManager>();
   private vision = new Vision();
   private yoloDetector: YoloDetector | null = null;
+  private stateDetector: YoloDetector | null = null;
 
   async initYoloDetector(): Promise<void> {
     const modelPath = path.join(getModelsDir(), 'gem.onnx');
@@ -26,6 +27,15 @@ class PluginService {
     } catch (err: any) {
       console.warn('[PluginService] YOLO model not found at', modelPath, '- YOLO detection disabled:', err.message);
       this.yoloDetector = null;
+    }
+
+    const stateModelPath = path.join(getModelsDir(), 'state.onnx');
+    try {
+      this.stateDetector = await YoloDetector.create(stateModelPath);
+      console.log('[PluginService] state detector initialized');
+    } catch (err: any) {
+      console.warn('[PluginService] state model not found at', stateModelPath, '- state detection disabled:', err.message);
+      this.stateDetector = null;
     }
   }
 
@@ -37,7 +47,7 @@ class PluginService {
     const device = deviceService.getDevice(accountId);
     if (!device) throw new Error(`账号 ${accountId} 设备未连接，请先连接`);
 
-    const manager = new PluginManager(device, this.vision, this.yoloDetector ?? undefined);
+    const manager = new PluginManager(device, this.vision, this.yoloDetector ?? undefined, this.stateDetector ?? undefined);
     ALL_PLUGINS.forEach(p => manager.register(p));
     return manager;
   }

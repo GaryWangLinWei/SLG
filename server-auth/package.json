@@ -1,6 +1,6 @@
 {
   "name": "slg-auth-server",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "SLG Automation License Auth Server",
   "main": "dist/index.js",
   "scripts": {

@@ -8,6 +8,7 @@ export interface Device {
 
   screenshot(savePath?: string): Promise<Buffer>;
   tap(x: number, y: number): Promise<void>;
+  tapRect?(x1: number, y1: number, x2: number, y2: number): Promise<void>;
   tapPoint(point: Point): Promise<void>;
   swipe(x1: number, y1: number, x2: number, y2: number, duration?: number): Promise<void>;
   swipeAndHold?(x1: number, y1: number, x2: number, y2: number, holdMs?: number): Promise<void>;

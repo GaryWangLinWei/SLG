@@ -116,6 +116,11 @@
       <div id="devicesTab" class="tab-content" style="display: none;">
         <div class="card">
           <h2>已激活设备</h2>
+          <div class="toolbar" style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
+            <input type="text" id="deviceSearchInput" placeholder="搜索设备指纹或激活码..." style="flex:1;max-width:400px;padding:6px 10px;background:#1e293b;color:#e2e8f0;border:1px solid #334155;border-radius:4px;">
+            <button id="deviceSearchBtn" class="btn btn-primary btn-sm">搜索</button>
+            <button id="deviceClearBtn" class="btn btn-secondary btn-sm">清空</button>
+          </div>
           <div class="table-container">
             <table>
               <thead>

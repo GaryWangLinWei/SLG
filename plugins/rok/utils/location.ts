@@ -19,6 +19,11 @@ const EDGE_OFFSET = 60;   // 边缘避让偏移量
 // GAIN 把位移放大，让画面惯性停下后正好落在 (800, 450)。
 // 基于实测 (479,835)→中心 的到位率 0.88 标定。
 const SWIPE_GAIN = 1.135;
+const WORLD_SWITCH_BUTTON_RECT = { x1: 39, y1: 776, x2: 115, y2: 858 };
+
+async function tapWorldSwitchButton(ctx: PluginContext): Promise<void> {
+  await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
+}
 
 /**
  * 计算边缘避让偏移量。
@@ -126,23 +131,23 @@ export async function ensureInWorld(ctx: PluginContext, config: RokConfig): Prom
   const location = await getCurrentLocation(ctx);
   if (location === 'world') {
     ctx.log('  [位置] 已在城外，重置视角...');
-    await ctx.tap(x, y);
+    await tapWorldSwitchButton(ctx);
     await ctx.sleep(1.5);
-    await ctx.tap(x, y);
+    await tapWorldSwitchButton(ctx);
     await ctx.sleep(2);
     return;
   }
   if (location === 'city') {
     ctx.log('  [位置] 在城内，切换到城外...');
-    await ctx.tap(x, y);
+    await tapWorldSwitchButton(ctx);
     await ctx.sleep(2);
     return;
   }
   // unknown 状态，保险起见点两次切换
   ctx.log('  [位置] 状态未知，尝试切换...');
-  await ctx.tap(x, y);
+  await tapWorldSwitchButton(ctx);
   await ctx.sleep(1.5);
-  await ctx.tap(x, y);
+  await tapWorldSwitchButton(ctx);
   await ctx.sleep(2);
 }
 
@@ -155,13 +160,13 @@ export async function resetCityView(ctx: PluginContext, config: RokConfig): Prom
   const location = await getCurrentLocation(ctx);
   if (location === 'world') {
     ctx.log(`  已在城外，直接切回城内 (${x}, ${y})`);
-    await ctx.tap(x, y);
+    await tapWorldSwitchButton(ctx);
     await ctx.sleep(2);
   } else {
     ctx.log(`  重置城内视角 (${x}, ${y})`);
-    await ctx.tap(x, y);
+    await tapWorldSwitchButton(ctx);
     await ctx.sleep(1);
-    await ctx.tap(x, y);
+    await tapWorldSwitchButton(ctx);
     await ctx.sleep(2);
   }
 }
@@ -177,12 +182,12 @@ export async function ensureInCity(ctx: PluginContext, config: RokConfig): Promi
   }
   if (location === 'world') {
     ctx.log('  [位置] 在城外，切换到城内...');
-    await ctx.tap(config.resourceCollect.worldSwitchButton.x, config.resourceCollect.worldSwitchButton.y);
+    await tapWorldSwitchButton(ctx);
     await ctx.sleep(2);
     return;
   }
   ctx.log('  [位置] 状态未知，尝试切换...');
-  await ctx.tap(config.resourceCollect.worldSwitchButton.x, config.resourceCollect.worldSwitchButton.y);
+  await tapWorldSwitchButton(ctx);
   await ctx.sleep(2);
 }
 

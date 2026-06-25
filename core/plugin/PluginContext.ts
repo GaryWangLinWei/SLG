@@ -15,7 +15,8 @@ export class PluginContext {
     private config: Record<string, any> = {},
     private checkStop?: () => void,
     logCallback?: (msg: string) => void,
-    private yoloDetector?: YoloDetector
+    private yoloDetector?: YoloDetector,
+    private stateDetector?: YoloDetector
   ) {
     this.logOutput = logCallback ?? ((msg: string) => console.log(msg));
   }
@@ -33,6 +34,19 @@ export class PluginContext {
     // 10% 概率追加微停顿，模拟操作犹豫
     if (Math.random() < 0.10) {
       await this.device.sleep(0.2 + Math.random() * 0.3); // 0.2-0.5s
+    }
+  }
+
+  async tapRect(x1: number, y1: number, x2: number, y2: number): Promise<void> {
+    this.checkCancellation();
+    this.logOutput(`[TAP-RECT] (${x1}, ${y1})-(${x2}, ${y2})`);
+    if (this.device.tapRect) {
+      await this.device.tapRect(x1, y1, x2, y2);
+    } else {
+      await this.device.tap(Math.round((x1 + x2) / 2), Math.round((y1 + y2) / 2));
+    }
+    if (Math.random() < 0.10) {
+      await this.device.sleep(0.2 + Math.random() * 0.3);
     }
   }
 
@@ -350,6 +364,35 @@ export class PluginContext {
     };
   }
 
+  async checkButtonStateChangeRect(
+    x1: number,
+    y1: number,
+    x2: number,
+    y2: number,
+    changeThreshold: number = 0.1
+  ): Promise<{ changed: boolean; diffPercentage: number }> {
+    const regionX = Math.min(x1, x2);
+    const regionY = Math.min(y1, y2);
+    const buttonWidth = Math.abs(x2 - x1);
+    const buttonHeight = Math.abs(y2 - y1);
+
+    const beforePath = await this.captureRegion(regionX, regionY, buttonWidth, buttonHeight);
+    await this.tapRect(x1, y1, x2, y2);
+    await this.sleep(0.5);
+    const afterPath = await this.captureRegion(regionX, regionY, buttonWidth, buttonHeight);
+    const diffPercentage = await this.vision.compareImages(beforePath, afterPath);
+
+    await Promise.all([
+      fs.unlink(beforePath).catch(() => {}),
+      fs.unlink(afterPath).catch(() => {})
+    ]);
+
+    return {
+      changed: diffPercentage >= changeThreshold,
+      diffPercentage
+    };
+  }
+
   /**
    * Compare a screen region against multiple reference templates
    * Returns the key with the smallest pixel difference (most similar)
@@ -408,7 +451,13 @@ export class PluginContext {
    * 截图并用 YOLO 检测目标，自动清理临时文件。
    * 返回按置信度降序排列的检测框。
    */
-  async detectWithScreenshot(threshold: number = 0.5): Promise<Detection[]> {
+  async detectImage(imagePath: string, threshold: number = 0.5, classIndices: number[] = [0]): Promise<Detection[]> {
+    this.checkCancellation();
+    if (!this.yoloDetector) return [];
+    return this.yoloDetector.detect(imagePath, threshold, 0.45, classIndices);
+  }
+
+  async detectWithScreenshot(threshold: number = 0.5, classIndices: number[] = [0]): Promise<Detection[]> {
     this.checkCancellation();
     if (!this.yoloDetector) return [];
 
@@ -417,9 +466,38 @@ export class PluginContext {
     await fs.writeFile(tempPath, screenshotBuffer);
 
     try {
-      return await this.yoloDetector.detect(tempPath, threshold);
+      return await this.yoloDetector.detect(tempPath, threshold, 0.45, classIndices);
     } finally {
       await fs.unlink(tempPath).catch(() => {});
     }
+  }
+
+  /**
+   * 截图并用状态模型（state.onnx）检测队伍状态，自动清理临时文件。
+   * 类别：0=返回 1=采集 2=行军 3=驻扎。
+   */
+  async detectStateWithScreenshot(threshold: number = 0.5, classIndices: number[] = [0, 1, 2, 3]): Promise<Detection[]> {
+    this.checkCancellation();
+    if (!this.stateDetector) return [];
+
+    const screenshotBuffer = await this.device.screenshot();
+    const tempPath = path.join(os.tmpdir(), `state-${Date.now()}.png`);
+    await fs.writeFile(tempPath, screenshotBuffer);
+
+    try {
+      return await this.stateDetector.detect(tempPath, threshold, 0.45, classIndices);
+    } finally {
+      await fs.unlink(tempPath).catch(() => {});
+    }
+  }
+
+  /**
+   * 用状态模型（state.onnx）检测指定图片，不做截图与清理。
+   * 供调用方自行截图、检测、在同一张图上标注调试框。
+   */
+  async detectStateImage(imagePath: string, threshold: number = 0.5, classIndices: number[] = [0, 1, 2, 3]): Promise<Detection[]> {
+    this.checkCancellation();
+    if (!this.stateDetector) return [];
+    return this.stateDetector.detect(imagePath, threshold, 0.45, classIndices);
   }
 }

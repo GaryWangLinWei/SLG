@@ -52,7 +52,7 @@ export function generateToken(codeId: number): string {
   return jwt.sign({ codeId }, CONFIG.JWT_SECRET, { expiresIn: '1y' });
 }
 
-export function getActiveDevices(limit: number = 10, offset: number = 0): { devices: any[]; total: number } {
+export function getActiveDevices(limit: number = 10, offset: number = 0, search?: string): { devices: any[]; total: number } {
   const db = getDb();
   // 先取所有激活绑定，按绑定时间降序
   const allBindings = db.prepare(`
@@ -89,7 +89,17 @@ export function getActiveDevices(limit: number = 10, offset: number = 0): { devi
     device.codes.push({ code: row.code, bound_at: row.bound_at });
   }
 
-  const devices = Array.from(grouped.values());
+  let devices = Array.from(grouped.values());
+
+  // 搜索：匹配设备指纹或绑定的激活码
+  if (search && search.trim()) {
+    const keyword = search.trim().toLowerCase();
+    devices = devices.filter(d =>
+      d.device_fingerprint.toLowerCase().includes(keyword) ||
+      d.codes.some((c: any) => c.code.toLowerCase().includes(keyword))
+    );
+  }
+
   const total = devices.length;
   return { devices: devices.slice(offset, offset + limit), total };
 }

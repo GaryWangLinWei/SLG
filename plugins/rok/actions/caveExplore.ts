@@ -9,18 +9,6 @@ import sharp from 'sharp';
 
 const TEMPLATE_DIR = getTemplatesDir();
 
-// 开发调试：保存 OCR 区域截图
-const CAVE_DEBUG_DIR = 'D:/SLG/temp/debug/cave';
-
-function isDevEnv(): boolean {
-  try {
-    const { app } = require('electron');
-    return !app.isPackaged;
-  } catch {
-    return true;
-  }
-}
-
 // 斥候列表滑动
 const SCOUT_LIST_SWIPE_START = { x: 904, y: 675 };
 const SCOUT_LIST_SWIPE_END = { x: 955, y: 438 };
@@ -171,17 +159,6 @@ export async function caveExplore(
 
     for (const region of CAVE_OCR_REGIONS) {
       const regionPath = await ctx.captureRegion(region.x, region.y, region.width, region.height);
-
-      // 开发调试：保存 OCR 区域截图
-      if (isDevEnv()) {
-        try {
-          await fs.mkdir(CAVE_DEBUG_DIR, { recursive: true });
-          const regionBuf = await fs.readFile(regionPath);
-          const outPath = path.join(CAVE_DEBUG_DIR, `cave_ocr_r${region.id}_${Date.now()}.png`);
-          await fs.writeFile(outPath, regionBuf);
-          ctx.log(`  [调试] OCR 区域${region.id} 截图: ${outPath}`);
-        } catch {}
-      }
 
       try {
         const rawText = await ocrService.readText(regionPath);

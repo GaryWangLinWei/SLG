@@ -322,6 +322,66 @@ function LicenseGate({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function UpdateNotesModal() {
+  const [info, setInfo] = useState<{ version: string; releaseNotes: string } | null>(null);
+
+  useEffect(() => {
+    const isElectron = typeof window !== 'undefined' && 'electronAPI' in window;
+    if (!isElectron) return;
+
+    (async () => {
+      try {
+        const currentVersion = await window.electronAPI!.getAppVersion();
+        const lastSeen = localStorage.getItem('lastSeenVersion');
+        const pendingRaw = localStorage.getItem('pendingUpdateNotes');
+        if (!pendingRaw) return;
+        const pending = JSON.parse(pendingRaw) as { version: string; releaseNotes: string };
+        // 只有当前 app 版本就是 pending 记录的版本，且用户尚未看过这个版本的更新日志时才弹
+        if (pending.version === currentVersion && lastSeen !== currentVersion && pending.releaseNotes) {
+          setInfo(pending);
+        }
+      } catch {}
+    })();
+  }, []);
+
+  if (!info) return null;
+
+  const lines = info.releaseNotes.split('\n').map(l => l.trim()).filter(Boolean);
+
+  const handleClose = () => {
+    localStorage.setItem('lastSeenVersion', info.version);
+    localStorage.removeItem('pendingUpdateNotes');
+    setInfo(null);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="bg-white rounded-2xl shadow-2xl w-[90%] max-w-md p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <span className="text-2xl">🎉</span>
+          <h2 className="text-lg font-bold text-slate-800">已更新到 v{info.version}</h2>
+        </div>
+        <div className="text-sm text-slate-700 leading-relaxed mb-5 max-h-[50vh] overflow-y-auto">
+          <p className="text-xs text-slate-500 mb-2">本次更新内容：</p>
+          <ul className="space-y-2">
+            {lines.map((line, i) => (
+              <li key={i} className="text-slate-700">
+                {line.startsWith('•') || line.startsWith('-') ? line : `• ${line}`}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <button
+          onClick={handleClose}
+          className="w-full py-2.5 bg-emerald-500 text-white rounded-lg font-medium hover:bg-emerald-600 transition-colors"
+        >
+          知道了
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function UpdateUI() {
   const [updateStatus, setUpdateStatus] = useState<{
     status: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded';
@@ -334,10 +394,19 @@ function UpdateUI() {
     if (!isElectron) return;
     const unsubscribe = window.electronAPI!.onUpdateStatus((data) => {
       setUpdateStatus({
-        status: data.status,
+        status: data.status as any,
         progress: data.progress,
         version: data.version,
       });
+      // 下载完成后把 releaseNotes 暂存到 localStorage，重启后弹窗读取
+      if (data.status === 'downloaded' && data.version) {
+        try {
+          localStorage.setItem('pendingUpdateNotes', JSON.stringify({
+            version: data.version,
+            releaseNotes: data.releaseNotes || '',
+          }));
+        } catch {}
+      }
     });
     return () => { unsubscribe(); };
   }, []);
@@ -407,6 +476,7 @@ function App() {
       <Router>
         <LicenseProvider>
           <UpdateUI />
+          <UpdateNotesModal />
           <AppContent />
         </LicenseProvider>
       </Router>

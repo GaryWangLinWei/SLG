@@ -338,6 +338,7 @@ if (!gotTheLock) {
       mainWindow?.webContents.send('update-status', {
         status: 'downloaded',
         version: info.version,
+        releaseNotes: typeof info.releaseNotes === 'string' ? info.releaseNotes : '',
       });
     });
 

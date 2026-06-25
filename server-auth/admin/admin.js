@@ -3,6 +3,7 @@ const PAGE_SIZE = 10;
 let adminKey = localStorage.getItem('adminKey');
 let codesPage = 1;
 let devicesPage = 1;
+let devicesSearch = '';
 
 // DOM Elements
 const loginScreen = document.getElementById('loginScreen');
@@ -146,7 +147,8 @@ async function loadDevices(page = 1) {
   try {
     devicesPage = page;
     const offset = (page - 1) * PAGE_SIZE;
-    const data = await apiRequest(`/api/admin/devices?limit=${PAGE_SIZE}&offset=${offset}`);
+    const searchParam = devicesSearch ? `&search=${encodeURIComponent(devicesSearch)}` : '';
+    const data = await apiRequest(`/api/admin/devices?limit=${PAGE_SIZE}&offset=${offset}${searchParam}`);
     const tbody = document.getElementById('devicesTable');
     tbody.innerHTML = data.devices.map((device, idx) => {
       const detailId = 'dev-detail-' + idx;
@@ -172,6 +174,7 @@ async function loadDevices(page = 1) {
                 <tr>
                   <th style="padding:4px 8px;font-size:11px;text-align:left;color:#64748b;border-bottom:1px solid rgba(100,116,139,0.2);">激活码</th>
                   <th style="padding:4px 8px;font-size:11px;text-align:left;color:#64748b;border-bottom:1px solid rgba(100,116,139,0.2);">绑定时间</th>
+                  <th style="padding:4px 8px;font-size:11px;text-align:left;color:#64748b;border-bottom:1px solid rgba(100,116,139,0.2);width:100px;">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -179,6 +182,9 @@ async function loadDevices(page = 1) {
                   <tr>
                     <td style="padding:3px 8px;font-size:12px;border-bottom:1px solid rgba(100,116,139,0.1);"><code style="color:#93c5fd;">${c.code}</code></td>
                     <td style="padding:3px 8px;font-size:12px;border-bottom:1px solid rgba(100,116,139,0.1);">${formatDate(c.bound_at)}</td>
+                    <td style="padding:3px 8px;font-size:12px;border-bottom:1px solid rgba(100,116,139,0.1);">
+                      <button class="btn btn-sm edit-code-btn" data-code="${c.code}" style="padding:2px 8px;font-size:11px;background:#6366f1;color:#fff;">编辑</button>
+                    </td>
                   </tr>
                 `).join('')}
               </tbody>
@@ -216,9 +222,69 @@ async function loadDevices(page = 1) {
       });
     });
 
+    // 编辑激活码
+    tbody.querySelectorAll('.edit-code-btn').forEach(btn => {
+      btn.addEventListener('click', () => editCode(btn.dataset.code));
+    });
+
     renderPagination('devicesPagination', page, data.total, loadDevices);
   } catch (e) {
     console.error('Failed to load devices:', e);
+  }
+}
+
+// 通过 code 字符串查 ID，弹窗修改 tier / 加天数
+async function editCode(code) {
+  try {
+    // 找到对应的 id（从全量列表里拉，不分页查麻烦，直接走/api/admin/codes 多次拉到匹配为止）
+    let id = null;
+    let info = null;
+    let offset = 0;
+    while (true) {
+      const data = await apiRequest(`/api/admin/codes?limit=100&offset=${offset}`);
+      const found = data.codes.find(c => c.code === code);
+      if (found) { id = found.id; info = found; break; }
+      if (data.codes.length < 100) break;
+      offset += 100;
+    }
+    if (!id) { alert('未找到激活码'); return; }
+
+    const currentTier = info.tier || 'basic';
+    const currentExpire = info.expires_at ? new Date(info.expires_at).toLocaleString('zh-CN') : '未激活';
+
+    const tierInput = prompt(
+      `激活码：${code}\n当前级别：${currentTier === 'pro' ? 'Pro' : '基础'}\n当前到期：${currentExpire}\n\n请输入新级别（basic 或 pro，留空不改）：`,
+      currentTier
+    );
+    if (tierInput === null) return; // 取消
+
+    const daysInput = prompt('设置剩余天数（从现在起 N 天后到期，留空不改）：', '');
+    if (daysInput === null) return;
+
+    const body = {};
+    const trimmed = tierInput.trim();
+    if (trimmed && trimmed !== currentTier) {
+      if (trimmed !== 'basic' && trimmed !== 'pro') { alert('级别必须为 basic 或 pro'); return; }
+      body.tier = trimmed;
+    }
+    const daysStr = daysInput.trim();
+    if (daysStr) {
+      const days = parseInt(daysStr);
+      if (isNaN(days) || days <= 0) { alert('天数必须为正整数'); return; }
+      body.setDays = days;
+    }
+
+    if (Object.keys(body).length === 0) { alert('未做任何修改'); return; }
+
+    const res = await apiRequest(`/api/admin/codes/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body)
+    });
+    alert(`修改成功\n新级别：${res.code.tier}\n新到期：${new Date(res.code.expires_at).toLocaleString('zh-CN')}`);
+    loadDevices(devicesPage);
+    loadCodes(codesPage);
+  } catch (e) {
+    alert('修改失败: ' + e.message);
   }
 }
 
@@ -384,4 +450,28 @@ if (adminKey) {
       login(adminKey);
     }
   }).catch(() => {});
+}
+
+// 设备搜索
+const deviceSearchInput = document.getElementById('deviceSearchInput');
+const deviceSearchBtn = document.getElementById('deviceSearchBtn');
+const deviceClearBtn = document.getElementById('deviceClearBtn');
+
+function doDeviceSearch() {
+  devicesSearch = deviceSearchInput.value.trim();
+  loadDevices(1);
+}
+
+if (deviceSearchBtn) deviceSearchBtn.addEventListener('click', doDeviceSearch);
+if (deviceSearchInput) {
+  deviceSearchInput.addEventListener('keypress', (e) => {
+    if (e.key === 'Enter') doDeviceSearch();
+  });
+}
+if (deviceClearBtn) {
+  deviceClearBtn.addEventListener('click', () => {
+    deviceSearchInput.value = '';
+    devicesSearch = '';
+    loadDevices(1);
+  });
 }

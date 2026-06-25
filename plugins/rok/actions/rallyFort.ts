@@ -10,6 +10,16 @@ const PAGE_INDICATOR_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_page_indicator.png'
 
 // 队伍选择坐标（集结界面，与采集界面坐标不同）
 const SELECT_TEAM_BUTTON = { x: 1259, y: 180 };
+const WORLD_SWITCH_BUTTON_RECT = { x1: 39, y1: 776, x2: 115, y2: 858 };
+const SEARCH_ENTRY_RECT = { x1: 42, y1: 645, x2: 110, y2: 704 };
+const BARBARIAN_BUTTON_RECT = { x1: 269, y1: 749, x2: 370, y2: 844 };
+const FORT_TAB_RECT = { x1: 347, y1: 276, x2: 576, y2: 313 };
+const FORT_MINUS_RECT = { x1: 102, y1: 467, x2: 137, y2: 501 };
+const FORT_PLUS_RECT = { x1: 539, y1: 467, x2: 576, y2: 501 };
+const FORT_SEARCH_ACTION_RECT = { x1: 244, y1: 561, x2: 436, y2: 626 };
+const RALLY_BUTTON_RECT = { x1: 1053, y1: 584, x2: 1280, y2: 649 };
+const CONFIRM_TIME_BUTTON_RECT = { x1: 1062, y1: 359, x2: 1289, y2: 422 };
+const MARCH_BUTTON_RECT = { x1: 1031, y1: 754, x2: 1292, y2: 820 };
 const TEAM_BUTTONS_NO_PAGE: Record<number, { x: number; y: number }> = {
   1: { x: 1378, y: 362 }, 2: { x: 1378, y: 430 },
   3: { x: 1378, y: 497 }, 4: { x: 1378, y: 566 }, 5: { x: 1378, y: 633 },
@@ -52,17 +62,17 @@ export async function rallyFort(
 
   // [2/8] 打开搜索面板
   ctx.log(`  [2/8] 打开搜索面板 (${fs.searchButton.x}, ${fs.searchButton.y})`);
-  await ctx.tap(fs.searchButton.x, fs.searchButton.y);
+  await ctx.tapRect(SEARCH_ENTRY_RECT.x1, SEARCH_ENTRY_RECT.y1, SEARCH_ENTRY_RECT.x2, SEARCH_ENTRY_RECT.y2);
   await ctx.sleep(1.5);
 
   // [3/8] 选择野蛮人
   ctx.log(`  [3/8] 选择野蛮人 (${fs.barbarianButton.x}, ${fs.barbarianButton.y})`);
-  await ctx.tap(fs.barbarianButton.x, fs.barbarianButton.y);
+  await ctx.tapRect(BARBARIAN_BUTTON_RECT.x1, BARBARIAN_BUTTON_RECT.y1, BARBARIAN_BUTTON_RECT.x2, BARBARIAN_BUTTON_RECT.y2);
   await ctx.sleep(1);
 
   // [4/8] 切换到城寨页签
   ctx.log(`  [4/8] 切换到城寨页签 (${fs.fortTab.x}, ${fs.fortTab.y})`);
-  await ctx.tap(fs.fortTab.x, fs.fortTab.y);
+  await ctx.tapRect(FORT_TAB_RECT.x1, FORT_TAB_RECT.y1, FORT_TAB_RECT.x2, FORT_TAB_RECT.y2);
   await ctx.sleep(1);
 
   // [5/8] 设置等级并搜索
@@ -71,7 +81,7 @@ export async function rallyFort(
   // 重置到 1 级：快速点击 - ×9
   ctx.log(`  重置到1级: 快速点击 - ×9`);
   for (let i = 0; i < 9; i++) {
-    await ctx.tap(fs.minusButton.x, fs.minusButton.y);
+    await ctx.tapRect(FORT_MINUS_RECT.x1, FORT_MINUS_RECT.y1, FORT_MINUS_RECT.x2, FORT_MINUS_RECT.y2);
     await ctx.sleep(0.15);
   }
 
@@ -83,7 +93,7 @@ export async function rallyFort(
   if (plusClicks > 0) {
     ctx.log(`  设置 Lv.${targetLevel}: + ×${plusClicks}`);
     for (let i = 0; i < plusClicks; i++) {
-      await ctx.tap(fs.plusButton.x, fs.plusButton.y);
+      await ctx.tapRect(FORT_PLUS_RECT.x1, FORT_PLUS_RECT.y1, FORT_PLUS_RECT.x2, FORT_PLUS_RECT.y2);
       await ctx.sleep(0.15);
     }
   }
@@ -92,8 +102,10 @@ export async function rallyFort(
   // 搜索 + 降级重试
   while (currentLevel >= 1) {
     ctx.log(`  搜索 Lv.${currentLevel} (${fs.searchActionButton.x}, ${fs.searchActionButton.y})`);
-    const stateResult = await ctx.checkButtonStateChange(
-      fs.searchActionButton.x, fs.searchActionButton.y, 100, 40, 0.05
+    const stateResult = await ctx.checkButtonStateChangeRect(
+      FORT_SEARCH_ACTION_RECT.x1, FORT_SEARCH_ACTION_RECT.y1,
+      FORT_SEARCH_ACTION_RECT.x2, FORT_SEARCH_ACTION_RECT.y2,
+      0.05
     );
 
     if (stateResult.changed) {
@@ -106,7 +118,7 @@ export async function rallyFort(
 
     if (downgrade && currentLevel > 1) {
       ctx.log(`  Lv.${currentLevel} 未搜索到，降级重试...`);
-      await ctx.tap(fs.minusButton.x, fs.minusButton.y);
+      await ctx.tapRect(FORT_MINUS_RECT.x1, FORT_MINUS_RECT.y1, FORT_MINUS_RECT.x2, FORT_MINUS_RECT.y2);
       await ctx.sleep(0.15);
       currentLevel--;
     } else {
@@ -118,9 +130,9 @@ export async function rallyFort(
     ctx.log(`  ❌ 未搜索到 Lv.${targetLevel} 城寨`);
     // 点击2次切换按钮：第1次退出搜索面板，第2次回到城内
     ctx.log(`  退出搜索面板并返回城内`);
-    await ctx.tap(worldBtn.x, worldBtn.y);
+    await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
     await ctx.sleep(1);
-    await ctx.tap(worldBtn.x, worldBtn.y);
+    await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
     await ctx.sleep(2);
     return { result: 'not_found', dispatched: 0 };
   }
@@ -129,10 +141,14 @@ export async function rallyFort(
 
   // [6/8] 点击集结按钮并检测
   ctx.log(`  [6/8] 点击集结按钮并检测 (${fs.rallyButton.x}, ${fs.rallyButton.y})`);
-  const rallyResult = await ctx.checkButtonStateChange(fs.rallyButton.x, fs.rallyButton.y, 120, 60, 0.05);
+  const rallyResult = await ctx.checkButtonStateChangeRect(
+    RALLY_BUTTON_RECT.x1, RALLY_BUTTON_RECT.y1,
+    RALLY_BUTTON_RECT.x2, RALLY_BUTTON_RECT.y2,
+    0.05
+  );
   if (!rallyResult.changed) {
     ctx.log(`  ⚠️ 集结按钮无变化，队伍已满`);
-    await ctx.tap(worldBtn.x, worldBtn.y);
+    await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
     await ctx.sleep(2);
     return { result: 'rally_full', dispatched: 0, foundLevel: currentLevel };
   }
@@ -140,7 +156,7 @@ export async function rallyFort(
 
   // [7/8] 确认集结时间
   ctx.log(`  [7/8] 确认集结时间 (${CONFIRM_TIME_BUTTON.x}, ${CONFIRM_TIME_BUTTON.y})`);
-  await ctx.tap(CONFIRM_TIME_BUTTON.x, CONFIRM_TIME_BUTTON.y);
+  await ctx.tapRect(CONFIRM_TIME_BUTTON_RECT.x1, CONFIRM_TIME_BUTTON_RECT.y1, CONFIRM_TIME_BUTTON_RECT.x2, CONFIRM_TIME_BUTTON_RECT.y2);
   await ctx.sleep(1);
 
   // 检测分页 + 拿到换页按钮坐标
@@ -190,7 +206,7 @@ export async function rallyFort(
   for (let marchAttempt = 1; marchAttempt <= 2; marchAttempt++) {
     await ctx.sleep(0.5);
     ctx.log(`  点击行军按钮 (${MARCH_BUTTON.x}, ${MARCH_BUTTON.y})${marchAttempt > 1 ? '（领取体力后重试）' : ''}`);
-    await ctx.tap(MARCH_BUTTON.x, MARCH_BUTTON.y);
+    await ctx.tapRect(MARCH_BUTTON_RECT.x1, MARCH_BUTTON_RECT.y1, MARCH_BUTTON_RECT.x2, MARCH_BUTTON_RECT.y2);
     await ctx.sleep(1);
 
     // 检测行动力不足弹窗：城内外切换按钮不可见则认为被弹窗遮挡
@@ -222,7 +238,7 @@ export async function rallyFort(
     await ctx.sleep(0.5);
     await ctx.tap(CLOSE_TEAM_PANEL_BUTTON.x, CLOSE_TEAM_PANEL_BUTTON.y);  // 关闭队伍面板
     await ctx.sleep(0.5);
-    await ctx.tap(worldBtn.x, worldBtn.y);  // 切换到城内
+    await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);  // 切换到城内
     await ctx.sleep(2);
     return { result: 'stamina_insufficient', dispatched: 0, foundLevel: currentLevel };
   }

@@ -85,10 +85,75 @@ router.post('/codes/:id/revoke', async (ctx) => {
   };
 });
 
+// 修改激活码的 tier 或 expires_at
+// body: { tier?: 'basic'|'pro', setDays?: number, setExpiresAt?: number }
+//   setDays: 从现在起 N 天后到期（覆盖式，不累加）
+//   setExpiresAt: 直接设到具体毫秒时间戳（优先级高于 setDays）
+router.patch('/codes/:id', async (ctx) => {
+  const id = parseInt(ctx.params.id);
+  if (isNaN(id)) {
+    ctx.status = 400;
+    ctx.body = { success: false, error: '无效的ID' };
+    return;
+  }
+
+  const { tier, setDays, setExpiresAt } = ctx.request.body as {
+    tier?: 'basic' | 'pro';
+    setDays?: number;
+    setExpiresAt?: number;
+  };
+
+  if (tier && tier !== 'basic' && tier !== 'pro') {
+    ctx.status = 400;
+    ctx.body = { success: false, error: 'tier 只能是 basic 或 pro' };
+    return;
+  }
+
+  const { getDb } = await import('../services/AuthDatabase');
+  const db = getDb();
+
+  const code = db.prepare('SELECT id, tier, expires_at FROM activation_codes WHERE id = ?').get(id) as
+    | { id: number; tier?: string; expires_at?: number }
+    | undefined;
+  if (!code) {
+    ctx.status = 404;
+    ctx.body = { success: false, error: '激活码不存在' };
+    return;
+  }
+
+  const updates: string[] = [];
+  const values: any[] = [];
+  if (tier) {
+    updates.push('tier = ?');
+    values.push(tier);
+  }
+  if (typeof setExpiresAt === 'number' && setExpiresAt > 0) {
+    updates.push('expires_at = ?');
+    values.push(setExpiresAt);
+  } else if (typeof setDays === 'number' && setDays > 0) {
+    const newExpiresAt = Date.now() + setDays * 86400000;
+    updates.push('expires_at = ?');
+    values.push(newExpiresAt);
+  }
+
+  if (updates.length === 0) {
+    ctx.status = 400;
+    ctx.body = { success: false, error: '无修改字段' };
+    return;
+  }
+
+  values.push(id);
+  db.prepare(`UPDATE activation_codes SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+
+  const updated = db.prepare('SELECT id, code, tier, expires_at FROM activation_codes WHERE id = ?').get(id);
+  ctx.body = { success: true, code: updated };
+});
+
 router.get('/devices', async (ctx) => {
   const limit = parseInt(ctx.query.limit as string) || 10;
   const offset = parseInt(ctx.query.offset as string) || 0;
-  const { devices, total } = getActiveDevices(limit, offset);
+  const search = ctx.query.search as string | undefined;
+  const { devices, total } = getActiveDevices(limit, offset, search);
   ctx.body = {
     success: true,
     devices,

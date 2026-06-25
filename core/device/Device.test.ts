@@ -24,6 +24,10 @@ describe('AdbDevice Randomization', () => {
     (device as any).execAsync = mockExec;
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('should jitter tap coordinates when enabled', async () => {
     device.setRandomizationConfig({ tapOffset: 10, sleepJitter: 0 });
     const execSpy = jest.spyOn(device as any, 'execAdb');
@@ -40,6 +44,18 @@ describe('AdbDevice Randomization', () => {
     // Should not all be the same
     const unique = new Set(coords);
     expect(unique.size).toBeGreaterThan(1);
+  });
+
+  it('should bias tap coordinate jitter toward center', () => {
+    device.setRandomizationConfig({ tapOffset: 10 });
+    const randomSpy = jest.spyOn(Math, 'random')
+      .mockReturnValueOnce(0.75)  // positive side
+      .mockReturnValueOnce(0.5)   // first magnitude factor
+      .mockReturnValueOnce(0.5);  // second magnitude factor
+
+    expect((device as any).jitterCoord(100)).toBe(103);
+
+    randomSpy.mockRestore();
   });
 
   it('should not use coordinate jitter when disabled', async () => {
@@ -73,6 +89,27 @@ describe('AdbDevice Randomization', () => {
     expect((device as any).randConfig.enabled).toBe(false);
     device.setRandomizationEnabled(true);
     expect((device as any).randConfig.enabled).toBe(true);
+  });
+
+  it('should tap inside a rectangle with center-biased coordinates', async () => {
+    device.setRandomizationEnabled(true);
+    const execSpy = jest.spyOn(device as any, 'execAdb');
+    const randomSpy = jest.spyOn(Math, 'random')
+      .mockReturnValueOnce(0.75)  // x positive side
+      .mockReturnValueOnce(0.5)   // x magnitude factor 1
+      .mockReturnValueOnce(0.5)   // x magnitude factor 2
+      .mockReturnValueOnce(0.25)  // y negative side
+      .mockReturnValueOnce(0.5)   // y magnitude factor 1
+      .mockReturnValueOnce(0.5)   // y magnitude factor 2
+      .mockReturnValueOnce(0);    // press duration
+
+    await (device as any).tapRect(100, 200, 200, 300);
+
+    const cmd = execSpy.mock.calls[0][0] as string;
+    expect(cmd).toContain('swipe 163 238 163 238 50');
+
+    randomSpy.mockRestore();
+    execSpy.mockRestore();
   });
 
   it('should use swipe for tap when randomization enabled', async () => {

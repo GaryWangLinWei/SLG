@@ -27,11 +27,16 @@ const CAIJI_STATE_TEMPLATE = path.join(TEMPLATE_DIR, 'CaiJiState_result.png');
 const PICKAXE_TEMPLATES = [
   path.join(TEMPLATE_DIR, '红色锄头.png'),
   path.join(TEMPLATE_DIR, '蓝色锄头.png'),
-  path.join(TEMPLATE_DIR, '黄色锄头.png'),
+  // path.join(TEMPLATE_DIR, '黄色锄头.png'), // 暂时去掉黄色锄头判定
+  path.join(TEMPLATE_DIR, 'state_caiji.png'),
 ];
 
 // 队伍选择坐标（复用 gatherResources）
 const SELECT_TEAM_BUTTON = { x: 1259, y: 180 };
+const WORLD_SWITCH_BUTTON_RECT = { x1: 39, y1: 776, x2: 115, y2: 858 };
+const SELECT_TEAM_BUTTON_RECT = { x1: 1154, y1: 151, x2: 1373, y2: 214 };
+const MARCH_BUTTON_RECT = { x1: 1031, y1: 754, x2: 1292, y2: 820 };
+const PINCHED_GEM_TARGET_RECT = { x1: 792, y1: 426, x2: 878, y2: 502 };
 const TEAM_BUTTONS_NO_PAGE: Record<number, { x: number; y: number }> = {
   1: { x: 1378, y: 292 },
   2: { x: 1378, y: 359 },
@@ -52,6 +57,7 @@ const CLOSE_POPUP_BUTTON = { x: 1392, y: 57 };
 // 中心坐标显示区域 (400,11)-(537,43)，格式 X:1023 Y:290
 const COORD_REGION = { x: 400, y: 11, w: 137, h: 32 };
 const COORD_TOLERANCE = 5;
+const GEM_OCCUPIED_DEBUG_DIR = 'D:/SLG/temp/debug/gem_occupied';
 
 /** 从 OCR 文本解析坐标，如 "X:1023 Y:290"，兼容 OCR 将 Y 误识别为 ¥ */
 function parseCoord(text: string): { x: number; y: number } | null {
@@ -79,27 +85,83 @@ const SPIRAL_DIRECTIONS = [
 ];
 const SPIRAL_DIR_NAMES = ['↑', '→', '↓', '←'];
 
+export function nextGemSearchPauseSeconds(): number {
+  const roll = Math.random();
+  if (roll >= 0.98) return 3.4 + Math.random() * 2;
+  if (roll >= 0.90) return 2.2 + Math.random();
+  return 1.3 + Math.random() * 0.7;
+}
+
 function isInChatZone(x: number, y: number): boolean {
   return x >= 0 && x <= 814 && y >= 794 && y <= 900;
 }
 
-/** 检测宝石上方 60x60 区域是否有锄头图标（有人正在采集） */
-async function isGemOccupied(
+export function buildGemOccupiedDebugOverlaySvg(
+  width: number,
+  height: number,
+  result: { found: boolean; confidence: number; rect?: { x: number; y: number; width: number; height: number } }
+): string {
+  const confidence = `${(result.confidence * 100).toFixed(1)}%`;
+  let svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
+    <rect x="2" y="2" width="${width - 4}" height="${height - 4}" fill="none" stroke="#666" stroke-width="1" rx="1"/>`;
+
+  if (result.found && result.rect) {
+    const r = result.rect;
+    svg += `
+    <rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" fill="none" stroke="red" stroke-width="3" rx="1"/>
+    <rect x="${Math.max(0, r.x)}" y="${Math.max(0, r.y - 20)}" width="78" height="18" fill="red" rx="2" opacity="0.9"/>
+    <text x="${Math.max(4, r.x + 4)}" y="${Math.max(14, r.y - 6)}" font-family="Arial" font-size="11" font-weight="bold" fill="white">${confidence}</text>`;
+  } else {
+    svg += `
+    <rect x="2" y="${height - 20}" width="${width - 4}" height="18" fill="#44aa44" rx="1" opacity="0.9"/>
+    <text x="${width / 2}" y="${height - 6}" font-family="Arial" font-size="10" font-weight="bold" fill="white" text-anchor="middle">FREE ${confidence}</text>`;
+  }
+
+  svg += '</svg>';
+  return svg;
+}
+
+/** 检测宝石上方 80x110 区域是否有锄头或采集状态图标（有人正在采集） */
+export async function isGemOccupied(
   ctx: PluginContext,
   gemX: number,
   gemY: number
 ): Promise<boolean> {
   // 裁剪到屏幕范围内（1600×900）
-  let rx = Math.max(0, Math.min(1600 - 60, gemX - 30));
-  let ry = Math.max(0, Math.min(900 - 60, gemY - 60));
-  const regionPath = await ctx.captureRegion(Math.round(rx), Math.round(ry), 60, 60);
+  let rx = Math.max(0, Math.min(1600 - 80, gemX - 40));
+  let ry = Math.max(0, Math.min(900 - 110, gemY - 110));
+  const regionPath = await ctx.captureRegion(Math.round(rx), Math.round(ry), 80, 110);
   try {
+    let bestResult: any = null;
+    let occupied = false;
+
     for (const template of PICKAXE_TEMPLATES) {
       const result = await vision.findImage(regionPath, template, 0.65);
-      if (result.found) {
-        ctx.log(`  检测到锄头图标 (confidence: ${result.confidence.toFixed(3)})，宝石已被占用`);
-        return true;
+      if (!bestResult || result.confidence > bestResult.confidence) {
+        bestResult = result;
       }
+      if (result.found) {
+        occupied = true;
+      }
+    }
+
+    if (isDevEnv() && bestResult) {
+      try {
+        await fs.mkdir(GEM_OCCUPIED_DEBUG_DIR, { recursive: true });
+        const meta = await sharp(regionPath).metadata();
+        const w = meta.width!, h = meta.height!;
+        const label = occupied ? 'OCCUPIED' : 'FREE';
+        const svg = buildGemOccupiedDebugOverlaySvg(w, h, bestResult);
+        const outPath = path.join(GEM_OCCUPIED_DEBUG_DIR, `gem_occupied_${label}_${Date.now()}.png`);
+        await sharp(regionPath)
+          .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
+          .toFile(outPath);
+      } catch {}
+    }
+
+    if (occupied) {
+      ctx.log(`  检测到锄头/采集状态图标 (confidence: ${bestResult.confidence.toFixed(3)})，宝石已被占用`);
+      return true;
     }
     return false;
   } finally {
@@ -113,6 +175,8 @@ export interface SpiralState {
   moveCount: number;
   dirSwipes: number;
   checkedCenter: boolean;
+  centerX: number;
+  centerY: number;
   halfW: number;
   halfH: number;
   maxAttempts: number;
@@ -120,15 +184,21 @@ export interface SpiralState {
 
 export function createSpiralState(config: RokConfig): SpiralState {
   const gg = config.gemGather;
+  const dirIndex = Math.floor(Math.random() * 4);
+  const centerX = 800 + Math.round((Math.random() * 2 - 1) * 40);
+  const centerY = 450 + Math.round((Math.random() * 2 - 1) * 25);
+  const maxAttemptScale = 0.9 + Math.random() * 0.2;
   return {
     step: 1,
-    dirIndex: 0,
+    dirIndex,
     moveCount: 0,
     dirSwipes: 0,
     checkedCenter: false,
+    centerX,
+    centerY,
     halfW: Math.round(1600 * (gg.spiralSwipeRatioH ?? gg.spiralSwipeRatio) / 2),
     halfH: Math.round(900 * gg.spiralSwipeRatio / 2),
-    maxAttempts: gg.searchMaxAttempts,
+    maxAttempts: Math.max(1, Math.round(gg.searchMaxAttempts * maxAttemptScale)),
   };
 }
 
@@ -204,14 +274,16 @@ export async function searchAndClickGem(
         !gemFound &&
         spiralState.moveCount < spiralState.maxAttempts
       ) {
-        const fromX = dir.dx !== 0 ? (800 + dir.dx * spiralState.halfW) : 850;
-        const fromY = dir.dy !== 0 ? (450 + dir.dy * spiralState.halfH) : 450;
-        const toX   = dir.dx !== 0 ? (800 - dir.dx * spiralState.halfW) : 850;
-        const toY   = dir.dy !== 0 ? (450 - dir.dy * spiralState.halfH) : 450;
+        const cx = spiralState.centerX;
+        const cy = spiralState.centerY;
+        const fromX = dir.dx !== 0 ? (cx + dir.dx * spiralState.halfW) : cx + 50;
+        const fromY = dir.dy !== 0 ? (cy + dir.dy * spiralState.halfH) : cy;
+        const toX   = dir.dx !== 0 ? (cx - dir.dx * spiralState.halfW) : cx + 50;
+        const toY   = dir.dy !== 0 ? (cy - dir.dy * spiralState.halfH) : cy;
         spiralState.moveCount++;
         spiralState.dirSwipes++;
         await ctx.swipe(fromX, fromY, toX, toY, 500);
-        await ctx.sleep(1 + Math.random() * 0.5);
+        await ctx.sleep(nextGemSearchPauseSeconds());
 
         const detections = await ctx.detectWithScreenshot(0.5);
         ctx.log(`  [搜索] ${SPIRAL_DIR_NAMES[spiralState.dirIndex % 4]}(${spiralState.moveCount}) 找到 ${detections.length} 个宝石候选`);
@@ -246,25 +318,6 @@ export async function searchAndClickGem(
       const caiJiRegionPath = await ctx.captureRegion(745, 360, 157, 142);
       try {
         const caiJiResult = await vision.findImage(caiJiRegionPath, CAIJI_STATE_TEMPLATE, 0.6);
-        if (isDevEnv()) {
-          try {
-            const DEBUG_DIR = 'D:/SLG/temp/debug/caiji';
-            await fs.mkdir(DEBUG_DIR, { recursive: true });
-            const caiJiMeta = await sharp(caiJiRegionPath).metadata();
-            const w = caiJiMeta.width!, h = caiJiMeta.height!;
-            const label = caiJiResult.found ? 'OCCUPIED' : 'FREE';
-            const color = caiJiResult.found ? '#ff4444' : '#44aa44';
-            const svg = `<svg width="${w}" height="${h}" xmlns="http://www.w3.org/2000/svg">
-              <rect x="2" y="2" width="${w - 4}" height="${h - 4}" fill="none" stroke="${color}" stroke-width="2" rx="1"/>
-              <rect x="2" y="${h - 20}" width="${w - 4}" height="18" fill="${color}" rx="1"/>
-              <text x="${w / 2}" y="${h - 6}" font-family="Arial" font-size="10" font-weight="bold" fill="white" text-anchor="middle">${label} ${caiJiResult.confidence.toFixed(2)}</text>
-            </svg>`;
-            const outPath = path.join(DEBUG_DIR, `caiji_${label}_${Date.now()}.png`);
-            await sharp(caiJiRegionPath)
-              .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
-              .toFile(outPath);
-          } catch {}
-        }
         if (caiJiResult.found) {
           ctx.log(`  🔄 该宝石已有队伍在采集 (confidence: ${caiJiResult.confidence.toFixed(3)})，缩地后继续螺旋`);
           await zoomOutToWorld(ctx, worldBtn);
@@ -277,7 +330,7 @@ export async function searchAndClickGem(
     }
 
     ctx.log(`  点击放大后的目标 (${gg.pinchedGemTapPoint.x}, ${gg.pinchedGemTapPoint.y})`);
-    await ctx.tap(gg.pinchedGemTapPoint.x, gg.pinchedGemTapPoint.y);
+    await ctx.tapRect(PINCHED_GEM_TARGET_RECT.x1, PINCHED_GEM_TARGET_RECT.y1, PINCHED_GEM_TARGET_RECT.x2, PINCHED_GEM_TARGET_RECT.y2);
     await ctx.sleep(1);
 
     // 重复坐标检测
@@ -341,7 +394,7 @@ export async function dispatchToTeamPopup(
   teamPage: TeamPage = 'gather'
 ): Promise<DispatchResult> {
   ctx.log(`  [6/7] 点击选择队伍按钮 (${SELECT_TEAM_BUTTON.x}, ${SELECT_TEAM_BUTTON.y})`);
-  await ctx.tap(SELECT_TEAM_BUTTON.x, SELECT_TEAM_BUTTON.y);
+  await ctx.tapRect(SELECT_TEAM_BUTTON_RECT.x1, SELECT_TEAM_BUTTON_RECT.y1, SELECT_TEAM_BUTTON_RECT.x2, SELECT_TEAM_BUTTON_RECT.y2);
   await ctx.sleep(1);
 
   let pageSwitchButton: { x: number; y: number } | null = null;
@@ -403,7 +456,7 @@ export async function dispatchToTeamPopup(
 
     await ctx.sleep(0.3 + Math.random() * 0.4);
     ctx.log(`  点击行军按钮 (${MARCH_BUTTON.x}, ${MARCH_BUTTON.y})`);
-    await ctx.tap(MARCH_BUTTON.x, MARCH_BUTTON.y);
+    await ctx.tapRect(MARCH_BUTTON_RECT.x1, MARCH_BUTTON_RECT.y1, MARCH_BUTTON_RECT.x2, MARCH_BUTTON_RECT.y2);
     await ctx.sleep(0.8 + Math.random() * 0.7);
 
     newNextTeamIdx = (ti === teams.length - 1) ? 0 : ti + 1;
@@ -527,9 +580,9 @@ export async function gatherGem(
     const gem = await searchAndClickGem(ctx, config, spiralState, collectedCoords);
     if (!gem.found) {
       ctx.log(`  ❌ 搜索耗尽(${spiralState.moveCount}步)，未找到空闲宝石矿，任务完成`);
-      await ctx.tap(worldBtn.x, worldBtn.y);
+      await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
       await ctx.sleep(0.8 + Math.random() * 0.7);
-      await ctx.tap(worldBtn.x, worldBtn.y);
+      await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
       await ctx.sleep(1.5 + Math.random() * 1.0);
       break;
     }
@@ -539,7 +592,7 @@ export async function gatherGem(
     const idleAvailable = await checkIdleTeamsAvailable(ctx);
     if (!idleAvailable) {
       ctx.log(`  ⚠️ 没有空闲队伍，停止采集，切换回城内`);
-      await ctx.tap(worldBtn.x, worldBtn.y);
+      await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
       await ctx.sleep(1.5 + Math.random() * 1.0);
       break;
     }

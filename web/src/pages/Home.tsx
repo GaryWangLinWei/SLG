@@ -13,7 +13,7 @@ let loopCompletedBuildings: boolean[] = [false, false, false, false, false];
 let loopCompletedTechs: boolean[] = [false, false, false, false, false];
 let deviceBusy = false;
 const GATHER_LOOP_INTERVAL = 300; // 城外采集独立循环间隔（秒）
-const GEM_FOCUS_MODE_DISABLED = true; // 专注模式暂时禁用，保留代码和配置字段便于后续恢复
+const GEM_FOCUS_MODE_DISABLED = false; // 专注模式：true 整体禁用并保留代码，false 开放
 const NIGHT_START_MINUTE = 2 * 60;
 const NIGHT_END_MINUTE = 5 * 60;
 const NIGHT_START_JITTER_MIN = -15;
@@ -1631,7 +1631,7 @@ export function HomePage() {
                 <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${(!GEM_FOCUS_MODE_DISABLED && features.gemGatherFocusMode) ? 'bg-orange-500 border-orange-600' : 'bg-white border-slate-300'}`}>
                   {(!GEM_FOCUS_MODE_DISABLED && features.gemGatherFocusMode) && <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
                 </span>
-                <span className="text-xs text-slate-400 font-medium">🎯 专注模式（暂时禁用）</span>
+                <span className="text-xs text-slate-500 font-medium">🎯 专注模式</span>
               </label>
               <div className="flex items-center gap-2 mt-2">
                 <span className="text-xs text-slate-400 whitespace-nowrap">采集</span>
