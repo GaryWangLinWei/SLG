@@ -16,7 +16,8 @@ export class PluginContext {
     private checkStop?: () => void,
     logCallback?: (msg: string) => void,
     private yoloDetector?: YoloDetector,
-    private stateDetector?: YoloDetector
+    private stateDetector?: YoloDetector,
+    private heroDetector?: YoloDetector
   ) {
     this.logOutput = logCallback ?? ((msg: string) => console.log(msg));
   }
@@ -499,5 +500,32 @@ export class PluginContext {
     this.checkCancellation();
     if (!this.stateDetector) return [];
     return this.stateDetector.detect(imagePath, threshold, 0.45, classIndices);
+  }
+
+  /**
+   * 截图并用英雄头像模型（hero.onnx）检测，自动清理临时文件。
+   */
+  async detectHeroWithScreenshot(threshold: number = 0.5, classIndices: number[] = [0]): Promise<Detection[]> {
+    this.checkCancellation();
+    if (!this.heroDetector) return [];
+
+    const screenshotBuffer = await this.device.screenshot();
+    const tempPath = path.join(os.tmpdir(), `hero-${Date.now()}.png`);
+    await fs.writeFile(tempPath, screenshotBuffer);
+
+    try {
+      return await this.heroDetector.detect(tempPath, threshold, 0.45, classIndices);
+    } finally {
+      await fs.unlink(tempPath).catch(() => {});
+    }
+  }
+
+  /**
+   * 用英雄头像模型（hero.onnx）检测指定图片，不做截图与清理。
+   */
+  async detectHeroImage(imagePath: string, threshold: number = 0.5, classIndices: number[] = [0]): Promise<Detection[]> {
+    this.checkCancellation();
+    if (!this.heroDetector) return [];
+    return this.heroDetector.detect(imagePath, threshold, 0.45, classIndices);
   }
 }

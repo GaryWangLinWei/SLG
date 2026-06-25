@@ -28,7 +28,7 @@ const PICKAXE_TEMPLATES = [
   path.join(TEMPLATE_DIR, '红色锄头.png'),
   path.join(TEMPLATE_DIR, '蓝色锄头.png'),
   // path.join(TEMPLATE_DIR, '黄色锄头.png'), // 暂时去掉黄色锄头判定
-  path.join(TEMPLATE_DIR, 'state_caiji.png'),
+  // path.join(TEMPLATE_DIR, 'state_caiji.png'), // 改用 state.onnx YOLO 检测
 ];
 
 // 队伍选择坐标（复用 gatherResources）
@@ -121,48 +121,68 @@ export function buildGemOccupiedDebugOverlaySvg(
   return svg;
 }
 
-/** 检测宝石上方 80x110 区域是否有锄头或采集状态图标（有人正在采集） */
+/** 检测宝石是否被占用（有锄头 或 有自己的队伍头像在附近）
+ * 先用锄头模板匹配宝石上方区域，再用 hero.onnx 全图检测英雄头像是否落在宝石附近区域
+ */
 export async function isGemOccupied(
   ctx: PluginContext,
   gemX: number,
   gemY: number
 ): Promise<boolean> {
-  // 裁剪到屏幕范围内（1600×900）
-  let rx = Math.max(0, Math.min(1600 - 80, gemX - 40));
-  let ry = Math.max(0, Math.min(900 - 110, gemY - 110));
-  const regionPath = await ctx.captureRegion(Math.round(rx), Math.round(ry), 80, 110);
-  try {
-    let bestResult: any = null;
-    let occupied = false;
+  // 检测区域：宝石正上方 80x110（同锄头检测区域）
+  const regionX = Math.max(0, Math.min(1600 - 80, gemX - 40));
+  const regionY = Math.max(0, Math.min(900 - 110, gemY - 110));
+  const regionW = 80;
+  const regionH = 110;
 
+  const regionPath = await ctx.captureRegion(Math.round(regionX), Math.round(regionY), regionW, regionH);
+  try {
+    let bestTemplateConfidence = 0;
+
+    // 第一步：锄头模板匹配（红色、蓝色锄头）
     for (const template of PICKAXE_TEMPLATES) {
       const result = await vision.findImage(regionPath, template, 0.65);
-      if (!bestResult || result.confidence > bestResult.confidence) {
-        bestResult = result;
+      if (result.confidence > bestTemplateConfidence) {
+        bestTemplateConfidence = result.confidence;
       }
       if (result.found) {
-        occupied = true;
+        ctx.log(`  检测到锄头图标 (confidence: ${result.confidence.toFixed(3)})，宝石已被占用`);
+        return true;
       }
     }
 
-    if (isDevEnv() && bestResult) {
+    // 第二步：hero.onnx 全图检测英雄头像，看是否落在宝石上方检测区域内
+    const heroDetections = await ctx.detectHeroWithScreenshot(0.5, [0]);
+    for (const hero of heroDetections) {
+      // 检查 hero 中心是否落在检测区域内
+      if (
+        hero.x >= regionX &&
+        hero.x <= regionX + regionW &&
+        hero.y >= regionY &&
+        hero.y <= regionY + regionH
+      ) {
+        ctx.log(`  检测到自己队伍头像 (confidence: ${hero.confidence.toFixed(3)})，宝石已被自己占用`);
+        return true;
+      }
+    }
+
+    // 开发环境：空闲宝石保存调试截图
+    if (isDevEnv()) {
       try {
         await fs.mkdir(GEM_OCCUPIED_DEBUG_DIR, { recursive: true });
         const meta = await sharp(regionPath).metadata();
         const w = meta.width!, h = meta.height!;
-        const label = occupied ? 'OCCUPIED' : 'FREE';
-        const svg = buildGemOccupiedDebugOverlaySvg(w, h, bestResult);
-        const outPath = path.join(GEM_OCCUPIED_DEBUG_DIR, `gem_occupied_${label}_${Date.now()}.png`);
+        const svg = buildGemOccupiedDebugOverlaySvg(w, h, {
+          found: false,
+          confidence: bestTemplateConfidence,
+        });
+        const outPath = path.join(GEM_OCCUPIED_DEBUG_DIR, `gem_occupied_FREE_${Date.now()}.png`);
         await sharp(regionPath)
           .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
           .toFile(outPath);
       } catch {}
     }
 
-    if (occupied) {
-      ctx.log(`  检测到锄头/采集状态图标 (confidence: ${bestResult.confidence.toFixed(3)})，宝石已被占用`);
-      return true;
-    }
     return false;
   } finally {
     await fs.unlink(regionPath).catch(() => {});

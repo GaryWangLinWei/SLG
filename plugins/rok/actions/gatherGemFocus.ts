@@ -268,11 +268,23 @@ export async function gatherGemFocus(
       continue;
     }
 
-    // === step 4: 大 UI 中找驻扎队伍 + 行军按钮 ===
-    const stateIn4 = await detectTeamStates(ctx, ['zhuzha'], LARGE_REGION);
+    // === step 4: 大 UI 中找驻扎/返回队伍 + 行军按钮 ===
+    // 优先找驻扎队伍
+    let stateIn4 = await detectTeamStates(ctx, ['zhuzha'], LARGE_REGION);
+    let foundState = 'zhuzha';
+
+    // 没找到驻扎，找返回队伍
     if (stateIn4.length === 0) {
-      // 兜底：图像识别误差导致没检测到驻扎，回退到派空闲队伍
-      ctx.log('[step 4] 兜底：未检测到驻扎，尝试派空闲队伍');
+      stateIn4 = await detectTeamStates(ctx, ['back'], LARGE_REGION);
+      if (stateIn4.length > 0) {
+        foundState = 'back';
+        ctx.log(`[step 4] 未检测到驻扎，找到返回队伍`);
+      }
+    }
+
+    if (stateIn4.length === 0) {
+      // 兜底：驻扎和返回都没检测到，回退到派空闲队伍
+      ctx.log('[step 4] 兜底：未检测到驻扎和返回，尝试派空闲队伍');
       if (!await checkIdleTeamsAvailable(ctx)) {
         ctx.log('[step 4] 兜底：也无空闲队伍，退出');
         await ctx.tap(EXIT_LARGE_UI_BUTTON.x, EXIT_LARGE_UI_BUTTON.y);
@@ -290,7 +302,8 @@ export async function gatherGemFocus(
     const topInLarge = stateIn4.sort((a, b) => a.y - b.y)[0];
     const topInLargeX = topInLarge.x + AVATAR_OFFSET.dx;
     const topInLargeY = topInLarge.y + AVATAR_OFFSET.dy;
-    ctx.log(`[step 4] 点击最上驻扎队伍头像 (${topInLargeX}, ${topInLargeY})`);
+    const stateLabel = foundState === 'zhuzha' ? '驻扎' : '返回';
+    ctx.log(`[step 4] 点击最上${stateLabel}队伍头像 (${topInLargeX}, ${topInLargeY})`);
     await ctx.tap(topInLargeX, topInLargeY);
     await ctx.sleep(1.5);
 

@@ -10,12 +10,14 @@ export class PluginManager {
   private vision: Vision;
   private yoloDetector?: YoloDetector;
   private stateDetector?: YoloDetector;
+  private heroDetector?: YoloDetector;
 
-  constructor(device: Device, vision: Vision, yoloDetector?: YoloDetector, stateDetector?: YoloDetector) {
+  constructor(device: Device, vision: Vision, yoloDetector?: YoloDetector, stateDetector?: YoloDetector, heroDetector?: YoloDetector) {
     this.device = device;
     this.vision = vision;
     this.yoloDetector = yoloDetector;
     this.stateDetector = stateDetector;
+    this.heroDetector = heroDetector;
   }
 
   register(plugin: Plugin): void {
@@ -54,7 +56,7 @@ export class PluginManager {
     const action = plugin.actions.find(a => a.id === actionId);
     if (!action) throw new Error(`Action ${actionId} not found in plugin ${pluginId}`);
 
-    const ctx = new PluginContext(this.device, this.vision, config, checkStop, logCallback, this.yoloDetector, this.stateDetector);
+    const ctx = new PluginContext(this.device, this.vision, config, checkStop, logCallback, this.yoloDetector, this.stateDetector, this.heroDetector);
     await action.run(ctx, config);
   }
 }
