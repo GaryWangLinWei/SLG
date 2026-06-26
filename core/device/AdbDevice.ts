@@ -276,7 +276,33 @@ export class AdbDevice implements Device {
     await this.tap(point.x, point.y);
   }
 
-  async swipe(x1: number, y1: number, x2: number, y2: number, duration: number = 500): Promise<void> {
+  /**
+   * 二次贝塞尔曲线生成自然滑动轨迹
+   * 随机控制点模拟人类滑动的自然曲线偏移
+   */
+  private bezierCurve(x1: number, y1: number, x2: number, y2: number, steps: number): Array<{ x: number; y: number }> {
+    // 随机控制点：偏离直线 15-35px，模拟自然手部抖动
+    const midX = (x1 + x2) / 2;
+    const midY = (y1 + y2) / 2;
+    const offsetX = (Math.random() * 2 - 1) * (15 + Math.random() * 20);
+    const offsetY = (Math.random() * 2 - 1) * (15 + Math.random() * 20);
+    const cx = midX + offsetX;
+    const cy = midY + offsetY;
+
+    const points: Array<{ x: number; y: number }> = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      // easeOutQuad 缓动函数：先快后慢，模拟人类滑动减速停止的自然特征
+      const easeT = 1 - (1 - t) * (1 - t);
+      // 二次贝塞尔公式
+      const x = Math.round((1 - easeT) * (1 - easeT) * x1 + 2 * (1 - easeT) * easeT * cx + easeT * easeT * x2);
+      const y = Math.round((1 - easeT) * (1 - easeT) * y1 + 2 * (1 - easeT) * easeT * cy + easeT * easeT * y2);
+      points.push({ x, y });
+    }
+    return points;
+  }
+
+  async swipe(x1: number, y1: number, x2: number, y2: number, duration: number = 500, useBezier: boolean = false): Promise<void> {
     const sx1 = this.jitterCoord(x1);
     const sy1 = this.jitterCoord(y1);
     const sx2 = this.jitterCoord(x2);
@@ -285,25 +311,51 @@ export class AdbDevice implements Device {
       ? duration * (0.8 + Math.random() * 0.4)
       : duration);
 
-    if (!this.randConfig.enabled) {
-      await this.execAdb(
-        `"${getAdbPath()}" -s ${this.deviceId} shell input swipe ${sx1} ${sy1} ${sx2} ${sy2} ${jitteredDuration}`,
-        `滑动 (${x1},${y1})→(${x2},${y2}) dur=${jitteredDuration}`
-      );
+    if (!this.randConfig.enabled || !useBezier) {
+      // 普通直线滑动（默认）：3-5 段 + Y 轴微小偏移
+      if (!this.randConfig.enabled) {
+        await this.execAdb(
+          `"${getAdbPath()}" -s ${this.deviceId} shell input swipe ${sx1} ${sy1} ${sx2} ${sy2} ${jitteredDuration}`,
+          `滑动 (${x1},${y1})→(${x2},${y2}) dur=${jitteredDuration}`
+        );
+        return;
+      }
+
+      const segments = 3 + Math.floor(Math.random() * 3); // 3-5
+      const segDuration = Math.round(jitteredDuration / segments);
+      let cx = sx1, cy = sy1;
+
+      for (let i = 1; i <= segments; i++) {
+        const t = i / segments;
+        const nx = Math.round(sx1 + (sx2 - sx1) * t);
+        const ny = Math.round(sy1 + (sy2 - sy1) * t + (Math.random() * 2 - 1) * 7);
+        await this.execAdb(
+          `"${getAdbPath()}" -s ${this.deviceId} shell input swipe ${cx} ${cy} ${nx} ${ny} ${segDuration}`,
+          `滑动段${i}/${segments} (${cx},${cy})→(${nx},${ny}) dur=${segDuration}`
+        );
+        cx = nx;
+        cy = ny;
+      }
       return;
     }
 
-    const segments = 3 + Math.floor(Math.random() * 3); // 3-5
-    const segDuration = Math.round(jitteredDuration / segments);
+    // 贝塞尔曲线滑动（仅 useBezier=true 时启用）：5-8 段，先快后慢，自然曲线
+    const segments = 5 + Math.floor(Math.random() * 4); // 5-8 段
+    const points = this.bezierCurve(sx1, sy1, sx2, sy2, segments);
+
+    // 每段时长不均匀：前段快，后段慢（模拟减速）
+    const baseDuration = jitteredDuration / segments;
     let cx = sx1, cy = sy1;
 
-    for (let i = 1; i <= segments; i++) {
-      const t = i / segments;
-      const nx = Math.round(sx1 + (sx2 - sx1) * t);
-      const ny = Math.round(sy1 + (sy2 - sy1) * t + (Math.random() * 2 - 1) * 7);
+    for (let i = 1; i < points.length; i++) {
+      const { x: nx, y: ny } = points[i];
+      // 进度越往后，段时长越长（减速效果）
+      const progress = i / segments;
+      const segDuration = Math.round(baseDuration * (0.6 + progress * 0.8));
+
       await this.execAdb(
         `"${getAdbPath()}" -s ${this.deviceId} shell input swipe ${cx} ${cy} ${nx} ${ny} ${segDuration}`,
-        `曲线滑动段${i}/${segments} (${cx},${cy})→(${nx},${ny}) dur=${segDuration}`
+        `贝塞尔滑动段${i}/${segments} (${cx},${cy})→(${nx},${ny}) dur=${segDuration}`
       );
       cx = nx;
       cy = ny;

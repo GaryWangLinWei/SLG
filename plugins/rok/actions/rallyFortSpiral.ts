@@ -137,7 +137,7 @@ export async function rallyFortSpiral(
       const toX   = dir.dx !== 0 ? (800 - dir.dx * halfW) : 850;
       const toY   = dir.dy !== 0 ? (450 - dir.dy * halfH) : 450;
       moveCount++;
-      await ctx.swipe(fromX, fromY, toX, toY, 500);
+      await ctx.swipe(fromX, fromY, toX, toY, 500, true);
       await ctx.sleep(1);
 
       const matchResults = await Promise.all(

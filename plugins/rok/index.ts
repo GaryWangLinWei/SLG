@@ -10,6 +10,7 @@ import { helpTeammates } from './actions/helpTeammates';
 import { readQueueOverview, resetQueueFilters } from './actions/readQueueOverview';
 import { rallyFort } from './actions/rallyFort';
 import { rallyFortSpiral } from './actions/rallyFortSpiral';
+import { joinRally } from './actions/joinRally';
 import { gatherGem } from './actions/gatherGem';
 import { gatherGemFocus } from './actions/gatherGemFocus';
 import { caveExplore } from './actions/caveExplore';
@@ -721,6 +722,32 @@ export const RiseOfKingdomsPlugin: Plugin = {
       }
     },
     {
+      id: 'join-rally',
+      name: '加入集结',
+      description: '自动加入联盟的城寨/洛哈集结，按距离排序选择',
+      run: async (ctx, params: {
+        team?: number;
+        teamPage?: TeamPage;
+        targetFort?: boolean;
+        targetLohar?: boolean;
+        maxDistance?: number;
+        firstRun?: boolean;
+      } = {}) => {
+        const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
+        const team = params.team || 1;
+
+        const outcome = await joinRally(ctx, config, {
+          team,
+          teamPage: params.teamPage ?? 'attack',
+          targetFort: params.targetFort ?? true,
+          targetLohar: params.targetLohar ?? true,
+          maxDistance: params.maxDistance ?? 50,
+          firstRun: params.firstRun,
+        });
+        ctx.log(`加入集结: ${outcome.targetType === 'fort' ? '城寨' : outcome.targetType === 'lohar' ? '洛哈' : '未知'} ${outcome.distance || 0}公里 → ${outcome.result}`);
+      }
+    },
+    {
       id: 'gem-gather',
       name: '智能采集宝石',
       description: '使用图像识别螺旋搜索宝石矿并派出队伍采集',
@@ -759,13 +786,13 @@ export const RiseOfKingdomsPlugin: Plugin = {
     },
     {
       id: 'gem-gather-focus',
-      name: '宝石采集专注模式',
+      name: '宝石采集驻扎模式',
       description: '独占运行，持续采集宝石，暂停城寨/资源/建筑/科技/练兵/社交等所有其他功能',
       run: async (ctx, params: { teams?: number[]; teamPage?: TeamPage } = {}) => {
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const teams = params.teams || [1];
         const outcome = await gatherGemFocus(ctx, config, teams, params.teamPage ?? 'gather');
-        ctx.log(`宝石采集(专注): 队伍[${teams.join(', ')}] → ${outcome.result}，派出 ${outcome.dispatched} 队`);
+        ctx.log(`宝石采集(驻扎): 队伍[${teams.join(', ')}] → ${outcome.result}，派出 ${outcome.dispatched} 队`);
       }
     },
     killGame,

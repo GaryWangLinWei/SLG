@@ -302,7 +302,7 @@ export async function searchAndClickGem(
         const toY   = dir.dy !== 0 ? (cy - dir.dy * spiralState.halfH) : cy;
         spiralState.moveCount++;
         spiralState.dirSwipes++;
-        await ctx.swipe(fromX, fromY, toX, toY, 500);
+        await ctx.swipe(fromX, fromY, toX, toY, 500, true);
         await ctx.sleep(nextGemSearchPauseSeconds());
 
         const detections = await ctx.detectWithScreenshot(0.5);

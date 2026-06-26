@@ -207,8 +207,8 @@ export class PluginContext {
     return false;
   }
 
-  async swipe(x1: number, y1: number, x2: number, y2: number, duration: number = 500): Promise<void> {
-    await this.device.swipe(x1, y1, x2, y2, duration);
+  async swipe(x1: number, y1: number, x2: number, y2: number, duration: number = 500, useBezier: boolean = false): Promise<void> {
+    await this.device.swipe(x1, y1, x2, y2, duration, useBezier);
   }
 
   /**

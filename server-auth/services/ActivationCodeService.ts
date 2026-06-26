@@ -91,8 +91,8 @@ export function revokeCode(id: number): boolean {
   return result.changes > 0;
 }
 
-const TRIAL_CODE = 'TRIAL-7DAYS';
-const TRIAL_DAYS = 7;
+const TRIAL_CODE = 'TRIAL-3DAYS';
+const TRIAL_DAYS = 3;
 
 export function useCode(code: string, deviceFingerprint: string): { success: boolean; expiresAt?: number; error?: string; renewType?: string; tier?: 'basic' | 'pro'; code?: string } {
   const db = getDb();

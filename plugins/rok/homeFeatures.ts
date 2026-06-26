@@ -39,6 +39,12 @@ export interface HomeFeatures {
   gemGatherRestHours: number;
   autoCaveExplore: boolean;
   nightMode: boolean;
+  joinRallyEnabled: boolean;
+  joinRallyTeam: number;
+  joinRallyTeamPage: TeamPageChoice;
+  joinRallyTargetFort: boolean;
+  joinRallyTargetLohar: boolean;
+  joinRallyMaxDistance: number;
 }
 
 export const DEFAULT_HOME_FEATURES: HomeFeatures = {
@@ -78,4 +84,10 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   gemGatherRestHours: 1,
   autoCaveExplore: false,
   nightMode: false,
+  joinRallyEnabled: false,
+  joinRallyTeam: 1,
+  joinRallyTeamPage: 'attack',
+  joinRallyTargetFort: true,
+  joinRallyTargetLohar: true,
+  joinRallyMaxDistance: 50,
 };
