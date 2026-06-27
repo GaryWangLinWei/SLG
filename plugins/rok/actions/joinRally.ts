@@ -40,18 +40,18 @@ const RALLY_COLUMNS = [
 ];
 
 const TEAM_BUTTONS_NO_PAGE: Record<number, { x: number; y: number }> = {
-  1: { x: 1378, y: 362 }, 2: { x: 1378, y: 430 },
-  3: { x: 1378, y: 497 }, 4: { x: 1378, y: 566 }, 5: { x: 1378, y: 633 },
+  1: { x: 1378, y: 325 }, 2: { x: 1378, y: 393 },
+  3: { x: 1378, y: 459 }, 4: { x: 1378, y: 528 }, 5: { x: 1378, y: 595 },
 };
 const TEAM_BUTTONS_PAGED: Record<number, { x: number; y: number }> = {
-  1: { x: 1378, y: 397 }, 2: { x: 1378, y: 463 },
-  3: { x: 1378, y: 533 }, 4: { x: 1378, y: 600 }, 5: { x: 1378, y: 671 },
+  1: { x: 1378, y: 359 }, 2: { x: 1378, y: 424 },
+  3: { x: 1378, y: 492 }, 4: { x: 1378, y: 562 }, 5: { x: 1378, y: 630 },
 };
 const MARCH_BUTTON = { x: 1154, y: 791 };
 const MARCH_BUTTON_RECT = { x1: 1031, y1: 754, x2: 1292, y2: 820 };
 
 export interface JoinRallyOutcome {
-  result: 'success' | 'no_idle_teams' | 'no_rally_state' | 'no_joinable' | 'distance_exceed' | 'team_unavailable' | 'no_biandui';
+  result: 'success' | 'no_idle_teams' | 'no_rally_state' | 'no_joinable' | 'distance_exceed' | 'team_unavailable' | 'no_biandui' | 'stamina_insufficient';
   joined: number;
   targetType?: 'fort' | 'lohar';
   distance?: number;
@@ -76,7 +76,7 @@ export async function joinRally(
   // [1/6] 检测空闲队伍
   ctx.log('  [1/6] OCR 检测空闲队伍数...');
   const regionPath = await ctx.captureRegion(1507, 169, 55, 31);
-  const teamCountText = await ocrService.readText(regionPath);
+  const teamCountText = await ocrService.readTeamCount(regionPath);
   await fs.unlink(regionPath).catch(() => {});
   ctx.log(`  OCR 结果: "${teamCountText}"`);
 
@@ -171,7 +171,16 @@ export async function joinRally(
     }
 
     const distPath = await ctx.captureRegion(col.distance.x, col.distance.y, col.distance.width, col.distance.height);
-    const distText = await ocrService.readText(distPath);
+    const distText = await ocrService.readDistance(distPath);
+
+    // 保存 OCR 识别距离时的截图供调试
+    const debugDir = path.join(process.cwd(), 'temp', 'debug', 'rally_ocr');
+    await fs.mkdir(debugDir, { recursive: true });
+    const debugFileName = `rally_dist_${Date.now()}_col${i + 1}.png`;
+    const debugSavePath = path.join(debugDir, debugFileName);
+    await fs.copyFile(distPath, debugSavePath);
+    ctx.log(`    [调试] 距离截图已保存: ${debugSavePath}`);
+
     await fs.unlink(distPath).catch(() => {});
     ctx.log(`    距离 OCR: "${distText}"`);
 
@@ -211,13 +220,15 @@ export async function joinRally(
   // [5/6] 识别编队按钮
   ctx.log('  [5/6] 识别编队按钮...');
   const bianduiResult = await ctx.findImageWithLocation(
-    BTN_BIANDUI_TEMPLATE, 0.8, undefined, false, undefined,
-    { x: 1123, y: 130, width: 1400 - 1123, height: 240 - 130 }
+    BTN_BIANDUI_TEMPLATE, 0.6
   );
   if (!bianduiResult.found) {
-    ctx.log('  未检测到编队按钮，无可派遣队伍');
+    ctx.log('  未检测到编队按钮，点击回城按钮并结束');
     await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
     await ctx.sleep(0.5);
+    // 点击回城按钮（左下角）
+    await ctx.tap(80, 830);
+    await ctx.sleep(1);
     return { result: 'no_biandui', joined: 0, targetType: detectedTarget!, distance: detectedDistance };
   }
   ctx.log(`  点击编队按钮 (${bianduiResult.x}, ${bianduiResult.y})`);
@@ -240,7 +251,7 @@ export async function joinRally(
       ctx,
       params.teamPage,
       { x: pageResult.x, y: pageResult.y },
-      { x: 1361, y: 378, w: 36, h: 35 }
+      { x: 1361, y: 359, w: 36, h: 35 }
     );
     if (!onTargetPage) {
       ctx.log(`  ⚠️ 未能切换到目标队伍页`);
@@ -261,14 +272,62 @@ export async function joinRally(
 
   if (!stateResult2.changed) {
     ctx.log(`  ⚠️ 队伍${params.team}不可用，按钮无选中状态变化`);
+    await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);  // 关闭队伍面板
+    await ctx.sleep(0.5);
     return { result: 'team_unavailable', joined: 0, targetType: detectedTarget!, distance: detectedDistance };
   }
 
-  await ctx.sleep(0.5);
-  ctx.log(`  点击行军按钮 (${MARCH_BUTTON.x}, ${MARCH_BUTTON.y})`);
-  await ctx.tapRect(MARCH_BUTTON_RECT.x1, MARCH_BUTTON_RECT.y1, MARCH_BUTTON_RECT.x2, MARCH_BUTTON_RECT.y2);
-  await ctx.sleep(1);
+  // 点击行军；先检测胜算不足弹窗，再检测行动力不足，有免费体力则领取重试
+  for (let marchAttempt = 1; marchAttempt <= 2; marchAttempt++) {
+    await ctx.sleep(0.5);
+    ctx.log(`  点击行军按钮 (${MARCH_BUTTON.x}, ${MARCH_BUTTON.y})${marchAttempt > 1 ? '（领取体力后重试）' : ''}`);
+    await ctx.tapRect(MARCH_BUTTON_RECT.x1, MARCH_BUTTON_RECT.y1, MARCH_BUTTON_RECT.x2, MARCH_BUTTON_RECT.y2);
+    await ctx.sleep(1);
 
-  ctx.log(`  ✅ 成功加入${detectedTarget === 'fort' ? '城寨' : '洛哈'}集结 (${detectedDistance}公里)`);
-  return { result: 'success', joined: 1, targetType: detectedTarget!, distance: detectedDistance };
+    // [1] 先检测胜算不足弹窗：识别 jijie/btn_surego.png 二次确认行军按钮
+    const sureGoResult = await ctx.findImageWithLocation(path.join(TEMPLATE_DIR, 'jijie', 'btn_surego.png'), 0.6, [0.95, 1.0, 1.05]);
+    ctx.log(`  [胜算不足] 最佳置信度: ${sureGoResult.confidence.toFixed(3)}, found: ${sureGoResult.found}`);
+    if (sureGoResult.found) {
+      ctx.log(`  ⚠️ 检测到胜算不足弹窗，点击二次确认行军 (${sureGoResult.x}, ${sureGoResult.y})`);
+      await ctx.tap(sureGoResult.x, sureGoResult.y);
+      await ctx.sleep(1.5);
+      // 点击二次确认后不直接返回，继续往下检测行动力不足弹窗
+    }
+
+    // [2] 再检测行动力不足弹窗：城内外切换按钮不可见则认为被弹窗遮挡
+    const switchCityResult = await ctx.findImageWithLocation(path.join(TEMPLATE_DIR, 'switch_in_city.png'), 0.7);
+    const switchWorldResult = await ctx.findImageWithLocation(path.join(TEMPLATE_DIR, 'switch_in_world.png'), 0.7);
+    ctx.log(`  切换按钮: city=${switchCityResult.confidence.toFixed(3)}, world=${switchWorldResult.confidence.toFixed(3)}`);
+    const isStaminaInsufficient = !switchCityResult.found && !switchWorldResult.found;
+
+    if (!isStaminaInsufficient) {
+      ctx.log(`  ✅ 成功加入${detectedTarget === 'fort' ? '城寨' : '洛哈'}集结 (${detectedDistance}公里)`);
+      return { result: 'success', joined: 1, targetType: detectedTarget!, distance: detectedDistance };
+    }
+
+    ctx.log(`  ⚠️ 切换按钮不可见 → 行动力不足弹窗`);
+
+    if (marchAttempt === 1) {
+      const tiliButton = await ctx.findImageWithLocation(path.join(TEMPLATE_DIR, 'btn_tili.png'), 0.8, [0.9, 1.0, 1.1], false, undefined, { x: 1014, y: 242, width: 1588 - 1014, height: 407 - 242 });
+      ctx.log(`  [体力] 免费体力按钮: found=${tiliButton.found} conf=${tiliButton.confidence.toFixed(3)}`);
+      if (tiliButton.found) {
+        ctx.log(`  [体力] 领取免费体力 (${tiliButton.x}, ${tiliButton.y})`);
+        await ctx.tap(tiliButton.x, tiliButton.y);
+        await ctx.sleep(0.8);
+        await ctx.tap(1363, 103);  // 关闭行动力不足弹窗
+        await ctx.sleep(0.8);
+        continue;
+      }
+    }
+
+    await ctx.tap(1363, 103);  // 关闭行动力不足弹窗
+    await ctx.sleep(0.5);
+    await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);  // 关闭队伍面板
+    await ctx.sleep(0.5);
+    await ctx.tap(80, 830); // 点击回城按钮
+    await ctx.sleep(1);
+    return { result: 'stamina_insufficient', joined: 0, targetType: detectedTarget!, distance: detectedDistance };
+  }
+
+  return { result: 'stamina_insufficient', joined: 0, targetType: detectedTarget!, distance: detectedDistance };
 }
