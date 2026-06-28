@@ -1,6 +1,6 @@
 {
   "name": "rok-automation",
-  "version": "1.0.9",
+  "version": "1.1.0",
   "description": "万国觉醒自动化助手",
   "main": "dist/electron/main.js",
   "scripts": {
@@ -19,7 +19,7 @@
     "appId": "com.rok.automation",
     "productName": "ROK助手",
     "releaseInfo": {
-      "releaseNotes": "1.0.9更新内容\n1. 宝石占用检测升级：新增hero.onnx英雄头像识别，精准识别宝石上是否有自己队伍驻扎。\n2. 宝石驻扎模式优化：大UI中找不到驻扎队伍时，自动找返回队伍接续派矿。\n3. UI命名优化：\"专注模式\"改名为\"驻扎模式\"，更符合实际功能定位。\n4. 试用码策略调整：Basic试用3天，新增Pro 1天通用试用码。"
+      "releaseNotes": "1.1.0更新内容\n1. 宝石坐标识别改回Tesseract OCR，解决模板匹配截断识别导致的重复采集问题。\n2. 科技研究支持多尺度模板匹配，解决滑动后图标缩放导致的识别不稳定问题。\n3. 山洞探索状态持久化，循环间不再重复探索已探索山洞。\n4. 城寨图标遮挡自动避让，缩放点击点被遮挡时自动滑动避让。\n5. 修复迷雾探索/世界喊话开启时，自动攻打城寨仍可勾选的互斥逻辑问题。\n6. 倒计时解析移除h/m/s格式支持，只识别冒号格式，避免空闲状态误判。"
     },
     "directories": {
       "output": "release"
