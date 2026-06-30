@@ -164,6 +164,40 @@ web/ (React+Vite)  ──/api──▶  server/ (Koa+REST)  ──▶  core/ ─
 
 图像模板存放在 `plugins/rok/templates/`，通过 `getTemplatesDir()` 加载（不要直接拼接 `__dirname`）。
 
+## 远程控制系统（v1.2+）
+
+电脑端 exe 启动时主动连接 VPS（`ws://106.15.11.158:3456/ws/remote`），建立 WebSocket 长连接。手机端通过验证码访问 VPS，VPS 透传消息到对应设备。所有任务逻辑仍在电脑端执行，VPS 只做消息路由和日志暂存。
+
+**关键模块：**
+- `core/remote/RemoteClient.ts` — 电脑端 WS 客户端，负责日志推送和指令接收
+- `core/remote/CommandHandler.ts` — 指令分发（start_task/stop_all/get_status）
+- `core/remote/messages.ts` — 消息类型定义（与 server-auth 同步）
+- `server/services/RemoteContextService.ts` — 把远程指令接到 TaskService
+- `server/routes/remote.ts` — 电脑端「生成验证码」HTTP 端点
+- `server-auth/services/WebSocketHub.ts` — VPS 消息路由
+- `server-auth/services/RemoteCodeService.ts` — 6 位验证码 + sessionToken 管理
+- `server-auth/services/RemoteLogService.ts` — 云端日志存储（7 天保留，10000/设备上限）
+- `server-auth/routes/remote.ts` — 验证码/日志 HTTP API
+- `web/src/pages/RemoteAccess.tsx` — 手机端验证码输入页
+- `web/src/pages/Mobile.tsx` — 手机端日志 + 控制 + 状态 Tab
+- `web/src/pages/ControlPanel.tsx` — 控制面板组件
+- `web/src/hooks/useRemoteSocket.ts` — WebSocket 客户端 hook（自动重连 + sendCommand promise）
+- `web/src/api/remote.ts` — 远程 API 封装
+
+**双层验证：**
+- **设备层** — 激活码 + 设备指纹，电脑客户端连接 VPS，长期有效（心跳续期）
+- **用户层** — 6 位数字验证码（10 分钟过期，单次使用，错 3 次锁 1 分钟）+ sessionToken（32 字节 hex，24 小时过期）
+
+**消息协议（`WsMessage`）：** type=log|command|response|status|heartbeat，6 类消息一致定义在 `server-auth/ws/messages.ts` 和 `core/remote/messages.ts`，手动同步。
+
+**心跳：** 设备/手机均 30 秒一次
+**日志推送：** 攒 10 条或 1 秒批量推送，断线缓存重连后补发
+**支持的远程指令：** start_gem_gather / start_rally_join / start_cave_explore / start_research_tech / start_home_loop / stop_all_tasks / get_status / get_logs
+
+**入口路由：**
+- 电脑端 Home 页「📱 远程控制」按钮 → POST `/api/remote/generate-code` → VPS 返回 6 位验证码
+- 手机浏览器打开 `http://106.15.11.158:3456/remote-access?code=XXXXXX` → 验证 → 跳转 `/mobile?remote=1`
+
 ## 重要文件路径
 
 | 用途 | 路径 |

@@ -1,6 +1,6 @@
 {
   "name": "rok-automation",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "万国觉醒自动化助手",
   "main": "dist/electron/main.js",
   "scripts": {
