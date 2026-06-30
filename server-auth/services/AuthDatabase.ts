@@ -79,6 +79,47 @@ function initTables() {
     database.exec(`ALTER TABLE activation_codes ADD COLUMN tier TEXT NOT NULL DEFAULT 'basic'`);
   } catch { /* 字段已存在，忽略 */ }
 
+  // 远程控制 - 验证码表
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS remote_codes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT UNIQUE NOT NULL,
+      device_id TEXT NOT NULL,
+      activation_code TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL,
+      used INTEGER DEFAULT 0,
+      used_at INTEGER
+    )
+  `);
+  database.exec(`CREATE INDEX IF NOT EXISTS idx_remote_codes_code ON remote_codes(code)`);
+  database.exec(`CREATE INDEX IF NOT EXISTS idx_remote_codes_device ON remote_codes(device_id)`);
+
+  // 远程控制 - 云端日志表
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS remote_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      device_id TEXT NOT NULL,
+      activation_code TEXT NOT NULL,
+      message TEXT NOT NULL,
+      level TEXT DEFAULT 'info',
+      timestamp INTEGER NOT NULL
+    )
+  `);
+  database.exec(`CREATE INDEX IF NOT EXISTS idx_remote_logs_device ON remote_logs(device_id, timestamp DESC)`);
+
+  // 远程控制 - 会话表（手机端验证码兑换后的 session token）
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS remote_sessions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_token TEXT UNIQUE NOT NULL,
+      device_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER NOT NULL
+    )
+  `);
+  database.exec(`CREATE INDEX IF NOT EXISTS idx_remote_sessions_token ON remote_sessions(session_token)`);
+
   database.exec('CREATE INDEX IF NOT EXISTS idx_codes_status ON activation_codes(status)');
   database.exec('CREATE INDEX IF NOT EXISTS idx_codes_code ON activation_codes(code)');
   database.exec('CREATE INDEX IF NOT EXISTS idx_bindings_fingerprint ON device_bindings(device_fingerprint)');
