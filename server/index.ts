@@ -16,6 +16,7 @@ import { licenseGuard } from './middleware/licenseGuard';
 import { migrateLegacyConfig } from './services/ConfigService';
 import { pluginService } from './services/PluginService';
 import { licenseService } from '../core/license';
+import { wireRemoteControl } from './services/RemoteContextService';
 
 const APP_VERSION: string = (() => {
   try {
@@ -76,6 +77,8 @@ app.use(router.routes()).use(router.allowedMethods());
 migrateLegacyConfig().catch(e => console.error('迁移失败:', e));
 licenseService.init().catch(e => console.error('许可证初始化失败:', e));
 pluginService.initYoloDetector().catch(e => console.warn('YOLO 初始化失败:', e.message));
+
+wireRemoteControl();
 
 app.listen(CONFIG.PORT, CONFIG.HOST, () => {
   console.log(`========================================`);
