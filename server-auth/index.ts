@@ -43,6 +43,9 @@ app.use(mount('/updates', serve(path.join(staticRoot, 'updates'))));
 // 托管帮助/教学页面
 app.use(mount('/help', serve(path.join(staticRoot, 'help'))));
 
+// 托管手机端前端（远程控制 SPA）
+app.use(mount('/mobile', serve(path.join(staticRoot, 'mobile'))));
+
 // Routes
 app.use(authRouter.routes()).use(authRouter.allowedMethods());
 app.use(adminRouter.routes()).use(adminRouter.allowedMethods());

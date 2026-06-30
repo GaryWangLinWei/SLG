@@ -2072,7 +2072,7 @@ export function HomePage() {
               <>
                 <p className="text-sm text-slate-600 mb-4">在手机浏览器打开:</p>
                 <div className="bg-slate-100 rounded-lg p-3 mb-4 text-xs break-all font-mono">
-                  http://106.15.11.158/#/remote-access?code={remoteCode}
+                  http://106.15.11.158:3456/mobile/#/remote-access?code={remoteCode}
                 </div>
                 <p className="text-sm text-slate-600 mb-2">或手动输入验证码:</p>
                 <div className="text-3xl font-mono text-center py-4 bg-emerald-50 rounded-lg tracking-widest text-emerald-700">
