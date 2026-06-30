@@ -164,6 +164,11 @@ class TaskService {
       task.logs.push(entry);
       writeLog(task.accountId, msg);
       console.log(`[Task ${taskId.slice(-6)}] ${msg}`);
+      // 同步推送到云端（若已连接）
+      try {
+        const { remoteClient } = require('../../core/remote/RemoteClient');
+        if (remoteClient.isConnected()) remoteClient.pushLog(msg, 'info');
+      } catch { /* RemoteClient 未初始化（纯后端开发模式），忽略 */ }
     };
 
     try {

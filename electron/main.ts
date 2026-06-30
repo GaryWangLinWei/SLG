@@ -4,6 +4,8 @@ import * as fs from 'fs';
 import { setAdbPath } from '../core/device/AdbDevice';
 import { initResourcePaths } from '../core/resourcePath';
 import { autoUpdater } from 'electron-updater';
+import { remoteClient } from '../core/remote/RemoteClient';
+import { licenseService } from '../core/license';
 
 const isDev = !app.isPackaged;
 
@@ -353,9 +355,29 @@ if (!gotTheLock) {
         autoUpdater.checkForUpdatesAndNotify();
       }, 4 * 3600 * 1000);
     }
+
+    // 启动远程控制客户端（异步，不阻塞窗口）
+    setTimeout(async () => {
+      try {
+        const status = await licenseService.getStatus();
+        if (status.activated && status.deviceFingerprint) {
+          const AUTH_URL = process.env.AUTH_SERVER_URL || 'http://106.15.11.158:3456';
+          const WS_URL = AUTH_URL.replace(/^http/, 'ws') + '/ws/remote';
+          remoteClient.start({
+            serverUrl: WS_URL,
+            deviceId: status.deviceFingerprint,
+            activationCode: status.deviceFingerprint, // 简化：用指纹作为认证 token
+          });
+          console.log('[Electron] RemoteClient started, WS:', WS_URL);
+        }
+      } catch (e) {
+        console.error('[Electron] failed to start RemoteClient:', e);
+      }
+    }, 3000);
   });
 
   app.on('window-all-closed', () => {
+    remoteClient.stop();
     if (process.platform !== 'darwin') {
       app.quit();
     }
