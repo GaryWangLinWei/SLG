@@ -10,6 +10,9 @@ import authRouter from './routes/auth';
 import adminRouter from './routes/admin';
 import { getDb } from './services/AuthDatabase';
 import fs from 'fs';
+import { createServer } from 'http';
+import remoteRouter from './routes/remote';
+import { webSocketHub } from './services/WebSocketHub';
 
 const APP_VERSION: string = (() => {
   try {
@@ -43,6 +46,7 @@ app.use(mount('/help', serve(path.join(staticRoot, 'help'))));
 // Routes
 app.use(authRouter.routes()).use(authRouter.allowedMethods());
 app.use(adminRouter.routes()).use(adminRouter.allowedMethods());
+app.use(remoteRouter.routes()).use(remoteRouter.allowedMethods());
 
 // Health check
 router.get('/health', async (ctx) => {
@@ -59,11 +63,15 @@ app.use(router.routes()).use(router.allowedMethods());
 // Initialize database
 getDb();
 
-app.listen(CONFIG.PORT, CONFIG.HOST, () => {
+const httpServer = createServer(app.callback());
+webSocketHub.attach(httpServer);
+
+httpServer.listen(CONFIG.PORT, CONFIG.HOST, () => {
   console.log(`========================================`);
   console.log(`   SLG 授权服务`);
   console.log(`========================================`);
   console.log(`服务运行在: http://${CONFIG.HOST}:${CONFIG.PORT}`);
+  console.log(`WebSocket: ws://${CONFIG.HOST}:${CONFIG.PORT}/ws/remote`);
   console.log(`API文档: http://${CONFIG.HOST}:${CONFIG.PORT}/api/auth`);
   console.log(`管理面板: http://${CONFIG.HOST}:${CONFIG.PORT}/`);
   console.log(`启动时间: ${new Date().toLocaleString('zh-CN')}`);
