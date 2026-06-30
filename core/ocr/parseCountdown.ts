@@ -28,15 +28,15 @@ export function parseCountdown(text: string): number | null {
     days = parseInt(dayMatch[1], 10);
   }
 
-  // Extract H:MM:SS or M:SS time pattern from potentially noisy text
+  // Extract H:MM:SS or M:SS time pattern (万国觉醒只用冒号格式)
   const timeMatch = t.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
   if (!timeMatch) {
-    // No time pattern — maybe just a plain number (seconds only)
-    const numMatch = t.match(/(\d+)/);
-    if (numMatch && days === 0) {
-      return parseInt(numMatch[1], 10);
+    // 只有天数也返回（如"1天"）
+    if (days > 0) {
+      return days * 86400;
     }
-    return days > 0 ? days * 86400 : null;
+    // 没有冒号时间格式 → 视为空闲
+    return null;
   }
 
   const h = parseInt(timeMatch[1], 10);

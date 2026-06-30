@@ -33,6 +33,10 @@ const INVESTIGATE_BTN = { x: 1141, y: 596 };
 
 export type CaveExploreResult = 'success' | 'no_scout_button' | 'no_idle_scout';
 
+// 持久化的已探索山洞集合（整个进程共享）
+const globalExploredSet = new Set<string>();
+let globalInitialized = false;
+
 export async function caveExplore(
   ctx: PluginContext,
   config: RokConfig
@@ -45,6 +49,10 @@ export async function caveExplore(
   }
 
   ctx.log(`=== 开始山洞探索 ===`);
+
+  globalInitialized = true;
+  const exploredSet = globalExploredSet;
+  ctx.log(`  当前已记录山洞数: ${exploredSet.size} 个`);
 
   const popScoutTemplate = path.join(TEMPLATE_DIR, 'pop_zhenChaBtn.png');
   const chihouIdleTemplate = path.join(TEMPLATE_DIR, 'chihou_idle.png');
@@ -62,8 +70,6 @@ export async function caveExplore(
   const backH = backMeta.height!;
   const zhuzhaW = zhuzhaMeta.width!;
   const zhuzhaH = zhuzhaMeta.height!;
-
-  const exploredSet = new Set<string>();
 
   // 外层循环：处理多个闲置斥候
   while (true) {
@@ -156,31 +162,24 @@ export async function caveExplore(
     ctx.log('[7/10] 识别山洞坐标...');
     let tappedCave = false;
     let anyOcrMatch = false;
+    let currentCaveCoord: string | null = null; // 暂存当前山洞坐标，派遣成功后记录
 
     for (const region of CAVE_OCR_REGIONS) {
       const regionPath = await ctx.captureRegion(region.x, region.y, region.width, region.height);
 
       try {
-        const rawText = await ocrService.readText(regionPath);
-        // OCR 纠错：常见数字误识别
-        //   T→7 (如 X:T47 应为 X:747), O→0, I/l→1, S→5
-        const text = rawText
-          .replace(/¥/g, 'Y')
-          .replace(/T(?=\d)/g, '7')
-          .replace(/O(?=\d)/g, '0')
-          .replace(/[Il](?=\d)/g, '1')
-          .replace(/S(?=\d)/g, '5');
-        ctx.log(`  区域${region.id} OCR: "${rawText}" → 纠错后: "${text}"`);
+        const rawText = await ocrService.readCaveCoordinates(regionPath);
+        ctx.log(`  区域${region.id} OCR: "${rawText}"`);
 
-        // 解析 "X:数字Y:数字" 格式（容忍 OCR 噪点：X 和 Y 之间允许任意非数字字符）
-        const match = text.match(/X\s*:?\s*(\d+)\D*?Y\s*:?\s*(\d+)/i);
-        if (match) {
+        // 直接提取纯数字串（去除所有非数字字符）作为去重 key
+        const coordKey = rawText.replace(/\D/g, '');
+        if (coordKey) {
           anyOcrMatch = true;
-          const coordKey = `X:${match[1]}Y:${match[2]}`;
           if (exploredSet.has(coordKey)) {
             ctx.log(`  山洞 ${coordKey} 已探索，跳过`);
           } else {
             exploredSet.add(coordKey);
+            currentCaveCoord = coordKey;
             ctx.log(`  新山洞 ${coordKey}，点击区域${region.id}中心 (${region.cx}, ${region.cy})`);
             await ctx.tap(region.cx, region.cy);
             tappedCave = true;
@@ -201,6 +200,7 @@ export async function caveExplore(
       // 前两个山洞都已探索，前往固定位置的第三个山洞
       if (anyOcrMatch) {
         ctx.log(`  前2个山洞已探索，前往第三个山洞 (1235, 743)`);
+        currentCaveCoord = 'FIXED_1235_743';
         await ctx.tap(1235, 743);
         tappedCave = true;
       } else {
@@ -243,6 +243,11 @@ export async function caveExplore(
     await ctx.tap(exploreBtn.x, exploreBtn.y);
     await ctx.sleep(1);
 
+    // 派遣成功，记录山洞坐标到内存（去重用）
+    if (currentCaveCoord) {
+      ctx.log(`  已记录山洞: ${currentCaveCoord}`);
+    }
+
     // ============================================
     // 第 10 步: 判断是否继续
     // ============================================
@@ -255,4 +260,13 @@ export async function caveExplore(
       return 'success';
     }
   }
+}
+
+/**
+ * 重置山洞探索状态（清空已记录的山洞）
+ * 用户点击「结束」后再点击「开始」时调用
+ */
+export function resetCaveExploreState(): void {
+  globalExploredSet.clear();
+  globalInitialized = false;
 }

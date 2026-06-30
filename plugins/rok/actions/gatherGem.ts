@@ -11,15 +11,6 @@ import { ensureTeamPage, TeamPage } from '../utils/teamPage';
 
 const vision = new Vision();
 
-function isDevEnv(): boolean {
-  try {
-    const { app } = require('electron');
-    return !app.isPackaged;
-  } catch {
-    return true; // 非 Electron 环境（纯 Node.js），视为 dev
-  }
-}
-
 const TEMPLATE_DIR = getTemplatesDir();
 const ADD_TEAM_BTN_TEMPLATE = path.join(TEMPLATE_DIR, 'AddTeamBtn.png');
 const PAGE_INDICATOR_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_page_indicator.png');
@@ -57,24 +48,35 @@ const CLOSE_POPUP_BUTTON = { x: 1392, y: 57 };
 // 中心坐标显示区域 (400,11)-(537,43)，格式 X:1023 Y:290
 const COORD_REGION = { x: 400, y: 11, w: 137, h: 32 };
 const COORD_TOLERANCE = 5;
-const GEM_OCCUPIED_DEBUG_DIR = 'D:/SLG/temp/debug/gem_occupied';
+// 宝石二次确认模板（中心附近检测）
+const GEM_VERIFY_TEMPLATES = [
+  path.join(TEMPLATE_DIR, 'gem', 'dayGem.png'),
+  path.join(TEMPLATE_DIR, 'gem', 'afternoonGem.png'),
+  path.join(TEMPLATE_DIR, 'gem', 'nightGem.png'),
+];
+// 中心附近检测区域：屏幕中心 ±80px
+const GEM_VERIFY_REGION = { x: 800 - 80, y: 450 - 80, w: 160, h: 160 };
 
-/** 从 OCR 文本解析坐标，如 "X:1023 Y:290"，兼容 OCR 将 Y 误识别为 ¥ */
-function parseCoord(text: string): { x: number; y: number } | null {
-  const sanitized = text.replace(/¥/g, 'Y');
-  const match = sanitized.match(/X:\s*(\d+)\s*Y:\s*(\d+)/i);
-  if (!match) return null;
-  return { x: parseInt(match[1], 10), y: parseInt(match[2], 10) };
+/** 直接返回纯数字串作为坐标标识，不分割 X/Y */
+export function parseCoord(text: string): string | null {
+  const digits = text.replace(/\D/g, '');
+  return digits || null;
 }
 
-/** 检查坐标是否与已采集记录重合（容差 ±COORD_TOLERANCE） */
+/** 检查坐标是否已采集（精确字符串匹配，容错 ±1 位误差） */
 function isCoordRecorded(
-  x: number, y: number,
-  recorded: Array<{ x: number; y: number }>
+  coordStr: string,
+  recorded: string[]
 ): boolean {
-  return recorded.some(r =>
-    Math.abs(r.x - x) <= COORD_TOLERANCE && Math.abs(r.y - y) <= COORD_TOLERANCE
-  );
+  // 完全匹配直接返回
+  if (recorded.includes(coordStr)) return true;
+  // 字符串长度差异超过 2 直接跳过
+  for (const r of recorded) {
+    if (Math.abs(r.length - coordStr.length) > 2) continue;
+    // 检查是否是连续子串匹配（容忍少量识别误差）
+    if (r.includes(coordStr) || coordStr.includes(r)) return true;
+  }
+  return false;
 }
 
 const SPIRAL_DIRECTIONS = [
@@ -96,29 +98,38 @@ function isInChatZone(x: number, y: number): boolean {
   return x >= 0 && x <= 814 && y >= 794 && y <= 900;
 }
 
-export function buildGemOccupiedDebugOverlaySvg(
-  width: number,
-  height: number,
-  result: { found: boolean; confidence: number; rect?: { x: number; y: number; width: number; height: number } }
-): string {
-  const confidence = `${(result.confidence * 100).toFixed(1)}%`;
-  let svg = `<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-    <rect x="2" y="2" width="${width - 4}" height="${height - 4}" fill="none" stroke="#666" stroke-width="1" rx="1"/>`;
+/**
+ * 二次确认宝石：检测中心附近是否有宝石模板匹配
+ * @returns true=确认是宝石矿，false=中心无宝石，缩地继续
+ */
+export async function verifyGemAtCenter(ctx: PluginContext): Promise<boolean> {
+  ctx.log('  [宝石二次确认] 检测中心附近宝石...');
 
-  if (result.found && result.rect) {
-    const r = result.rect;
-    svg += `
-    <rect x="${r.x}" y="${r.y}" width="${r.width}" height="${r.height}" fill="none" stroke="red" stroke-width="3" rx="1"/>
-    <rect x="${Math.max(0, r.x)}" y="${Math.max(0, r.y - 20)}" width="78" height="18" fill="red" rx="2" opacity="0.9"/>
-    <text x="${Math.max(4, r.x + 4)}" y="${Math.max(14, r.y - 6)}" font-family="Arial" font-size="11" font-weight="bold" fill="white">${confidence}</text>`;
-  } else {
-    svg += `
-    <rect x="2" y="${height - 20}" width="${width - 4}" height="18" fill="#44aa44" rx="1" opacity="0.9"/>
-    <text x="${width / 2}" y="${height - 6}" font-family="Arial" font-size="10" font-weight="bold" fill="white" text-anchor="middle">FREE ${confidence}</text>`;
+  const regionPath = await ctx.captureRegion(
+    GEM_VERIFY_REGION.x, GEM_VERIFY_REGION.y, GEM_VERIFY_REGION.w, GEM_VERIFY_REGION.h
+  );
+
+  try {
+    let maxConfidence = 0;
+    for (const template of GEM_VERIFY_TEMPLATES) {
+      const result = await vision.findImage(regionPath, template, 0.65);
+      if (result.confidence > maxConfidence) {
+        maxConfidence = result.confidence;
+      }
+    }
+
+    ctx.log(`  [宝石二次确认] 最佳置信度: ${(maxConfidence * 100).toFixed(1)}%`);
+
+    if (maxConfidence >= 0.65) {
+      ctx.log('  ✅ 确认宝石矿，继续流程');
+      return true;
+    } else {
+      ctx.log('  ❌ 中心附近无宝石，缩地继续螺旋搜索');
+      return false;
+    }
+  } finally {
+    await fs.unlink(regionPath).catch(() => {});
   }
-
-  svg += '</svg>';
-  return svg;
 }
 
 /** 检测宝石是否被占用（有锄头 或 有自己的队伍头像在附近）
@@ -166,22 +177,7 @@ export async function isGemOccupied(
       }
     }
 
-    // 开发环境：空闲宝石保存调试截图
-    if (isDevEnv()) {
-      try {
-        await fs.mkdir(GEM_OCCUPIED_DEBUG_DIR, { recursive: true });
-        const meta = await sharp(regionPath).metadata();
-        const w = meta.width!, h = meta.height!;
-        const svg = buildGemOccupiedDebugOverlaySvg(w, h, {
-          found: false,
-          confidence: bestTemplateConfidence,
-        });
-        const outPath = path.join(GEM_OCCUPIED_DEBUG_DIR, `gem_occupied_FREE_${Date.now()}.png`);
-        await sharp(regionPath)
-          .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
-          .toFile(outPath);
-      } catch {}
-    }
+    // 空闲宝石不保存截图（只有检测到占用时才保存，用于误判分析）
 
     return false;
   } finally {
@@ -222,16 +218,65 @@ export function createSpiralState(config: RokConfig): SpiralState {
   };
 }
 
+const CHENGBAO_TEMPLATE = path.join(TEMPLATE_DIR, 'icon_chengbao.png');
+const ZOOM_TAP_POINT = { x: 322, y: 700 };
+
+/** 检测城寨图标是否遮挡缩放点击点 */
+async function isChengbaoBlockingZoom(ctx: PluginContext): Promise<{ blocked: boolean; x?: number; y?: number; dist?: number }> {
+  const result = await ctx.findImageWithLocation(CHENGBAO_TEMPLATE, 0.7);
+  if (!result.found) {
+    ctx.log(`  [遮挡检测] 未识别到城寨图标`);
+    return { blocked: false };
+  }
+  const dist = Math.sqrt(Math.pow(result.x - ZOOM_TAP_POINT.x, 2) + Math.pow(result.y - ZOOM_TAP_POINT.y, 2));
+  ctx.log(`  [遮挡检测] 城寨 @ (${result.x}, ${result.y})，距离缩放点 ${Math.round(dist)}px`);
+
+  // 距离 < 60px 时保存截图用于调试
+  if (dist < 60) {
+    try {
+      const debugDir = path.join(process.cwd(), 'temp', 'debug', 'chengbao_block');
+      await fs.mkdir(debugDir, { recursive: true });
+      const screenshotPath = path.join(debugDir, `block_${Date.now()}.png`);
+      const screenshotBuffer = await ctx.getScreenshot();
+      await fs.writeFile(screenshotPath, screenshotBuffer);
+      ctx.log(`  [遮挡检测] 已保存遮挡截图: ${screenshotPath}`);
+    } catch (e) {
+      ctx.log(`  [遮挡检测] 截图保存失败: ${e}`);
+    }
+  }
+
+  return { blocked: dist < 60, x: result.x, y: result.y, dist };
+}
+
 export async function zoomOutToWorld(
   ctx: PluginContext,
   worldBtn: { x: number; y: number }
 ): Promise<void> {
+  // 先检测城寨图标是否遮挡缩放点，有遮挡就先避让滑动
+  let check = await isChengbaoBlockingZoom(ctx);
+  let slideCount = 0;
+  const MAX_SLIDES = 3;
+  while (check.blocked && slideCount < MAX_SLIDES) {
+    slideCount++;
+    ctx.log(`  [遮挡检测] 城寨图标遮挡缩放点，第 ${slideCount} 次避让滑动 (600,454) → (647,310)`);
+    await ctx.swipe(600, 454, 647, 310, 500, false);
+    await ctx.sleep(0.8);
+    check = await isChengbaoBlockingZoom(ctx);
+  }
+
+  if (check.blocked) {
+    ctx.log(`  [遮挡检测] 滑动 ${MAX_SLIDES} 次后仍遮挡，强制点击缩放点`);
+  } else {
+    ctx.log(`  [遮挡检测] 无遮挡`);
+  }
+
   ctx.log(`  长按城内外按钮 (${worldBtn.x}, ${worldBtn.y}) 2秒`);
   await ctx.swipeAndHold(worldBtn.x, worldBtn.y, worldBtn.x, worldBtn.y, 2000);
   await ctx.releaseHold();
   await ctx.sleep(0.5);
-  ctx.log(`  点击 (322, 700) 完成缩放`);
-  await ctx.tap(322, 700);
+
+  ctx.log(`  点击缩放点 (${ZOOM_TAP_POINT.x}, ${ZOOM_TAP_POINT.y})`);
+  await ctx.tap(ZOOM_TAP_POINT.x, ZOOM_TAP_POINT.y);
   await ctx.sleep(0.5);
 }
 
@@ -260,7 +305,7 @@ export async function searchAndClickGem(
   ctx: PluginContext,
   config: RokConfig,
   spiralState: SpiralState,
-  collectedCoords: Array<{ x: number; y: number }>
+  collectedCoords: string[]
 ): Promise<{ found: true; x: number; y: number } | { found: false }> {
   const gg = config.gemGather;
   const caijiBtnTemplate = path.join(TEMPLATE_DIR, gg.caijiBtnTemplate);
@@ -272,7 +317,7 @@ export async function searchAndClickGem(
 
     if (!spiralState.checkedCenter) {
       spiralState.checkedCenter = true;
-      const initDets = await ctx.detectWithScreenshot(0.5);
+      const initDets = await ctx.detectWithScreenshot(0.35);
       ctx.log(`  [搜索] 中心(5) 找到 ${initDets.length} 个宝石候选`);
       const initValid = initDets.find(d => !isInChatZone(d.x, d.y));
       if (initValid) {
@@ -302,10 +347,10 @@ export async function searchAndClickGem(
         const toY   = dir.dy !== 0 ? (cy - dir.dy * spiralState.halfH) : cy;
         spiralState.moveCount++;
         spiralState.dirSwipes++;
-        await ctx.swipe(fromX, fromY, toX, toY, 500, true);
+        await ctx.swipe(fromX, fromY, toX, toY, 500, false);
         await ctx.sleep(nextGemSearchPauseSeconds());
 
-        const detections = await ctx.detectWithScreenshot(0.5);
+        const detections = await ctx.detectWithScreenshot(0.35);
         ctx.log(`  [搜索] ${SPIRAL_DIR_NAMES[spiralState.dirIndex % 4]}(${spiralState.moveCount}) 找到 ${detections.length} 个宝石候选`);
         const validDet = detections.find(d => !isInChatZone(d.x, d.y));
         if (validDet) {
@@ -353,17 +398,25 @@ export async function searchAndClickGem(
     await ctx.tapRect(PINCHED_GEM_TARGET_RECT.x1, PINCHED_GEM_TARGET_RECT.y1, PINCHED_GEM_TARGET_RECT.x2, PINCHED_GEM_TARGET_RECT.y2);
     await ctx.sleep(1);
 
+    // 宝石二次确认：中心附近检测
+    const isGem = await verifyGemAtCenter(ctx);
+    if (!isGem) {
+      await zoomOutToWorld(ctx, worldBtn);
+      await ctx.sleep(1);
+      continue;
+    }
+
     // 重复坐标检测
     if (collectedCoords.length > 0) {
       const coordRegionPath = await ctx.captureRegion(
         COORD_REGION.x, COORD_REGION.y, COORD_REGION.w, COORD_REGION.h
       );
+
       try {
-        const coordText = await ocrService.readText(coordRegionPath);
+        const coordText = await ocrService.readCoordinates(coordRegionPath);
         const curCoord = parseCoord(coordText);
-        const recorded = collectedCoords.map(c => `(${c.x},${c.y})`).join(', ');
-        ctx.log(`  [坐标] 当前: ${coordText} → ${curCoord ? `(${curCoord.x},${curCoord.y})` : '解析失败'} | 已采集: [${recorded}]`);
-        if (curCoord && isCoordRecorded(curCoord.x, curCoord.y, collectedCoords)) {
+        ctx.log(`  [坐标] 当前: ${coordText} → ${curCoord ?? '解析失败'} | 已采集: [${collectedCoords.join(', ')}]`);
+        if (curCoord && isCoordRecorded(curCoord, collectedCoords)) {
           ctx.log(`  ⚠️ 该宝石已采集过，缩地后继续螺旋`);
           await zoomOutToWorld(ctx, worldBtn);
           await ctx.sleep(1);
@@ -410,7 +463,7 @@ export async function dispatchToTeamPopup(
   teams: number[],
   nextTeamIdx: number,
   hasPaging: boolean | null,
-  collectedCoords: Array<{ x: number; y: number }>,
+  collectedCoords: string[],
   teamPage: TeamPage = 'gather'
 ): Promise<DispatchResult> {
   ctx.log(`  [6/7] 点击选择队伍按钮 (${SELECT_TEAM_BUTTON.x}, ${SELECT_TEAM_BUTTON.y})`);
@@ -487,7 +540,7 @@ export async function dispatchToTeamPopup(
         COORD_REGION.x, COORD_REGION.y, COORD_REGION.w, COORD_REGION.h
       );
       try {
-        const coordText = await ocrService.readText(coordRegionPath);
+        const coordText = await ocrService.readCoordinates(coordRegionPath);
         ctx.log(`  [坐标] 记录已采集: ${coordText}`);
         const curCoord = parseCoord(coordText);
         if (curCoord) {
@@ -503,7 +556,7 @@ export async function dispatchToTeamPopup(
     ctx.log(`  [OCR] 检测剩余空闲队伍数...`);
     const teamRegionPath = await ctx.captureRegion(1507, 169, 55, 31);
     try {
-      const teamText = await ocrService.readText(teamRegionPath);
+      const teamText = await ocrService.readTeamCount(teamRegionPath);
       ctx.log(`  [OCR] 结果: "${teamText}"`);
       const tm = teamText.match(/(\d+)\s*\/\s*(\d+)/);
       if (tm) {
@@ -542,7 +595,7 @@ export async function gatherGem(
   ctx: PluginContext,
   config: RokConfig,
   teams: number[],
-  options?: { collectedCoords?: Array<{ x: number; y: number }>; teamPage?: TeamPage }
+  options?: { collectedCoords?: Array<{ x: number; y: number } | string>; teamPage?: TeamPage }
 ): Promise<GemGatherOutcome> {
   ctx.log(`=== 智能采集宝石 队伍[${teams.join(', ')}] ===`);
 
@@ -553,7 +606,10 @@ export async function gatherGem(
   let dispatched = 0;
   let hasPaging: boolean | null = null;
   let nextTeamIdx = 0;  // 下次从 teams[nextTeamIdx] 开始尝试
-  const collectedCoords = options?.collectedCoords ?? [];
+  // 兼容旧格式，统一转成字符串数组
+  const collectedCoords = (options?.collectedCoords ?? []).map(c =>
+    typeof c === 'string' ? c : `${c.x}${c.y}`
+  );
   const teamPage = options?.teamPage ?? 'gather';
 
   // [1/7] 重置城外默认视角（所有队伍共一次）
