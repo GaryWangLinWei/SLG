@@ -4,7 +4,8 @@ import { licenseService } from '../../core/license';
 const PUBLIC_PATHS = [
   '/api/health',
   '/api/',
-  '/api/license'
+  '/api/license',
+  '/api/remote/connection-status'
 ];
 
 function isPublicPath(path: string): boolean {
