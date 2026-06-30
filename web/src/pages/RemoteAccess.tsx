@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { remoteApi } from '../api/remote';
 
 const SESSION_KEY = 'remote-session-token';
@@ -9,6 +9,7 @@ export default function RemoteAccessPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const [params] = useSearchParams();
 
   // 检查已有 session，直接跳转到 Mobile 页
   useEffect(() => {
@@ -16,15 +17,14 @@ export default function RemoteAccessPage() {
     if (existing) navigate('/mobile?remote=1');
   }, [navigate]);
 
-  // 从 URL 自动填充验证码
+  // 从 URL 自动填充验证码（HashRouter 下 query 在 hash 里，用 useSearchParams 读取）
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
     const c = params.get('code');
     if (c && /^\d{6}$/.test(c)) {
       setCode(c);
       handleSubmit(c);
     }
-  }, []);
+  }, [params]);
 
   async function handleSubmit(submitCode?: string) {
     const target = submitCode || code;
