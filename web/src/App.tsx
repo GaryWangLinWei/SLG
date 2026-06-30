@@ -8,6 +8,7 @@ import { ConfigPage } from './pages/Config';
 import { AccountsPage } from './pages/Accounts';
 import ActivationPage from './pages/Activation';
 import RemoteAccessPage from './pages/RemoteAccess';
+import MobilePage from './pages/Mobile';
 import { AccountProvider } from './contexts/AccountContext';
 import { LicenseProvider, useLicense } from './contexts/LicenseContext';
 
@@ -455,6 +456,7 @@ function AppContent() {
   return (
     <Routes>
       <Route path="/remote-access" element={<RemoteAccessPage />} />
+      <Route path="/mobile" element={<MobilePage />} />
       <Route
         path="*"
         element={
