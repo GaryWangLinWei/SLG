@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { useAccount } from '../contexts/AccountContext';
 import { useLicense } from '../contexts/LicenseContext';
 import { DEFAULT_HOME_FEATURES, DEFAULT_COLLECT_RESOURCES_INTERVAL_MINUTES, MIN_COLLECT_RESOURCES_INTERVAL_MINUTES, TeamPageChoice, getCollectResourcesIntervalSeconds } from '../../../plugins/rok/homeFeatures';
+import { remoteApi } from '../api/remote';
 
 // Module-level loop state — survives component unmount/remount during SPA navigation
 let loopStopped = false;
@@ -175,6 +176,31 @@ export function HomePage() {
   const [gemRestCountdown, setGemRestCountdown] = useState<string>('');
   const [gemInitialCount, setGemInitialCount] = useState<number | null>(moduleGemInitialCount);
   const [gemCollectedCount, setGemCollectedCount] = useState<number>(moduleGemCollectedCount);
+  const [remoteCodeModal, setRemoteCodeModal] = useState(false);
+  const [remoteCode, setRemoteCode] = useState('');
+  const [remoteCodeExpires, setRemoteCodeExpires] = useState(0);
+  const [remoteCodeError, setRemoteCodeError] = useState('');
+  const [remoteCodeLoading, setRemoteCodeLoading] = useState(false);
+
+  async function handleOpenRemoteControl() {
+    setRemoteCodeModal(true);
+    setRemoteCodeError('');
+    setRemoteCode('');
+    setRemoteCodeLoading(true);
+    try {
+      const result = await remoteApi.generateCode();
+      if (result.success && result.code) {
+        setRemoteCode(result.code);
+        setRemoteCodeExpires(result.expiresAt || 0);
+      } else {
+        setRemoteCodeError(result.error || '生成验证码失败');
+      }
+    } catch (e: any) {
+      setRemoteCodeError('网络错误: ' + (e.message || e));
+    } finally {
+      setRemoteCodeLoading(false);
+    }
+  }
   useEffect(() => { loopLogs = logs; }, [logs]);
   const logContainerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -673,7 +699,7 @@ export function HomePage() {
       })();
 
       // 加入集结独立循环 — 每 5min
-      const joinRallyLoop = (async () => {
+      (async () => {
         let first = true;
         let firstRun = true;
         while (!loopStopped) {
@@ -750,6 +776,11 @@ export function HomePage() {
       // 山洞探索独立循环
       const caveLoop = (async () => {
         let first = true;
+        // 循环开始前重置山洞探索状态
+        try {
+          await api.tasks.create(currentAccountId, 'com.rok.automation', 'reset-cave-explore')
+            .then(r => { if (r.success) return api.tasks.run(r.task.id); });
+        } catch {}
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
@@ -1366,6 +1397,12 @@ export function HomePage() {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={handleOpenRemoteControl}
+              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded text-sm"
+            >
+              📱 远程控制
+            </button>
             {deviceConnected && (
               <label
                 className="flex items-center gap-1.5 text-sm text-slate-600 cursor-pointer"
@@ -1421,12 +1458,12 @@ export function HomePage() {
           <div className="grid grid-cols-2 gap-4">
 
             {/* 自动攻打城寨 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.gemGatherEnabled && features.gemGatherFocusMode) ? 'bg-slate-100 border-slate-200 opacity-70' : features.autoRallyFort ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherFocusMode)) ? 'bg-slate-100 border-slate-200 opacity-70' : features.autoRallyFort ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center text-base">🏰</span>自动攻打城寨</span>
-                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.gemGatherEnabled && features.gemGatherFocusMode) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherFocusMode)) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
                   <input type="checkbox" checked={features.autoRallyFort}
-                    disabled={(features.gemGatherEnabled && features.gemGatherFocusMode)}
+                    disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherFocusMode)}
                     onChange={(e) => setFeatures({ ...features, autoRallyFort: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.autoRallyFort ? 'bg-emerald-500' : 'bg-slate-200'}`} />
@@ -1437,7 +1474,7 @@ export function HomePage() {
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-400 whitespace-nowrap">目标等级</span>
                   <select value={features.rallyFortLevel}
-                    disabled={(features.gemGatherEnabled && features.gemGatherFocusMode)}
+                    disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherFocusMode)}
                     onChange={(e) => setFeatures({ ...features, rallyFortLevel: Number(e.target.value) })}
                     className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-20">
                     <option value={0}>—</option>
@@ -1445,7 +1482,7 @@ export function HomePage() {
                   </select>
                   <span className="text-xs text-slate-400 whitespace-nowrap ml-2">派遣第</span>
                   <select value={features.rallyFortTeam}
-                    disabled={(features.gemGatherEnabled && features.gemGatherFocusMode)}
+                    disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherFocusMode)}
                     onChange={(e) => setFeatures({ ...features, rallyFortTeam: Number(e.target.value) })}
                     className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-16">
                     {[1,2,3,4,5].map(t => (<option key={t} value={t}>{t}</option>))}
@@ -1454,10 +1491,10 @@ export function HomePage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-500 w-16" title="当搜索不到对应等级的城寨后，降级搜索。">降级搜索</span>
-                  <label className={`relative inline-flex items-center ${(features.gemGatherEnabled && features.gemGatherFocusMode) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
+                  <label className={`relative inline-flex items-center ${(features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherFocusMode)) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
                     title="当搜索不到对应等级的城寨后，降级搜索。">
                     <input type="checkbox" checked={features.rallyFortDowngrade}
-                      disabled={(features.gemGatherEnabled && features.gemGatherFocusMode)}
+                      disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherFocusMode)}
                       onChange={(e) => setFeatures({ ...features, rallyFortDowngrade: e.target.checked })}
                       className="sr-only peer" />
                     <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${features.rallyFortDowngrade ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
@@ -1471,7 +1508,7 @@ export function HomePage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-400 whitespace-nowrap">队伍页</span>
-                  {renderTeamPageSelect(features.rallyFortTeamPage, (v) => setFeatures({ ...features, rallyFortTeamPage: v }), (features.gemGatherEnabled && features.gemGatherFocusMode))}
+                  {renderTeamPageSelect(features.rallyFortTeamPage, (v) => setFeatures({ ...features, rallyFortTeamPage: v }), features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherFocusMode))}
                 </div>
               </div>
 
@@ -1739,7 +1776,7 @@ export function HomePage() {
                   升级到 Pro 解锁宝石采集
                 </p>
               ) : (
-                <p className="text-xs text-slate-400 mt-1.5">推荐默认配置，不要挂全天！</p>
+                <p className="text-xs text-slate-400 mt-1.5">推荐默认配置，不要挂全天！日采2000，细水长流。</p>
               )}
             </div>
 
@@ -2022,6 +2059,39 @@ export function HomePage() {
           </div>
         </div>
       </div>
+      {remoteCodeModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
+          onClick={() => setRemoteCodeModal(false)}>
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold mb-4">📱 手机远程访问</h3>
+            {remoteCodeLoading ? (
+              <p className="text-center py-8 text-slate-500">生成中...</p>
+            ) : remoteCodeError ? (
+              <p className="text-red-500 text-sm py-4">{remoteCodeError}</p>
+            ) : remoteCode ? (
+              <>
+                <p className="text-sm text-slate-600 mb-4">在手机浏览器打开:</p>
+                <div className="bg-slate-100 rounded-lg p-3 mb-4 text-xs break-all font-mono">
+                  http://106.15.11.158/remote-access?code={remoteCode}
+                </div>
+                <p className="text-sm text-slate-600 mb-2">或手动输入验证码:</p>
+                <div className="text-3xl font-mono text-center py-4 bg-emerald-50 rounded-lg tracking-widest text-emerald-700">
+                  {remoteCode}
+                </div>
+                <p className="text-xs text-slate-400 text-center mt-3">
+                  有效期至: {new Date(remoteCodeExpires).toLocaleTimeString('zh-CN')}
+                </p>
+              </>
+            ) : null}
+            <button
+              onClick={() => setRemoteCodeModal(false)}
+              className="w-full mt-6 py-2 bg-slate-200 hover:bg-slate-300 rounded-lg text-sm"
+            >
+              关闭
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
