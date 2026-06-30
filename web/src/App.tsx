@@ -7,6 +7,7 @@ import { TasksPage } from './pages/Tasks';
 import { ConfigPage } from './pages/Config';
 import { AccountsPage } from './pages/Accounts';
 import ActivationPage from './pages/Activation';
+import RemoteAccessPage from './pages/RemoteAccess';
 import { AccountProvider } from './contexts/AccountContext';
 import { LicenseProvider, useLicense } from './contexts/LicenseContext';
 
@@ -304,7 +305,9 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
 function LicenseGate({ children }: { children: React.ReactNode }) {
   const { status, loading } = useLicense();
 
-  if (loading) {
+  // 注意：只有首次加载且无状态时才显示加载中
+  // 如果是激活操作中的 loading，让 ActivationPage 自己处理，避免卸载组件导致状态丢失
+  if (loading && !status) {
     return (
       <div className="min-h-screen bg-blue-50 flex items-center justify-center">
         <div className="text-center">
@@ -450,23 +453,31 @@ function UpdateUI() {
 
 function AppContent() {
   return (
-    <LicenseGate>
-      <AccountProvider>
-        <div className="h-screen bg-slate-100 text-slate-800 flex flex-col">
-          <NavBar />
-          <div className="flex-1 overflow-y-auto">
-            <Routes>
-              <Route path="/" element={<HomePage />} />
+    <Routes>
+      <Route path="/remote-access" element={<RemoteAccessPage />} />
+      <Route
+        path="*"
+        element={
+          <LicenseGate>
+            <AccountProvider>
+              <div className="h-screen bg-slate-100 text-slate-800 flex flex-col">
+                <NavBar />
+                <div className="flex-1 overflow-y-auto">
+                  <Routes>
+                    <Route path="/" element={<HomePage />} />
 
-              <Route path="/config" element={<ConfigPage />} />
-              <Route path="/plugins" element={<PluginsPage />} />
-              <Route path="/tasks" element={<TasksPage />} />
-              <Route path="/accounts" element={<AccountsPage />} />
-            </Routes>
-          </div>
-        </div>
-      </AccountProvider>
-    </LicenseGate>
+                    <Route path="/config" element={<ConfigPage />} />
+                    <Route path="/plugins" element={<PluginsPage />} />
+                    <Route path="/tasks" element={<TasksPage />} />
+                    <Route path="/accounts" element={<AccountsPage />} />
+                  </Routes>
+                </div>
+              </div>
+            </AccountProvider>
+          </LicenseGate>
+        }
+      />
+    </Routes>
   );
 }
 
