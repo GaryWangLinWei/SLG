@@ -441,10 +441,28 @@ export function HomePage() {
   };
 
   const handleStartAll = async () => {
-    if (!currentAccountId) return;
-    if (!deviceConnected) {
-      await handleConnectDevice();
+    if (!currentAccountId) {
+      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 未选择账号`]);
       return;
+    }
+    if (deviceLoading) return;  // 连接过程中重复触发防抖
+    if (!deviceConnected) {
+      setDeviceLoading(true);
+      try {
+        const result = await api.device.connect(currentAccountId);
+        setDeviceConnected(result.connected);
+        if (!result.connected) {
+          setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 设备连接失败: ${result.message}`]);
+          setDeviceLoading(false);
+          return;
+        }
+        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 设备已连接`]);
+      } catch (e: any) {
+        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 设备连接异常: ${e.message || e}`]);
+        setDeviceLoading(false);
+        return;
+      }
+      setDeviceLoading(false);
     }
 
     const hasAnyFeature =
