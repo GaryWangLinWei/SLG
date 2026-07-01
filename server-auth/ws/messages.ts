@@ -19,7 +19,7 @@ export interface LogData {
 
 // 指令消息（手机 → 云端 → 电脑）
 export interface CommandData {
-  action: 'start_task' | 'stop_task' | 'stop_all' | 'get_status' | 'get_logs';
+  action: 'start_task' | 'stop_task' | 'stop_all' | 'get_status' | 'get_logs' | 'start_loop' | 'stop_loop';
   payload?: Record<string, any>;
 }
 
