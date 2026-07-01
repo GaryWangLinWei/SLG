@@ -83,6 +83,54 @@ pm2 restart slg-auth            # 重启生效
 http://106.15.11.158:3456/health
 ```
 
+## 数据库备份
+
+活库路径：`/root/server-auth/auth.db`（含用户激活码、设备绑定、心跳记录、远程验证码、远程日志）。VPS 磁盘挂了就全部丢失，git 里跟踪的 `auth-data/auth.db` 只是空开发库，救不了生产数据。**建议每周一次 + 每次改激活码逻辑或发新版本前手动一次。**
+
+### 拉取备份到本地
+
+在 **本地 PowerShell** 里按顺序跑（Git Bash 也可以，把 `Get-Date -Format yyyyMMdd` 换成 `$(date +%Y%m%d)`）：
+
+```powershell
+# ① 建备份目录（第一次跑时才需要）
+mkdir D:\SLG\backups -Force
+
+# ② SSH 到 VPS，让 sqlite 做一份原子快照到 /tmp（避免拷贝到半写入状态的文件）
+ssh root@106.15.11.158 "sqlite3 /root/server-auth/auth.db '.backup /tmp/auth-backup.db'"
+
+# ③ 拉回本地，文件名带日期
+scp root@106.15.11.158:/tmp/auth-backup.db "D:\SLG\backups\auth-$(Get-Date -Format yyyyMMdd).db"
+
+# ④ 清理服务器上的临时快照
+ssh root@106.15.11.158 "rm /tmp/auth-backup.db"
+
+# ⑤ 核对本地备份存在且大小合理（生产库约 500KB）
+ls D:\SLG\backups\
+```
+
+> **备份文件已在 `.gitignore` 的 `backups/` 目录中被忽略，绝对不能提交到 git**（含用户激活码明文和设备指纹）。
+
+### 从备份还原到 VPS
+
+**只在生产库损坏或误删时使用**。还原前先停服，防止有请求继续写入：
+
+```bash
+# ① 停服
+ssh root@106.15.11.158 "pm2 stop slg-auth"
+
+# ② 把损坏的活库改名保底（万一还原也失败还能翻出来看）
+ssh root@106.15.11.158 "mv /root/server-auth/auth.db /root/server-auth/auth.db.broken"
+
+# ③ 从本地上传备份文件（改成你要还原的那份日期）
+scp "D:\SLG\backups\auth-20260701.db" root@106.15.11.158:/root/server-auth/auth.db
+
+# ④ 起服
+ssh root@106.15.11.158 "pm2 restart slg-auth"
+
+# ⑤ 验证：登录管理面板查看激活码列表是否恢复
+# http://106.15.11.158:3456/admin/
+```
+
 ## Electron 客户端发布
 
 ### 1. 修改版本号
@@ -120,7 +168,9 @@ http://106.15.11.158:3456/updates/latest.yml
 ├── updates/        # 更新包（FTP/SCP 上传到这里）
 │   ├── latest.yml
 │   └── ROK助手 Setup 1.0.0.exe
-├── data/           # SQLite 数据库
+├── auth.db         # SQLite 活库（生产数据，需定期备份，见"数据库备份"章节）
+├── auth-data/      # 遗留空目录（内含空 auth.db，忽略）
+├── data/           # 遗留空目录（忽略）
 ├── node_modules/
 ├── index.ts        # 入口
 └── start.sh        # PM2 启动脚本
