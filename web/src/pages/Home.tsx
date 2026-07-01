@@ -169,6 +169,7 @@ export function HomePage() {
   const [activeConfigName, setActiveConfigName] = useState('');
   const [deviceConnected, setDeviceConnected] = useState(false);
   const [deviceLoading, setDeviceLoading] = useState(false);
+  const [loopRunningState, setLoopRunningState] = useState(false);
   const [taskRunning, setTaskRunning] = useState(false);
   const runningTaskIdsRef = useRef<string[]>([]);
   const lastPostedLogIndexRef = useRef(0);
@@ -339,6 +340,7 @@ export function HomePage() {
         const running = res.tasks.filter(t => t.accountId === currentAccountId && t.status === 'running');
         if (running.length > 0) {
           loopRunning = true;
+          setLoopRunningState(true);
           loopStopped = false;
           runningTaskIdsRef.current = running.map(t => t.id);
           setTaskRunning(true);
@@ -445,6 +447,7 @@ export function HomePage() {
         // 新连接 → 重置运行状态
         loopStopped = true;
         loopRunning = false;
+        setLoopRunningState(false);
         clearLoopState();
         for (const id of runningTaskIdsRef.current) {
           try { await api.tasks.stop(id); } catch {}
@@ -506,6 +509,7 @@ export function HomePage() {
     if (loopRunning) return;
 
     loopRunning = true;
+    setLoopRunningState(true);
     loopStopped = false;
     saveLoopState(currentAccountId);
     setTaskRunning(true);
@@ -1384,6 +1388,7 @@ export function HomePage() {
       }
       await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, caveLoop, offlineLoop]);
       loopRunning = false;
+      setLoopRunningState(false);
       clearLoopState();
       runningTaskIdsRef.current = [];
       setTaskRunning(false);
@@ -1395,6 +1400,7 @@ export function HomePage() {
   const handleStop = async () => {
     loopStopped = true;
     loopRunning = false;
+    setLoopRunningState(false);
     clearLoopState();
     if (runningTaskIdsRef.current.length > 0) {
       await Promise.all(runningTaskIdsRef.current.map(id => api.tasks.stop(id).catch(() => {})));
@@ -1442,6 +1448,15 @@ export function HomePage() {
     pendingLogBatchRef.current.push(...newEntries);
     scheduleLogFlush();
   }, [logs]);
+
+  // 循环状态变化时上报到后端（→ RemoteContextService → push 到手机）
+  useEffect(() => {
+    fetch('/api/remote-control/loop-state', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ running: loopRunningState }),
+    }).catch(() => { /* best effort */ });
+  }, [loopRunningState]);
 
   if (!currentAccountId) {
     return (
