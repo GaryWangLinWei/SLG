@@ -14,3 +14,9 @@ storage/db/*
 release/
 plugins/rok/debug/
 *.db
+
+# YOLO 训练产物（YOLO 训练框架输出的目录/权重，非本项目使用的 onnx 模型）
+runs/
+server-auth/runs/
+server-auth/yolov8n.pt
+/yolov8n.pt
