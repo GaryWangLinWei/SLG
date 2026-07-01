@@ -16,6 +16,10 @@ export interface RemoteContext {
   stopAllTasks(): Promise<{ success: boolean; error?: string }>;
   /** 获取当前状态 */
   getStatus(): StatusData;
+  /** 触发前端整体循环开始（Home.tsx handleStartAll） */
+  startLoop(): Promise<{ success: boolean; error?: string }>;
+  /** 触发前端整体循环停止（Home.tsx handleStop） */
+  stopLoop(): Promise<{ success: boolean; error?: string }>;
 }
 
 class CommandHandler {
@@ -40,6 +44,12 @@ class CommandHandler {
       }
       case 'get_status': {
         return { success: true, result: this.ctx.getStatus() };
+      }
+      case 'start_loop': {
+        return await this.ctx.startLoop();
+      }
+      case 'stop_loop': {
+        return await this.ctx.stopLoop();
       }
       case 'get_logs': {
         return { success: true, result: [] }; // 历史日志走 HTTP API

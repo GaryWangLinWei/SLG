@@ -1,7 +1,10 @@
 import { taskService } from './TaskService';
+import { accountService } from './AccountService';
+import { deviceService } from './DeviceService';
 import { commandHandler, RemoteContext } from '../../core/remote/CommandHandler';
 import { remoteClient } from '../../core/remote/RemoteClient';
 import { StatusData } from '../../core/remote/messages';
+import { emit as emitRemoteControl, hasClients as hasRemoteControlClients } from '../routes/remoteControl';
 
 // 远程指令到本地 action 的映射
 const ACTION_MAP: Record<string, { pluginId: string; actionId: string }> = {
@@ -14,31 +17,84 @@ const ACTION_MAP: Record<string, { pluginId: string; actionId: string }> = {
 
 class RemoteContextService implements RemoteContext {
   private defaultAccountId = '';
+  private loopRunning = false;
 
   /** 设置远程控制要操作的默认账号（主页第一个账号） */
   setDefaultAccount(accountId: string): void {
     this.defaultAccountId = accountId;
   }
 
+  /** 手机发来 start_loop：广播 SSE 让 Home.tsx 触发 handleStartAll */
+  async startLoop(): Promise<{ success: boolean; error?: string }> {
+    if (!hasRemoteControlClients()) {
+      return { success: false, error: 'Electron 窗口未打开，请先打开 Electron' };
+    }
+    emitRemoteControl('start_loop');
+    return { success: true };
+  }
+
+  /** 手机发来 stop_loop：广播 SSE 让 Home.tsx 触发 handleStop */
+  async stopLoop(): Promise<{ success: boolean; error?: string }> {
+    if (!hasRemoteControlClients()) {
+      return { success: false, error: 'Electron 窗口未打开' };
+    }
+    emitRemoteControl('stop_loop');
+    return { success: true };
+  }
+
+  /** 前端调用：上报当前 loopRunning 值。会立即推 status 给云端 */
+  setLoopRunning(running: boolean): void {
+    if (this.loopRunning === running) return;
+    this.loopRunning = running;
+    this.pushStatus();
+  }
+
   async startTask(name: string, params?: any): Promise<{ success: boolean; error?: string }> {
     const mapping = ACTION_MAP[name];
     if (!mapping) return { success: false, error: `未知任务: ${name}` };
-    if (!this.defaultAccountId) return { success: false, error: '尚未选择账号' };
+
+    // 远程未显式选择账号时，自动用第一个账号
+    let accountId = this.defaultAccountId;
+    if (!accountId) {
+      const accounts = await accountService.listAccounts();
+      if (accounts.length === 0) return { success: false, error: '本机尚未创建账号' };
+      accountId = accounts[0].id;
+    }
+
+    // 设备连接检查：未连接时尝试连一次，失败就返回错误
+    const status = deviceService.getStatus(accountId);
+    if (!status.connected) {
+      const result = await deviceService.connect(accountId);
+      if (!result.connected) {
+        return { success: false, error: `设备未连接：${result.message}` };
+      }
+    }
 
     try {
-      const task = taskService.createTask(this.defaultAccountId, mapping.pluginId, mapping.actionId, params || {});
-      // 异步执行，不等结果
-      taskService.runTask(task.id).catch(e => console.error('[Remote] task error:', e));
+      const task = taskService.createTask(accountId, mapping.pluginId, mapping.actionId, params || {});
+      // 异步执行，不等结果。任务结束后推送一次状态
+      taskService.runTask(task.id)
+        .catch(e => console.error('[Remote] task error:', e))
+        .finally(() => this.pushStatus());
+      // 立刻推一次状态，让浏览器/电脑端 UI 同步到"运行中"
+      this.pushStatus();
       return { success: true };
     } catch (e: any) {
       return { success: false, error: e.message || String(e) };
     }
   }
 
+  /** 主动把当前状态推到 VPS（所有连接的浏览器会收到） */
+  pushStatus(): void {
+    remoteClient.pushStatus(this.getStatus());
+  }
+
   async stopAllTasks(): Promise<{ success: boolean; error?: string }> {
     try {
       const tasks = taskService.listTasks().filter(t => t.status === 'running' || t.status === 'pending');
       for (const t of tasks) taskService.stopTask(t.id);
+      // 停止后立刻推一次状态
+      this.pushStatus();
       return { success: true };
     } catch (e: any) {
       return { success: false, error: e.message || String(e) };
@@ -47,9 +103,11 @@ class RemoteContextService implements RemoteContext {
 
   getStatus(): StatusData {
     const tasks = taskService.listTasks().filter(t => t.status === 'running');
+    const runningTasks = tasks.map(t => `${t.pluginId}:${t.actionId}`);
+    if (this.loopRunning) runningTasks.push('home-loop:running');
     return {
       online: true,
-      runningTasks: tasks.map(t => `${t.pluginId}:${t.actionId}`),
+      runningTasks,
     };
   }
 }
@@ -61,5 +119,9 @@ export function wireRemoteControl(): void {
   commandHandler.setContext(remoteContextService);
   remoteClient.onCommand(async (cmd) => commandHandler.handle(cmd));
   remoteClient.onStatusRequest(() => remoteContextService.getStatus());
+  // 周期性推送状态，浏览器/手机端刷新或新连接后能拿到运行状态
+  setInterval(() => {
+    if (remoteClient.isConnected()) remoteContextService.pushStatus();
+  }, 5000);
   console.log('[Remote] command handler wired');
 }
