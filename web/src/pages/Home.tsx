@@ -171,6 +171,25 @@ export function HomePage() {
   const [deviceLoading, setDeviceLoading] = useState(false);
   const [taskRunning, setTaskRunning] = useState(false);
   const runningTaskIdsRef = useRef<string[]>([]);
+  const lastPostedLogIndexRef = useRef(0);
+  const pendingLogBatchRef = useRef<string[]>([]);
+  const flushTimerRef = useRef<number | null>(null);
+
+  const scheduleLogFlush = () => {
+    if (flushTimerRef.current !== null) return;
+    flushTimerRef.current = window.setTimeout(() => {
+      flushTimerRef.current = null;
+      const batch = pendingLogBatchRef.current;
+      pendingLogBatchRef.current = [];
+      batch.forEach(msg => {
+        fetch('/api/logs/append', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: msg }),
+        }).catch(() => { /* best effort */ });
+      });
+    }, 100);
+  };
   const [_runningTaskIds, setRunningTaskIds] = useState<string[]>([]);
   const [logs, setLogs] = useState<string[]>(loopLogs);
   const [gemRestCountdown, setGemRestCountdown] = useState<string>('');
@@ -1409,6 +1428,20 @@ export function HomePage() {
     return () => es.close();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // 同步日志到 /api/logs/append，供 Mobile 页 SSE + 手机远程可见
+  useEffect(() => {
+    if (logs.length < lastPostedLogIndexRef.current) {
+      // logs 被截断（clearLoopState 之类）→ 重置游标
+      lastPostedLogIndexRef.current = logs.length;
+      return;
+    }
+    if (logs.length === lastPostedLogIndexRef.current) return;
+    const newEntries = logs.slice(lastPostedLogIndexRef.current);
+    lastPostedLogIndexRef.current = logs.length;
+    pendingLogBatchRef.current.push(...newEntries);
+    scheduleLogFlush();
+  }, [logs]);
 
   if (!currentAccountId) {
     return (
