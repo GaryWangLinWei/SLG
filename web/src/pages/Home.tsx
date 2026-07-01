@@ -1372,6 +1372,26 @@ export function HomePage() {
     setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ 已停止所有任务`]);
   };
 
+  // 订阅远程控制 SSE：手机发 start_loop/stop_loop 时触发对应处理
+  useEffect(() => {
+    const es = new EventSource('/api/remote-control/stream');
+    es.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        if (data.action === 'start_loop') {
+          handleStartAll();
+        } else if (data.action === 'stop_loop') {
+          handleStop();
+        }
+      } catch { /* connected/heartbeat 帧，忽略 */ }
+    };
+    es.onerror = () => {
+      // EventSource 会自动重连，不需要处理
+    };
+    return () => es.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   if (!currentAccountId) {
     return (
       <div className="max-w-4xl mx-auto p-6 text-center py-20">
