@@ -176,7 +176,7 @@ export default function MobilePage() {
       {tab === 'control' && isRemoteMode && (
         <ControlPanel
           deviceOnline={remote.state.deviceOnline}
-          runningTasks={remote.state.runningTasks}
+          loopRunning={remote.state.runningTasks.includes('home-loop:running')}
           onSendCommand={remote.sendCommand}
         />
       )}

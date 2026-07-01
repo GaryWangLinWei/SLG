@@ -2,51 +2,43 @@ import { useState } from 'react';
 
 interface ControlPanelProps {
   deviceOnline: boolean;
-  runningTasks: string[];
+  loopRunning: boolean;
   onSendCommand: (action: string, payload?: any) => Promise<any>;
 }
 
-const TASKS = [
-  { key: 'gem_gather', label: '💎 宝石采集', actionId: 'com.rok.automation:gem-gather' },
-  { key: 'rally_join', label: '🏰 加入集结', actionId: 'com.rok.automation:join-rally' },
-  { key: 'cave_explore', label: '🗻 山洞探索', actionId: 'com.rok.automation:cave-explore' },
-  { key: 'research_tech', label: '🔬 科技研究', actionId: 'com.rok.automation:research-tech' },
-];
-
-export default function ControlPanel({ deviceOnline, runningTasks, onSendCommand }: ControlPanelProps) {
-  const [busy, setBusy] = useState<string | null>(null);
+export default function ControlPanel({ deviceOnline, loopRunning, onSendCommand }: ControlPanelProps) {
+  const [busy, setBusy] = useState<'start' | 'stop' | null>(null);
   const [toast, setToast] = useState('');
 
-  function isRunning(actionId: string): boolean {
-    return runningTasks.includes(actionId);
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(''), 3000);
   }
 
-  async function handleStart(task: typeof TASKS[number]) {
-    setBusy(task.key);
+  async function handleStart() {
+    setBusy('start');
     try {
-      const result = await onSendCommand('start_task', { task: task.key });
-      if (result.success) setToast(`已启动：${task.label}`);
-      else setToast(`启动失败：${result.error || '未知错误'}`);
+      const result = await onSendCommand('start_loop');
+      if (result.success) showToast('已发送启动指令');
+      else showToast(`启动失败：${result.error || '未知错误'}`);
     } catch (e: any) {
-      setToast(`错误：${e.message || e}`);
+      showToast(`错误：${e.message || e}`);
     } finally {
       setBusy(null);
-      setTimeout(() => setToast(''), 3000);
     }
   }
 
-  async function handleStopAll() {
-    if (!confirm('确定停止所有运行中的任务？')) return;
-    setBusy('stop_all');
+  async function handleStop() {
+    if (!confirm('确定停止运行？')) return;
+    setBusy('stop');
     try {
-      const result = await onSendCommand('stop_all');
-      if (result.success) setToast('已停止所有任务');
-      else setToast(`停止失败：${result.error || '未知错误'}`);
+      const result = await onSendCommand('stop_loop');
+      if (result.success) showToast('已发送停止指令');
+      else showToast(`停止失败：${result.error || '未知错误'}`);
     } catch (e: any) {
-      setToast(`错误：${e.message || e}`);
+      showToast(`错误：${e.message || e}`);
     } finally {
       setBusy(null);
-      setTimeout(() => setToast(''), 3000);
     }
   }
 
@@ -58,35 +50,27 @@ export default function ControlPanel({ deviceOnline, runningTasks, onSendCommand
         </div>
       )}
 
-      <div className="space-y-3">
-        {TASKS.map(t => {
-          const running = isRunning(t.actionId);
-          return (
-            <div key={t.key} className="bg-slate-800 border border-slate-700 rounded-xl p-4 flex items-center justify-between">
-              <div>
-                <div className="font-medium">{t.label}</div>
-                <div className="text-xs text-slate-400 mt-1">
-                  {running ? '🟢 运行中' : '⚪ 空闲'}
-                </div>
-              </div>
-              <button
-                onClick={() => handleStart(t)}
-                disabled={!deviceOnline || busy === t.key || running}
-                className="px-4 py-2 bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-700 disabled:text-slate-500 rounded-lg text-sm font-medium transition-colors"
-              >
-                {busy === t.key ? '处理中...' : running ? '运行中' : '启动'}
-              </button>
-            </div>
-          );
-        })}
+      <div className="bg-slate-800 border border-slate-700 rounded-xl p-4">
+        <div className="text-sm text-slate-400">当前状态</div>
+        <div className="text-2xl font-bold mt-1">
+          {loopRunning ? '🟢 运行中' : '⚪ 已停止'}
+        </div>
       </div>
 
       <button
-        onClick={handleStopAll}
-        disabled={!deviceOnline || busy !== null || runningTasks.length === 0}
-        className="w-full py-3 bg-red-600 hover:bg-red-700 disabled:bg-slate-700 disabled:text-slate-500 rounded-xl font-medium transition-colors"
+        onClick={handleStart}
+        disabled={!deviceOnline || busy !== null || loopRunning}
+        className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-700 disabled:text-slate-500 rounded-xl text-lg font-medium transition-colors"
       >
-        {busy === 'stop_all' ? '停止中...' : '🛑 停止所有任务'}
+        {busy === 'start' ? '发送中...' : loopRunning ? '已在运行' : '▶️ 开始运行'}
+      </button>
+
+      <button
+        onClick={handleStop}
+        disabled={!deviceOnline || busy !== null || !loopRunning}
+        className="w-full py-4 bg-red-600 hover:bg-red-700 disabled:bg-slate-700 disabled:text-slate-500 rounded-xl text-lg font-medium transition-colors"
+      >
+        {busy === 'stop' ? '发送中...' : '⏹️ 停止运行'}
       </button>
 
       {toast && (
