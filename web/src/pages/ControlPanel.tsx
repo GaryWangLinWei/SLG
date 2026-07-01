@@ -29,7 +29,6 @@ export default function ControlPanel({ deviceOnline, loopRunning, onSendCommand 
   }
 
   async function handleStop() {
-    if (!confirm('确定停止运行？')) return;
     setBusy('stop');
     try {
       const result = await onSendCommand('stop_loop');
