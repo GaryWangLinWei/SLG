@@ -13,6 +13,7 @@ import configRouter from './routes/config';
 import accountsRouter from './routes/accounts';
 import licenseRouter from './routes/license';
 import remoteRouter from './routes/remote';
+import remoteControlRouter from './routes/remoteControl';
 import { licenseGuard } from './middleware/licenseGuard';
 import { migrateLegacyConfig } from './services/ConfigService';
 import { pluginService } from './services/PluginService';
@@ -68,6 +69,7 @@ router.get('/api', async (ctx) => {
 
 app.use(licenseRouter.routes()).use(licenseRouter.allowedMethods());
 app.use(remoteRouter.routes()).use(remoteRouter.allowedMethods());
+app.use(remoteControlRouter.routes()).use(remoteControlRouter.allowedMethods());
 app.use(deviceRouter.routes()).use(deviceRouter.allowedMethods());
 app.use(pluginsRouter.routes()).use(pluginsRouter.allowedMethods());
 app.use(tasksRouter.routes()).use(tasksRouter.allowedMethods());
