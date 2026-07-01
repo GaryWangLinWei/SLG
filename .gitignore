@@ -20,3 +20,6 @@ runs/
 server-auth/runs/
 server-auth/yolov8n.pt
 /yolov8n.pt
+
+# VPS 数据库备份（含用户激活码与设备指纹，禁止入库）
+backups/
