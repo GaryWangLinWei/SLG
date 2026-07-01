@@ -27,6 +27,18 @@ export interface RemoteState {
 const MAX_LOGS = 500;
 let logIdSeq = 1;
 
+// crypto.randomUUID 仅在 HTTPS / localhost 下可用；HTTP 公网下用兼容实现
+function uuid(): string {
+  if (typeof crypto !== 'undefined' && typeof (crypto as any).randomUUID === 'function') {
+    return (crypto as any).randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 function timestampToTime(ts: number): string {
   return new Date(ts).toLocaleTimeString('zh-CN');
 }
@@ -47,7 +59,7 @@ export function useRemoteSocket(sessionToken: string | null) {
 
     ws.onopen = () => {
       ws.send(JSON.stringify({
-        type: 'auth', id: crypto.randomUUID(), deviceId: '',
+        type: 'auth', id: uuid(), deviceId: '',
         data: { role: 'user', token: sessionToken }, timestamp: Date.now(),
       }));
     };
@@ -55,15 +67,13 @@ export function useRemoteSocket(sessionToken: string | null) {
     ws.onmessage = (e) => {
       let msg: WsMessage;
       try { msg = JSON.parse(e.data); } catch { return; }
-
-      if (msg.type === 'response' && msg.data?.success && !state.connected) {
-        setState(s => ({ ...s, connected: true }));
-        return;
-      }
+      console.log('[useRemoteSocket] msg:', msg.type, msg.data);
 
       if (msg.type === 'response' && msg.data?.requestId) {
         const cb = pendingResponses.current.get(msg.data.requestId);
-        if (cb) { cb(msg.data); pendingResponses.current.delete(msg.data.requestId); }
+        if (cb) { cb(msg.data); pendingResponses.current.delete(msg.data.requestId); return; }
+        // 无匹配的 pending → 认为是 auth 成功响应，标记已连接
+        if (msg.data?.success) setState(s => (s.connected ? s : { ...s, connected: true }));
         return;
       }
 
@@ -106,7 +116,7 @@ export function useRemoteSocket(sessionToken: string | null) {
         reject(new Error('未连接到云端'));
         return;
       }
-      const reqId = crypto.randomUUID();
+      const reqId = uuid();
       pendingResponses.current.set(reqId, resolve);
       setTimeout(() => {
         if (pendingResponses.current.has(reqId)) {
