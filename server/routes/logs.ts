@@ -57,6 +57,16 @@ router.post('/append', async (ctx: any) => {
 
   broadcast(entry);
 
+  // 转发到云端 RemoteClient（若连接）
+  try {
+    const { remoteClient } = require('../../core/remote/RemoteClient');
+    if (remoteClient.isConnected()) {
+      remoteClient.pushLog(message, 'info');
+    }
+  } catch {
+    // RemoteClient 未初始化（例如仅 server 独立启动），忽略
+  }
+
   ctx.body = { success: true };
 });
 
