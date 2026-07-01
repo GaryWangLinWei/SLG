@@ -155,32 +155,30 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
   }
 
   if (activationCode.status === 'used') {
-    // 同一设备续费
-    const existingBinding = db.prepare('SELECT * FROM device_bindings WHERE device_fingerprint = ? LIMIT 1').get(deviceFingerprint) as any;
+    // 检查该激活码当前绑定的设备
+    const codeBinding = db.prepare('SELECT * FROM device_bindings WHERE activation_code_id = ? LIMIT 1').get(activationCode.id) as any;
 
-    if (existingBinding) {
-      const usedElsewhere = db.prepare('SELECT * FROM device_bindings WHERE activation_code_id = ? AND device_fingerprint != ?').get(activationCode.id, deviceFingerprint);
-      if (usedElsewhere) {
-        return { success: false, error: '该激活码已绑定到其他设备' };
+    if (codeBinding) {
+      // 检查是否是同一设备（指纹完全匹配）
+      if (codeBinding.device_fingerprint === deviceFingerprint) {
+        // ✓ 同一设备：返回已有到期时间，不再重复加天数
+        // （用户只是 license 文件丢了重新激活，不是真的续费）
+        return {
+          success: true,
+          expiresAt: activationCode.expires_at,
+          tier: activationCode.tier || 'basic'
+        };
+      } else {
+        // 激活码已绑定到其他设备，给出明确提示
+        return {
+          success: false,
+          error: '该激活码已绑定到其他设备，一个激活码只能用于一台设备。如需更换设备请联系客服处理。'
+        };
       }
-
-      // 获取旧激活码的 tier
-      const oldCode = db.prepare('SELECT tier FROM activation_codes WHERE id = ?').get(existingBinding.activation_code_id) as { tier?: string } | undefined;
-      const oldTier = oldCode?.tier || 'basic';
-      const newTier = activationCode.tier || 'basic';
-      const sameTier = oldTier === newTier;
-
-      // 同 tier 累加，不同 tier 重置
-      const remainingMs = sameTier ? Math.max(0, existingBinding.expires_at - now) : 0;
-      const newExpiresAt = now + remainingMs + activationCode.duration_days * 24 * 60 * 60 * 1000;
-
-      db.prepare(`UPDATE device_bindings SET activation_code_id = ?, last_heartbeat_at = ? WHERE device_fingerprint = ?`)
-        .run(activationCode.id, now, deviceFingerprint);
-
-      return { success: true, expiresAt: newExpiresAt, renewType: sameTier ? 'same' : (newTier === 'pro' ? 'up' : 'down'), tier: newTier };
     }
 
-    return { success: false, error: '激活码已被使用' };
+    // 理论上不应该走到这里（status=used 但没有绑定记录），给出通用提示
+    return { success: false, error: '激活码无效或已失效，请联系客服' };
   }
 
   // 首次激活：绑定设备
