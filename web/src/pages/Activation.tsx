@@ -97,10 +97,24 @@ export default function ActivationPage() {
             </div>
           )}
 
-          {status?.isOffline && (
+          {status?.clockRollback && (
+            <div className="mb-4 p-4 bg-red-50 border border-red-300 rounded-xl text-red-700 text-sm text-center">
+              <p className="font-bold text-base mb-1">⚠️ 系统时间异常</p>
+              <p className="text-red-600">检测到系统时间被修改，请将时间校准到正确的网络时间并联网后重新验证。</p>
+            </div>
+          )}
+
+          {!status?.clockRollback && status?.activated && status?.isExpired && (
+            <div className="mb-4 p-4 bg-red-50 border border-red-300 rounded-xl text-red-700 text-sm text-center">
+              <p className="font-bold text-base mb-1">许可证已到期</p>
+              <p className="text-red-600">请输入新的激活码续费以继续使用</p>
+            </div>
+          )}
+
+          {!status?.clockRollback && status?.isOffline && (
             <div className="mb-4 p-4 bg-amber-50 border border-amber-300 rounded-xl text-amber-700 text-sm text-center">
               <p className="font-bold text-base mb-1">⚠️ 离线时间过长</p>
-              <p className="text-amber-600">请连接网络后重试激活</p>
+              <p className="text-amber-600">请连接网络后重新验证许可证</p>
             </div>
           )}
 

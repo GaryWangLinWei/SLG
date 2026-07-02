@@ -82,6 +82,20 @@ class LicenseService {
   }
 
   async activate(activationCode: string, inviteCode?: string): Promise<ActivationResult> {
+    // 时钟回拨防护：若本地许可证显示系统时间被篡改，拒绝激活/续费。
+    // 否则用户可在错误时间下通过输入激活码重新进入，绕过时间校验，
+    // 且写入的锚点会被错误的本地墙钟污染。必须先校准时间并联网验证。
+    const existingForCheck = await loadLicense().catch(() => null);
+    if (existingForCheck) {
+      const evalResult = evaluateLicense(existingForCheck, this.readClock(), GRACE_PERIOD);
+      if (evalResult.clockRollback) {
+        return {
+          success: false,
+          error: '系统时间异常，请校准到正确的网络时间并联网后重试',
+        };
+      }
+    }
+
     const fingerprint = await generateFingerprint();
 
     try {
