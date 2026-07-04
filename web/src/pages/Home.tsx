@@ -18,7 +18,6 @@ let loopCompletedBuildings: boolean[] = [false, false, false, false, false];
 let loopCompletedTechs: boolean[] = [false, false, false, false, false];
 let deviceBusy = false;
 const GATHER_LOOP_INTERVAL = 300; // 城外采集独立循环间隔（秒）
-const GEM_FOCUS_MODE_DISABLED = false; // 专注模式：true 整体禁用并保留代码，false 开放
 // 旧字段 gemGatherFocusMode -> 新字段 gemGatherMode 迁移
 function migrateGemMode(raw: any): 'normal' | 'focus' | 'mixed' {
   if (raw?.gemGatherMode === 'focus' || raw?.gemGatherMode === 'mixed' || raw?.gemGatherMode === 'normal') {
@@ -1746,17 +1745,22 @@ export function HomePage() {
                 <span className="text-xs text-slate-400 whitespace-nowrap">队伍</span>
               </div>
               <div className="flex items-center gap-2 mt-2">
-                <label className={`flex items-center gap-1.5 ${(GEM_FOCUS_MODE_DISABLED || !features.gemGatherEnabled || isFeatureLocked('gemGather') || features.autoExplore || features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
-                <input type="checkbox"
-                  checked={!GEM_FOCUS_MODE_DISABLED && features.gemGatherFocusMode}
-                  disabled={GEM_FOCUS_MODE_DISABLED || !features.gemGatherEnabled || isFeatureLocked('gemGather') || features.autoExplore || features.autoWorldChat}
-                  onChange={(e) => setFeatures({ ...features, gemGatherFocusMode: GEM_FOCUS_MODE_DISABLED ? false : e.target.checked })}
-                  className="sr-only" />
-                <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${(!GEM_FOCUS_MODE_DISABLED && features.gemGatherFocusMode) ? 'bg-orange-500 border-orange-600' : 'bg-white border-slate-300'}`}>
-                  {(!GEM_FOCUS_MODE_DISABLED && features.gemGatherFocusMode) && <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
-                </span>
-                <span className="text-xs text-slate-500 font-medium">🏕️ 驻扎模式</span>
-              </label>
+                <span className="text-xs text-slate-400 whitespace-nowrap">模式</span>
+                {(['normal', 'focus', 'mixed'] as const).map(mode => {
+                  const label = mode === 'normal' ? '普通' : mode === 'focus' ? '专注' : '混合';
+                  const disabled = !features.gemGatherEnabled || isFeatureLocked('gemGather') || features.autoExplore || features.autoWorldChat;
+                  const active = features.gemGatherMode === mode;
+                  return (
+                    <label key={mode} className={`flex items-center gap-1 ${disabled ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                      <input type="radio" name="gemGatherMode"
+                        checked={active}
+                        disabled={disabled}
+                        onChange={() => setFeatures({ ...features, gemGatherMode: mode })}
+                        className="sr-only" />
+                      <span className={`px-2 py-0.5 rounded text-xs border ${active ? 'bg-orange-500 border-orange-600 text-white' : 'bg-white border-slate-300 text-slate-600'}`}>{label}</span>
+                    </label>
+                  );
+                })}
                 <span className="text-xs text-slate-400 whitespace-nowrap ml-auto">队伍页</span>
                 {renderTeamPageSelect(features.gemGatherTeamPage, (v) => setFeatures({ ...features, gemGatherTeamPage: v }), features.autoExplore || features.autoWorldChat || !features.gemGatherEnabled || isFeatureLocked('gemGather'))}
               </div>
