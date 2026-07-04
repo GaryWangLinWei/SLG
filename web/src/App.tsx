@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { HashRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { HomePage } from './pages/Home';
 
@@ -13,15 +13,26 @@ import { AccountProvider } from './contexts/AccountContext';
 import { LicenseProvider, useLicense } from './contexts/LicenseContext';
 import { editionCapabilities } from './edition';
 
-function RemainingTime({ expiresAt }: { expiresAt: number }) {
-  const [now, setNow] = useState(Date.now());
+function RemainingTime({ expiresAt, trustedNow }: { expiresAt: number; trustedNow?: number }) {
+  // 以服务端可信时间为基准，用浏览器单调时钟 performance.now() 推进倒计时，
+  // 不直接信任本地 Date.now()（用户改系统时间会导致剩余时间显示错误）。
+  const [tick, setTick] = useState(0);
+  const baseRef = useRef<{ trustedNow: number; perfNow: number } | null>(null);
 
   useEffect(() => {
-    setNow(Date.now());
-    const timer = setInterval(() => setNow(Date.now()), 60_000);
+    // 每次 trustedNow 更新（状态刷新）时重置基准
+    baseRef.current = {
+      trustedNow: trustedNow ?? Date.now(),
+      perfNow: performance.now(),
+    };
+    setTick(t => t + 1);
+    const timer = setInterval(() => setTick(t => t + 1), 60_000);
     return () => clearInterval(timer);
-  }, [expiresAt]);
+  }, [trustedNow]);
 
+  const base = baseRef.current;
+  const now = base ? base.trustedNow + (performance.now() - base.perfNow) : (trustedNow ?? Date.now());
+  void tick; // 仅用于触发每分钟重渲染
   const ms = Math.max(0, expiresAt - now);
   const d = Math.floor(ms / 86_400_000);
   const h = Math.floor((ms % 86_400_000) / 3_600_000);
@@ -205,7 +216,7 @@ function NavBar() {
                 <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> 基础版
               </span>
             )}
-            <RemainingTime expiresAt={status.expiresAt} />
+            <RemainingTime expiresAt={status.expiresAt} trustedNow={status.trustedNow} />
             <button
               onClick={() => syncStatus()}
               className="w-6 h-6 flex items-center justify-center rounded hover:bg-slate-100 transition-colors"

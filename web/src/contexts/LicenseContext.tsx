@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import { api } from '../api/client';
 
 export interface LicenseStatus {
@@ -12,6 +12,7 @@ export interface LicenseStatus {
   fingerprintMismatch?: boolean;
   storedFingerprint?: string;
   clockRollback?: boolean; // 检测到本地时钟回拨
+  trustedNow?: number; // 服务端可信当前时间(ms)，用于显示剩余时间
 }
 
 interface LicenseContextType {
@@ -118,6 +119,20 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
     const interval = setInterval(refreshStatus, 10 * 60 * 1000);
     return () => clearInterval(interval);
   }, [refreshStatus]);
+
+  // 时钟异常自愈：用户可能之前改了系统时间导致锚点被污染，调回正常时间后
+  // 自动发起一次心跳，服务端确认有效即重写锚点解除异常。只在检测到异常时尝试一次。
+  const clockRollback = status?.clockRollback;
+  const recoveredRef = useRef(false);
+  useEffect(() => {
+    if (clockRollback && !recoveredRef.current) {
+      recoveredRef.current = true;
+      syncStatus();
+    }
+    if (!clockRollback) {
+      recoveredRef.current = false;
+    }
+  }, [clockRollback, syncStatus]);
 
   return (
     <LicenseContext.Provider value={{ status, loading, error, activateError, expiredMessage, setExpiredMessage, activate, preview, deactivate, refreshStatus, syncStatus, clearActivateError }}>

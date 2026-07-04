@@ -9,6 +9,7 @@ export interface LicenseStatus {
   fingerprintMismatch?: boolean;      // 设备指纹不匹配
   storedFingerprint?: string;          // 存储的指纹（用于对比）
   clockRollback?: boolean;             // 检测到本地时钟回拨
+  trustedNow?: number;                 // 服务端可信当前时间(ms)，前端用于显示剩余时间，避免被本地时钟误导
 }
 
 export interface ActivationData {

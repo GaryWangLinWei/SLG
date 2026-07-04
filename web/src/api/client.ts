@@ -191,7 +191,7 @@ export const api = {
 
   license: {
     getStatus: () =>
-      request<{ success: boolean; status: { activated: boolean; expiresAt?: number; isExpired: boolean; isOffline: boolean; graceRemainingMinutes?: number; deviceFingerprint?: string; tier?: 'basic' | 'pro' } }>('/license/status'),
+      request<{ success: boolean; status: { activated: boolean; expiresAt?: number; isExpired: boolean; isOffline: boolean; clockRollback?: boolean; trustedNow?: number; graceRemainingMinutes?: number; deviceFingerprint?: string; tier?: 'basic' | 'pro' } }>('/license/status'),
     activate: (code: string, inviteCode?: string) =>
       request<{ success: boolean; error?: string; expiresAt?: number; tier?: 'basic' | 'pro'; inviteBonus?: boolean; inviteError?: string; inviterBonusDays?: number; inviteeBonusDays?: number }>('/license/activate', {
         method: 'POST',

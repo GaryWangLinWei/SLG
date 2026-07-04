@@ -4,79 +4,111 @@ import {
   ClockReading,
 } from './clockTrust';
 
-// 固定的"当前"本地时间，避免用真实 Date.now()
+// 固定的"当前"真实时间
 const NOW = Date.UTC(2026, 7, 2, 13, 0, 0); // 2026-08-02 13:00:00Z
 const DAY = 86400000;
 const HOUR = 3600000;
 const GRACE = 24 * HOUR;
 
-// 进程在"NOW - 2 小时"启动，启动时 wall=NOW-2h, mono=0
-const SESSION_START_WALL = NOW - 2 * HOUR;
-
-/** 构造一次时钟读数 */
-function reading(wallNow: number, monoNow: number): ClockReading {
-  return { wallNow, monoNow, sessionStartWall: SESSION_START_WALL, sessionStartMono: 0 };
+/**
+ * 构造一次自洽的时钟读数：进程已运行 uptime ms，墙钟正常运行。
+ * wallNow 是当前墙钟；sessionStartWall = wallNow - uptime（启动时的墙钟）；
+ * monoNow = uptime（mono 从 0 开始）。
+ */
+function clk(wallNow: number, uptime: number): ClockReading {
+  return {
+    wallNow,
+    monoNow: uptime,
+    sessionStartWall: wallNow - uptime,
+    sessionStartMono: 0,
+  };
 }
 
-function baseAnchor(overrides: Record<string, number> = {}) {
+/** 一次"墙钟正常、心跳发生在 hbAgo 之前"的锚点 */
+function anchor(hbAgo: number, now: number) {
+  const uptime = hbAgo + HOUR; // 进程在心跳前 1h 启动
   return {
-    // 服务端在"NOW - 1 小时"通过一次心跳，并在那时记录了 mono 锚点
-    serverNowAt: NOW - HOUR,
-    serverNowLocalAt: NOW - HOUR,
-    lastVerifiedAt: NOW - HOUR,
-    // 心跳时 wall=NOW-1h，mono=1h（进程已运行 1h）
-    monoWallAt: NOW - HOUR,
-    monoAt: HOUR,
-    ...overrides,
+    anchor: {
+      serverNowAt: now - hbAgo,
+      serverNowLocalAt: now - hbAgo,
+      lastVerifiedAt: now - hbAgo,
+      monoWallAt: now - hbAgo,
+      monoAt: HOUR, // 心跳时进程已运行 1h
+    },
+    clock: clk(now, uptime),
   };
 }
 
 describe('evaluateLicense (单调时钟)', () => {
   test('未激活视为过期', () => {
-    const r = evaluateLicense(null, reading(NOW, 2 * HOUR), GRACE);
+    const r = evaluateLicense(null, clk(NOW, 0), GRACE);
     expect(r.activated).toBe(false);
     expect(r.isExpired).toBe(true);
   });
 
-  test('正常在线、未过期、刚心跳过 → 有效', () => {
+  test('正常在线、未过期、1h 前心跳 → 有效', () => {
+    const { anchor: a, clock } = anchor(HOUR, NOW);
     const r = evaluateLicense(
-      { expiresAt: NOW + 3 * DAY, ...baseAnchor() },
-      reading(NOW, 2 * HOUR),
+      { expiresAt: NOW + 3 * DAY, ...a },
+      clock,
       GRACE
     );
     expect(r.isExpired).toBe(false);
     expect(r.isOffline).toBe(false);
     expect(r.clockRollback).toBe(false);
-    // 锚点在 NOW-1h，现在 mono 已走 1h → trustedNow = NOW
     expect(r.trustedNow).toBe(NOW);
   });
 
-  test('冻结本地墙钟但单调时钟继续走 → 宽限照常流逝，最终离线', () => {
-    // 锚点在 NOW-1h。攻击者把墙钟冻结在锚点时刻，但真实已过 25 小时（mono=26h）
+  test('冻结本地墙钟但单调时钟继续走 25h → 判定时钟篡改并拦下', () => {
+    // 25h 前心跳正常（服务端/本地都是 NOW-25h），之后墙钟被冻结在该时刻，
+    // 但进程 mono 真实走了 26h。
+    const hb = NOW - 25 * HOUR;
+    const frozenClock: ClockReading = {
+      wallNow: hb, // 墙钟冻结
+      monoNow: 26 * HOUR,
+      sessionStartWall: NOW - 26 * HOUR, // 启动时墙钟还正常
+      sessionStartMono: 0,
+    };
     const r = evaluateLicense(
-      { expiresAt: NOW + 3 * DAY, ...baseAnchor() },
-      reading(NOW - HOUR, 26 * HOUR), // wall 冻在锚点，mono 却走了 25h
+      {
+        expiresAt: NOW + 30 * DAY,
+        serverNowAt: hb,
+        serverNowLocalAt: hb,
+        lastVerifiedAt: hb,
+        monoWallAt: hb,
+        monoAt: HOUR, // 心跳时进程已运行 1h
+      },
+      frozenClock,
       GRACE
     );
-    // 用单调时钟：trustedNow 推进到锚点后 25h → 超过 24h 宽限
-    expect(r.isOffline).toBe(true);
-    expect(r.trustedNow).toBe(NOW - HOUR + 25 * HOUR);
+    // 可信时间走到真实 NOW，与冻结的墙钟差 25h → 篡改
+    expect(r.trustedNow).toBe(NOW);
+    expect(r.clockRollback).toBe(true);
+    expect(r.isExpired).toBe(true);
   });
 
-  test('精确回拨墙钟到锚点 + 冻结 → 仍按单调时钟判定离线', () => {
-    // 与上一个攻击相同：wall 回到锚点，mono 真实流逝
+  test('精确回拨墙钟到锚点并冻结 → 判定时钟篡改', () => {
+    const { anchor: a, clock } = anchor(HOUR, NOW);
+    // 在正常时钟基础上把墙钟回拨到锚点
+    const tampered: ClockReading = {
+      ...clock,
+      wallNow: NOW - HOUR,
+    };
     const r = evaluateLicense(
-      { expiresAt: NOW + 3 * DAY, ...baseAnchor() },
-      reading(NOW - HOUR, 25 * HOUR + 1000),
+      { expiresAt: NOW + 30 * DAY, ...a },
+      tampered,
       GRACE
     );
-    expect(r.isOffline).toBe(true);
+    expect(r.clockRollback).toBe(true);
+    expect(r.isExpired).toBe(true);
   });
 
-  test('大幅回拨墙钟 → 判定回拨篡改，按过期处理', () => {
+  test('大幅回拨墙钟 12 天 → 第一次回拨检测就拦下', () => {
+    const { anchor: a, clock } = anchor(HOUR, NOW);
+    const tampered: ClockReading = { ...clock, wallNow: NOW - 12 * DAY };
     const r = evaluateLicense(
-      { expiresAt: NOW + 3 * DAY, ...baseAnchor() },
-      reading(NOW - 12 * DAY, 2 * HOUR),
+      { expiresAt: NOW + 3 * DAY, ...a },
+      tampered,
       GRACE
     );
     expect(r.clockRollback).toBe(true);
@@ -84,124 +116,147 @@ describe('evaluateLicense (单调时钟)', () => {
   });
 
   test('回拨墙钟不能让已过期许可证复活', () => {
-    const expiresAt = NOW - HOUR + 30 * 60000; // 锚点后 30 分钟过期
-    const r = evaluateLicense(
-      { expiresAt, ...baseAnchor() },
-      reading(expiresAt - HOUR, 2 * HOUR), // 墙钟拨回到期前
-      GRACE
-    );
-    // 墙钟回拨被检测或单调时钟显示已过期 → 总之 isExpired
+    const { anchor: a, clock } = anchor(HOUR, NOW);
+    const expiresAt = NOW - 30 * 60 * 1000; // 30 分钟前已过期
+    const tampered: ClockReading = { ...clock, wallNow: expiresAt - HOUR };
+    const r = evaluateLicense({ expiresAt, ...a }, tampered, GRACE);
     expect(r.isExpired).toBe(true);
   });
 
-  test('超过 24h 未成功心跳（正常流逝）→ 离线', () => {
+  test('正常流逝超过 24h 未成功心跳 → 离线（不到期）', () => {
+    const { anchor: a, clock } = anchor(25 * HOUR, NOW);
     const r = evaluateLicense(
-      {
-        expiresAt: NOW + 3 * DAY,
-        ...baseAnchor({
-          serverNowAt: NOW - 25 * HOUR,
-          serverNowLocalAt: NOW - 25 * HOUR,
-          lastVerifiedAt: NOW - 25 * HOUR,
-          monoWallAt: NOW - 25 * HOUR,
-          monoAt: 0,
-        }),
-      },
-      reading(NOW, 27 * HOUR),
+      { expiresAt: NOW + 3 * DAY, ...a },
+      clock,
       GRACE
     );
     expect(r.isOffline).toBe(true);
     expect(r.isExpired).toBe(false);
+    expect(r.clockRollback).toBe(false);
+    expect(r.trustedNow).toBe(NOW);
   });
 
-  test('容差范围内墙钟/单调偏差不算回拨', () => {
+  test('容差范围内（2 分钟）的墙钟偏慢不算篡改', () => {
+    const { anchor: a, clock } = anchor(HOUR, NOW);
+    const slow: ClockReading = { ...clock, wallNow: NOW - 2 * 60 * 1000 };
     const r = evaluateLicense(
-      { expiresAt: NOW + 3 * DAY, ...baseAnchor() },
-      // wall 比预期慢 2 分钟（在容差内），mono 正常
-      reading(NOW - 2 * 60 * 1000, 2 * HOUR),
+      { expiresAt: NOW + 3 * DAY, ...a },
+      slow,
       GRACE
     );
     expect(r.clockRollback).toBe(false);
     expect(r.isExpired).toBe(false);
   });
 
-  test('极老数据缺 serverNowLocalAt（只有 lastHeartbeatAt）→ 用 lastHeartbeatAt 兜底，冻结墙钟仍判离线', () => {
-    // 模拟 clockTrust 引入之前激活的许可证：没有 serverNowAt/serverNowLocalAt/lastVerifiedAt，
-    // 只有 lastHeartbeatAt（25h 前）。攻击者在锚点时刻启动进程并冻结墙钟，
-    // 但本进程 mono 已真实流逝 25h（超过 24h 测试宽限）。
-    const anchor = NOW - 25 * HOUR;
+  test('老数据无 mono 锚点（上个进程留下）→ 用迁移基线接续，不失效', () => {
+    // 上个进程 3h 前的心跳，本进程运行 2h，墙钟正常
+    const a = {
+      serverNowAt: NOW - 3 * HOUR,
+      serverNowLocalAt: NOW - 3 * HOUR,
+      lastVerifiedAt: NOW - 3 * HOUR,
+    };
+    const r = evaluateLicense(
+      { expiresAt: NOW + 3 * DAY, ...a },
+      clk(NOW, 2 * HOUR),
+      GRACE
+    );
+    expect(r.activated).toBe(true);
+    expect(r.isExpired).toBe(false);
+    // preSessionWall(1h) + inSessionMono(2h) = 3h，与墙钟一致
+    expect(r.trustedNow).toBe(NOW);
+    expect(r.isOffline).toBe(false);
+  });
+
+  test('跨进程重启：旧 mono 锚点来自上个进程 → 忽略旧 mono，用墙钟接续不误判', () => {
+    // 当前进程 2h 前启动；锚点是 3h 前（上个进程），其 monoAt 是上个进程的值
+    const oldAnchor = {
+      serverNowAt: NOW - 3 * HOUR,
+      serverNowLocalAt: NOW - 3 * HOUR,
+      lastVerifiedAt: NOW - 3 * HOUR,
+      monoWallAt: NOW - 3 * HOUR,
+      monoAt: 8 * HOUR, // 上个进程的 mono，无意义
+    };
+    const r = evaluateLicense(
+      { expiresAt: NOW + 3 * DAY, ...oldAnchor },
+      clk(NOW, 2 * HOUR),
+      GRACE
+    );
+    expect(r.clockRollback).toBe(false);
+    expect(r.isExpired).toBe(false);
+    expect(r.trustedNow).toBe(NOW);
+  });
+
+  test('跨会话冻结攻击：回拨到上个会话锚点并冻结、断网 10 天 → 拦下', () => {
+    // 上个会话在 10 天前留下锚点；攻击者在锚点时刻启动新进程并冻结墙钟，
+    // 但本进程 mono 真实运行了 10 天。
+    const anchorTime = NOW - 10 * DAY;
     const frozenClock: ClockReading = {
-      wallNow: anchor,            // 墙钟冻结在心跳时刻
-      monoNow: 25 * HOUR,         // 进程真实运行了 25h
-      sessionStartWall: anchor,   // 进程就在锚点时刻启动
+      wallNow: anchorTime,
+      monoNow: 10 * DAY,
+      sessionStartWall: anchorTime,
       sessionStartMono: 0,
     };
     const r = evaluateLicense(
       {
         expiresAt: NOW + 30 * DAY,
-        lastHeartbeatAt: anchor,
-      } as any,
+        serverNowAt: anchorTime,
+        serverNowLocalAt: anchorTime,
+        lastVerifiedAt: anchorTime,
+        monoWallAt: anchorTime,
+        monoAt: 0,
+      },
       frozenClock,
       GRACE
     );
-    expect(r.isOffline).toBe(true);
-    expect(r.isExpired).toBe(false);
-  });
-
-  test('老数据无 mono 锚点（上个进程留下）→ 用迁移基线接续，不失效', () => {
-    // 锚点早于本进程启动（3h 前的心跳），进程已运行 2h，墙钟正常走到 NOW
-    const r = evaluateLicense(
-      {
-        expiresAt: NOW + 3 * DAY,
-        serverNowAt: NOW - 3 * HOUR,
-        serverNowLocalAt: NOW - 3 * HOUR,
-        lastVerifiedAt: NOW - 3 * HOUR,
-      },
-      reading(NOW, 2 * HOUR),
-      GRACE
-    );
-    expect(r.activated).toBe(true);
-    expect(r.isExpired).toBe(false);
-    // preSessionWall(1h) + inSessionMono(2h) = 3h，与墙钟流逝一致
+    // 可信时间 = 锚点 + 10 天(mono) = NOW，与冻结墙钟差 10 天 → 篡改
     expect(r.trustedNow).toBe(NOW);
-    expect(r.isOffline).toBe(false);
+    expect(r.clockRollback).toBe(true);
+    expect(r.isExpired).toBe(true);
   });
 
-  test('跨进程重启：mono 锚点来自上个进程 → 忽略 mono，用墙钟接续但不判篡改', () => {
-    // 当前进程在 SESSION_START_WALL 启动。锚点 monoWallAt 早于本进程启动 → 上个进程的
+  test('改时间后重启+心跳：本地墙钟比服务端慢 30 天 → 判时钟异常', () => {
+    // 复现真实场景：回拨 30 天后才重启并心跳，锚点本地时间被污染。
+    // 服务端返回真实时间；本地锚点和当前墙钟都是假时间。
+    const realServerNow = NOW;
+    const fakeLocalNow = NOW - 30 * DAY;
+    const fakeClock: ClockReading = {
+      wallNow: fakeLocalNow,
+      monoNow: 10 * 60 * 1000,
+      sessionStartWall: fakeLocalNow - 10 * 60 * 1000,
+      sessionStartMono: 0,
+    };
     const r = evaluateLicense(
       {
-        expiresAt: NOW + 3 * DAY,
-        serverNowAt: NOW - HOUR,
-        serverNowLocalAt: NOW - HOUR,
-        lastVerifiedAt: NOW - HOUR,
-        monoWallAt: NOW - 3 * HOUR, // 早于本进程启动(NOW-2h)
-        monoAt: 5 * HOUR,           // 上个进程的 mono，本进程无意义
+        expiresAt: realServerNow + 55 * DAY,
+        serverNowAt: realServerNow - 10 * 60 * 1000,
+        serverNowLocalAt: fakeLocalNow - 10 * 60 * 1000,
+        lastVerifiedAt: fakeLocalNow - 10 * 60 * 1000,
+        monoWallAt: fakeLocalNow - 10 * 60 * 1000,
+        monoAt: 0,
       },
-      reading(NOW, 2 * HOUR),
+      fakeClock,
       GRACE
     );
-    // 不能因为 mono 读数看起来"倒退"而误判；正常用墙钟接续
-    expect(r.clockRollback).toBe(false);
-    expect(r.isExpired).toBe(false);
+    expect(r.clockRollback).toBe(true);
+    expect(r.isExpired).toBe(true);
+    expect(r.trustedNow).toBeGreaterThan(realServerNow - 60 * 1000);
   });
 
-  test('跨会话冻结攻击：回拨到上个会话锚点并冻结、断网 10 天 → 仍应判离线', () => {
-    // 上个会话最后心跳：墙钟 = 锚点 = NOW-3h（早于本进程启动 NOW-2h）
-    // 攻击者把墙钟回拨到该锚点并冻结，但本进程已真实运行 10 天（mono=10天）
-    const TEN_DAYS = 10 * DAY;
+  test('极老数据缺 serverNowLocalAt（只有 lastHeartbeatAt）→ 用 lastHeartbeatAt 兜底，冻结墙钟仍拦下', () => {
+    const anchorTime = NOW - 25 * HOUR;
+    const frozenClock: ClockReading = {
+      wallNow: anchorTime,
+      monoNow: 25 * HOUR,
+      sessionStartWall: anchorTime,
+      sessionStartMono: 0,
+    };
     const r = evaluateLicense(
-      {
-        expiresAt: NOW + 30 * DAY, // 远未到期，排除到期因素
-        serverNowAt: NOW - 3 * HOUR,
-        serverNowLocalAt: NOW - 3 * HOUR,
-        lastVerifiedAt: NOW - 3 * HOUR,
-        monoWallAt: NOW - 3 * HOUR, // 上个进程的锚点
-        monoAt: 5 * HOUR,
-      },
-      reading(NOW - 3 * HOUR, TEN_DAYS), // wall 冻结在锚点，mono 走了 10 天
+      { expiresAt: NOW + 30 * DAY, lastHeartbeatAt: anchorTime } as any,
+      frozenClock,
       GRACE
     );
+    // 无 serverNowAt → trustedNow 退回墙钟；但有本地锚点且墙钟冻结、mono 流逝，
+    // 离线宽限照常走完
     expect(r.isOffline).toBe(true);
-    expect(r.isExpired).toBe(false);
   });
 });

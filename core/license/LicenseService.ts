@@ -58,6 +58,7 @@ class LicenseService {
       isExpired: evalResult.isExpired,
       isOffline: evalResult.isOffline,
       clockRollback: evalResult.clockRollback,
+      trustedNow: evalResult.trustedNow,
       graceRemainingMinutes: evalResult.isOffline ? 0 : Math.ceil(evalResult.graceRemainingMs / 60000),
       deviceFingerprint: stored.fingerprint,
       tier: stored.tier || 'basic',
@@ -256,7 +257,11 @@ class LicenseService {
     } catch { /* 删除失败不影响正常使用 */ }
 
     const status = await this.getStatus();
-    if (status.activated && !status.isExpired) {
+    // 只要许可证存在且指纹匹配（不是设备不匹配），就尝试一次启动心跳：
+    // - 正常情况：例行校验；
+    // - 时钟异常/离线：可能是用户之前改了时间、现在已恢复，心跳成功能用服务端权威
+    //   时间重写被污染的本地锚点，实现自愈；若确实过期，服务端返回 401 会清空许可证。
+    if (status.activated || status.clockRollback || status.isOffline) {
       await this.heartbeat().catch(() => {});
       this.startHeartbeatInterval();
     }

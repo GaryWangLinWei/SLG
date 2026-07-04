@@ -149,6 +149,18 @@ export function evaluateLicense(
       ? stored.serverNowAt + elapsed
       : clock.wallNow;
 
+  // 二次检测：本地墙钟与"以服务端时间为基准的可信时间"偏差超过容差 → 篡改。
+  // 这能抓住"改完时间后才重启/心跳，锚点本身已被假时间污染"的场景：
+  // 此时本地墙钟和锚点本地时间都是假的、互相一致（第一次检测放过），
+  // 但服务端锚点 serverNowAt 是真的，可信时间会走到真实时间，与假墙钟拉开差距。
+  // 只拦本地时间"落后"可信时间的情况（往前拨只会更快到期，无害）。
+  if (
+    typeof stored.serverNowAt === 'number' &&
+    trustedNow - clock.wallNow > CLOCK_SKEW_TOLERANCE_MS
+  ) {
+    clockRollback = true;
+  }
+
   // 回拨时不信任本地时间，直接按过期处理
   const isExpired = clockRollback || trustedNow > stored.expiresAt;
 
