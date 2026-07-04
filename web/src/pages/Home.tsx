@@ -19,6 +19,14 @@ let loopCompletedTechs: boolean[] = [false, false, false, false, false];
 let deviceBusy = false;
 const GATHER_LOOP_INTERVAL = 300; // 城外采集独立循环间隔（秒）
 const GEM_FOCUS_MODE_DISABLED = false; // 专注模式：true 整体禁用并保留代码，false 开放
+// 旧字段 gemGatherFocusMode -> 新字段 gemGatherMode 迁移
+function migrateGemMode(raw: any): 'normal' | 'focus' | 'mixed' {
+  if (raw?.gemGatherMode === 'focus' || raw?.gemGatherMode === 'mixed' || raw?.gemGatherMode === 'normal') {
+    return raw.gemGatherMode;
+  }
+  if (raw?.gemGatherFocusMode === true) return 'focus';
+  return 'normal';
+}
 const NIGHT_START_MINUTE = 2 * 60;
 const NIGHT_END_MINUTE = 5 * 60;
 const NIGHT_START_JITTER_MIN = -15;
@@ -311,7 +319,8 @@ export function HomePage() {
         merged.collectResourcesIntervalMinutes = Math.max(MIN_COLLECT_RESOURCES_INTERVAL_MINUTES, Number(merged.collectResourcesIntervalMinutes));
         if (!Number.isFinite(Number(merged.autoReconnectIntervalMinutes))) merged.autoReconnectIntervalMinutes = DEFAULT_AUTO_RECONNECT_INTERVAL_MINUTES;
         merged.autoReconnectIntervalMinutes = Math.max(0, Number(merged.autoReconnectIntervalMinutes));
-        if (GEM_FOCUS_MODE_DISABLED) merged.gemGatherFocusMode = false;
+        merged.gemGatherMode = migrateGemMode(merged);
+        delete merged.gemGatherFocusMode;
         padGatherTasks(merged);
         return merged;
       }
@@ -431,7 +440,7 @@ export function HomePage() {
           setFeatures((prev: typeof DEFAULT_FEATURES) => padGatherTasks({
             ...DEFAULT_HOME_FEATURES,
             ...res.config.homeFeatures,
-            gemGatherFocusMode: GEM_FOCUS_MODE_DISABLED ? false : res.config.homeFeatures.gemGatherFocusMode,
+            gemGatherMode: migrateGemMode(res.config.homeFeatures),
             completedBuildings: prev.completedBuildings,
             completedTechs: prev.completedTechs,
           }));
@@ -470,7 +479,7 @@ export function HomePage() {
         setFeatures(padGatherTasks({
           ...DEFAULT_HOME_FEATURES,
           ...res.config.homeFeatures,
-          gemGatherFocusMode: GEM_FOCUS_MODE_DISABLED ? false : res.config.homeFeatures.gemGatherFocusMode,
+          gemGatherMode: migrateGemMode(res.config.homeFeatures),
           completedBuildings: [false, false, false, false, false],
           completedTechs: [false, false, false, false, false],
         }));
