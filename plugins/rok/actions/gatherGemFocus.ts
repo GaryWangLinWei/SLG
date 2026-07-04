@@ -198,7 +198,7 @@ export async function gatherGemFocus(
 ): Promise<GemGatherOutcome> {
   ctx.log(`=== 宝石采集专注模式 队伍[${teams.join(', ')}] ===`);
   const worldBtn = config.resourceCollect.worldSwitchButton;
-  const collectedCoords: Array<{ x: number; y: number }> = [];
+  const collectedCoords: string[] = [];
   const spiralState = createSpiralState(config);
   let dispatched = 0;
   let hasPaging: boolean | null = null;
