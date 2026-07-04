@@ -1107,21 +1107,27 @@ export function HomePage() {
 
           const activeHours = Number(f.gemGatherActiveHours) || 2;
           const restHours = Number(f.gemGatherRestHours) || 1;
-          const isFocus = f.gemGatherMode === 'focus';
-          const actionId = isFocus ? 'gem-gather-focus' : 'gem-gather';
-          const intervalSec = isFocus ? 60 : 300;
+          const mode = f.gemGatherMode;
+          // 混合模式：进入本 active 阶段随机确定专注占比 30%~70%
+          const focusRatio = mode === 'mixed' ? (0.3 + Math.random() * 0.4) : (mode === 'focus' ? 1 : 0);
 
           // ── active 阶段 ──
           const activeEnd = monotonicNow() + activeHours * 3600 * 1000;
           setGemRestCountdown('');
+          const startLabel = mode === 'mixed'
+            ? `混合采集开始，本期专注占比 ${Math.round(focusRatio * 100)}%`
+            : `${mode === 'focus' ? '专注' : '普通'}采集开始`;
           setLogs(prev => [...prev,
-            `[${new Date().toLocaleTimeString()}] 💎 ${isFocus ? '专注' : '普通'}采集开始，持续 ${activeHours}h`]);
+            `[${new Date().toLocaleTimeString()}] 💎 ${startLabel}，持续 ${activeHours}h`]);
 
           while (!loopStopped && !relaunchRequested && monotonicNow() < activeEnd) {
             if (offlineActive) { await sleep(30); continue; }
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
+            const isFocus = Math.random() < focusRatio;
+            const actionId = isFocus ? 'gem-gather-focus' : 'gem-gather';
+            const intervalSec = isFocus ? 60 : 300;
             try {
               // 采集前先读一次宝石数，更新已采集计数
               const current = await readCount();
@@ -1146,7 +1152,7 @@ export function HomePage() {
                   setExpiredMessage('激活码已到期，请重新激活');
                   refreshStatus();
                 } else {
-                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💎 宝石采集${isFocus ? '(专注)' : ''}完成`]);
+                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💎 宝石采集(${isFocus ? '专注' : '普通'})完成`]);
                 }
               }
             } catch {} finally { releaseLock(); }
