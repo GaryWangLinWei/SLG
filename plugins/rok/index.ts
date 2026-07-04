@@ -13,11 +13,12 @@ import { rallyFortSpiral } from './actions/rallyFortSpiral';
 import { joinRally } from './actions/joinRally';
 import { gatherGem } from './actions/gatherGem';
 import { gatherGemFocus } from './actions/gatherGemFocus';
-import { caveExplore } from './actions/caveExplore';
+import { caveExplore, resetCaveExploreState } from './actions/caveExplore';
 import { readGemCount } from './actions/readGemCount';
 import { sendWorldChat, sendWorldChatFirstRun } from './actions/sendWorldChat';
 import { killGame } from './actions/killGame';
 import { launchGame } from './actions/launchGame';
+import { checkGameRunning } from './actions/checkGameRunning';
 import { ensureInCity, ensureBottomBarCollapsed } from './utils/location';
 import { TeamPage } from './utils/teamPage';
 import { ocrService } from '../../core/ocr/OcrService';
@@ -391,7 +392,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
         // Pre-check: OCR team count to skip round if no idle teams
         ctx.log('[预备] OCR 检测空闲队伍数...');
         const regionPath = await ctx.captureRegion(1507, 169, 55, 31);
-        const teamCountText = await ocrService.readText(regionPath);
+        const teamCountText = await ocrService.readTeamCount(regionPath);
         await fs.unlink(regionPath).catch(() => {});
         ctx.log(`[预备] OCR 结果: "${teamCountText}"`);
 
@@ -608,6 +609,14 @@ export const RiseOfKingdomsPlugin: Plugin = {
       }
     },
     {
+      id: 'reset-cave-explore',
+      name: '重置山洞探索状态',
+      description: '清空已记录的山洞坐标，用于重新开始探索',
+      run: async (ctx) => {
+        resetCaveExploreState();
+      }
+    },
+    {
       id: 'read-gem-count',
       name: '读取宝石数量',
       description: 'OCR 读取游戏界面宝石数量显示',
@@ -655,7 +664,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
         // Pre-check: OCR team count to skip if no idle teams
         ctx.log('[预备] OCR 检测空闲队伍数...');
         const regionPath = await ctx.captureRegion(1507, 169, 55, 31);
-        const teamCountText = await ocrService.readText(regionPath);
+        const teamCountText = await ocrService.readTeamCount(regionPath);
         await fs.unlink(regionPath).catch(() => {});
         ctx.log(`[预备] OCR 结果: "${teamCountText}"`);
 
@@ -695,7 +704,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
         // Pre-check: OCR team count
         ctx.log('[预备] OCR 检测空闲队伍数...');
         const regionPath = await ctx.captureRegion(1507, 169, 55, 31);
-        const teamCountText = await ocrService.readText(regionPath);
+        const teamCountText = await ocrService.readTeamCount(regionPath);
         await fs.unlink(regionPath).catch(() => {});
         ctx.log(`[预备] OCR 结果: "${teamCountText}"`);
 
@@ -758,7 +767,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
         // Pre-check: OCR team count
         ctx.log('[预备] OCR 检测空闲队伍数...');
         const regionPath = await ctx.captureRegion(1507, 169, 55, 31);
-        const teamCountText = await ocrService.readText(regionPath);
+        const teamCountText = await ocrService.readTeamCount(regionPath);
         await fs.unlink(regionPath).catch(() => {});
         ctx.log(`[预备] OCR 结果: "${teamCountText}"`);
 
@@ -797,6 +806,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
     },
     killGame,
     launchGame,
+    checkGameRunning,
   ],
 
   onLoad: async () => {
