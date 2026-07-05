@@ -116,7 +116,24 @@ router.get('/stream', async (ctx: any) => {
   ctx.respond = false; // 不让 Koa 自动结束响应
 });
 
-// 4. 清空日志（调试用）
+// 4. 清空日志（前端点击"开始运行"时调用；SSE 广播 clear 通知内网 Mobile；转发到云端广播给远程 user）
+router.post('/clear', async (ctx: any) => {
+  logs = [];
+  // 通知所有内网 SSE 客户端清空
+  const data = `data: ${JSON.stringify({ type: 'clear' })}\n\n`;
+  clients.forEach((client, id) => {
+    try { client.ctx.res.write(data); }
+    catch { clients.delete(id); }
+  });
+  // 通知云端广播给远程 user
+  try {
+    const { remoteClient } = require('../../core/remote/RemoteClient');
+    if (remoteClient.isConnected()) remoteClient.pushLogClear();
+  } catch { /* RemoteClient 未初始化 */ }
+  ctx.body = { success: true };
+});
+
+// 兼容旧 DELETE 语义（调试用）
 router.delete('/clear', async (ctx: any) => {
   logs = [];
   ctx.body = { success: true };

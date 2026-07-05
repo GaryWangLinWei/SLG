@@ -133,7 +133,7 @@ export async function readQueueOverview(
       let text = '';
       let seconds: number | null = null;
       try {
-        text = await ocrService.readText(regionPath);
+        text = await ocrService.readCountdown(regionPath);
         seconds = parseCountdown(text);
         ctx.log(`[OCR] ${key} 原始="${text}" → ${seconds !== null ? seconds + 's' : '空闲/未识别'}`);
       } catch (ocrErr: any) {

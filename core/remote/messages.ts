@@ -1,7 +1,7 @@
 // 与 server-auth/ws/messages.ts 完全同步
 // 不要跨项目 import：server-auth 是独立 npm 项目
 
-export type WsMessageType = 'log' | 'command' | 'response' | 'status' | 'heartbeat' | 'auth';
+export type WsMessageType = 'log' | 'log_clear' | 'command' | 'response' | 'status' | 'heartbeat' | 'auth';
 
 export interface WsMessage<T = any> {
   type: WsMessageType;
@@ -35,6 +35,8 @@ export interface ResponseData {
 export interface StatusData {
   online: boolean;
   runningTasks: string[];
+  /** 电脑端正在启动流程中（launchGame 15+15s 期间），供手机端按钮显示"启动游戏中" */
+  starting?: boolean;
   features?: Record<string, any>;
 }
 

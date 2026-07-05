@@ -21,8 +21,15 @@ class LicenseService {
     // Verify fingerprint matches current device
     const fingerprintMatches = await verifyFingerprint(stored.fingerprint);
     if (!fingerprintMatches) {
-      await clearLicense();
-      return { activated: false, isExpired: true, isOffline: false };
+      // 指纹不匹配时，不直接清除许可证，而是标记为失效
+      // 这样 ActivationPage 可以提示用户"设备指纹不匹配，请联系客服"
+      return {
+        activated: false,
+        isExpired: false,
+        isOffline: false,
+        fingerprintMismatch: true,
+        storedFingerprint: stored.fingerprint,
+      };
     }
 
     const now = Date.now();

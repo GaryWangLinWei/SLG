@@ -108,7 +108,7 @@ function initTables() {
   `);
   database.exec(`CREATE INDEX IF NOT EXISTS idx_remote_logs_device ON remote_logs(device_id, timestamp DESC)`);
 
-  // 远程控制 - 会话表（手机端验证码兑换后的 session token）
+  // 远程控制 - 会话表（手机端登录后的 session token）
   database.exec(`
     CREATE TABLE IF NOT EXISTS remote_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,6 +119,19 @@ function initTables() {
     )
   `);
   database.exec(`CREATE INDEX IF NOT EXISTS idx_remote_sessions_token ON remote_sessions(session_token)`);
+
+  // 远程控制 - 设备访问密码表（识别码 + 用户设置的 6 位数字密码）
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS remote_devices (
+      device_id TEXT PRIMARY KEY,
+      short_id TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      salt TEXT NOT NULL,
+      activation_code TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  `);
+  database.exec(`CREATE INDEX IF NOT EXISTS idx_remote_devices_short ON remote_devices(short_id)`);
 
   database.exec('CREATE INDEX IF NOT EXISTS idx_codes_status ON activation_codes(status)');
   database.exec('CREATE INDEX IF NOT EXISTS idx_codes_code ON activation_codes(code)');

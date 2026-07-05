@@ -3,29 +3,43 @@
 
 const AUTH_URL = (import.meta as any).env?.VITE_AUTH_URL || 'http://106.15.11.158:3456';
 
+// Electron 打包环境下页面通过 file:// 加载，相对路径 /api 会失败，需要用绝对地址
+const isElectron = typeof window !== 'undefined' && 'electronAPI' in window;
+const LOCAL_BASE = isElectron ? 'http://localhost:3000' : '';
+
 export const remoteApi = {
-  /** 本地后端：让本地客户端生成验证码 */
-  async generateCode(): Promise<{ success: boolean; code?: string; expiresAt?: number; error?: string }> {
-    const resp = await fetch('/api/remote/generate-code', { method: 'POST' });
+  /** 本地后端：获取本机识别码 + 密码是否已设置 */
+  async getDeviceInfo(): Promise<{ success: boolean; deviceId?: string; shortId?: string; hasPassword?: boolean; error?: string }> {
+    const resp = await fetch(`${LOCAL_BASE}/api/remote/device-info`);
+    return resp.json();
+  },
+
+  /** 本地后端：设置/修改访问密码 */
+  async setPassword(password: string): Promise<{ success: boolean; shortId?: string; error?: string }> {
+    const resp = await fetch(`${LOCAL_BASE}/api/remote/set-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
     return resp.json();
   },
 
   /** 本地后端：查询 RemoteClient 是否连上 VPS */
   async connectionStatus(): Promise<{ connected: boolean }> {
     try {
-      const resp = await fetch('/api/remote/connection-status');
+      const resp = await fetch(`${LOCAL_BASE}/api/remote/connection-status`);
       return resp.json();
     } catch {
       return { connected: false };
     }
   },
 
-  /** 云端：手机端验证验证码，换取 sessionToken */
-  async verifyCode(code: string): Promise<{ success: boolean; sessionToken?: string; deviceId?: string; deviceOnline?: boolean; error?: string }> {
-    const resp = await fetch(`${AUTH_URL}/api/remote/verify-code`, {
+  /** 云端：手机端识别码 + 密码登录 → sessionToken */
+  async verifyPassword(shortId: string, password: string): Promise<{ success: boolean; sessionToken?: string; deviceId?: string; deviceOnline?: boolean; error?: string }> {
+    const resp = await fetch(`${AUTH_URL}/api/remote/verify-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code }),
+      body: JSON.stringify({ shortId, password }),
     });
     return resp.json();
   },

@@ -96,7 +96,7 @@ export const ECONOMIC_TECHS = new Set([
 export const MILITARY_TECHS = new Set([
   '炼铁术', '箭羽改良', '骑术', '燃烧弹', '剑士', '弓箭手', '轻骑兵', '床弩',
   '追踪术', '寻路术', '小圆盾', '皮甲', '鳞甲', '轮轴强化', '枪兵', '复合弓手',
-  '重骑兵', '投石车', '伪装术', '战斗策略', '防御阵型', '医疗部队', '制图学',
+  '重骑兵', '投石车', '伪装术', '战斗策略', '防御阵型', '医疗部队','草药', '制图学',
   '长剑士', '弩手', '骑士', '弩炮', '乌兹钢', '锥形箭', '马镫', '弹道学',
   '长鳞盾', '巨盾', '板甲', '重型车架', '联合作战', '扎营防守', '禁卫军',
   '皇家弩手', '皇家骑士', '抛石机',
@@ -148,30 +148,17 @@ export async function researchTech(
 
   // ============================================
   // 第 2 步: 识别弹出研究按钮，进入研究面板
-  // 首次用图像识别，识别到后缓存坐标，后续直接用缓存（同一循环内有效）
   // ============================================
   ctx.log('--- 第 2 步: 获取弹出研究按钮坐标 ---');
-  const POP_SEARCH_KEY = 'pop_SearchBtn';
-  let popupX: number;
-  let popupY: number;
-
-  const cached = ctx.getCachedLocation(POP_SEARCH_KEY);
-  if (cached) {
-    popupX = cached.x;
-    popupY = cached.y;
-    ctx.log(`使用缓存的弹出研究按钮坐标 (${popupX}, ${popupY})`);
-  } else {
-    const popSearchTemplate = path.join(TEMPLATE_DIR, 'pop_SearchBtn.png');
-    const popup = await ctx.findImageWithLocation(popSearchTemplate, 0.7, [0.7, 0.8, 0.9, 1.0, 1.1]);
-    if (!popup.found) {
-      ctx.log(`❌ 未找到弹出研究按钮 (confidence: ${popup.confidence.toFixed(3)})`);
-      return 'no_research_button';
-    }
-    popupX = popup.x;
-    popupY = popup.y;
-    ctx.setCachedLocation(POP_SEARCH_KEY, popupX, popupY);
-    ctx.log(`识别并缓存弹出研究按钮 (${popupX}, ${popupY})`);
+  const popSearchTemplate = path.join(TEMPLATE_DIR, 'pop_SearchBtn.png');
+  const popup = await ctx.findImageWithLocation(popSearchTemplate, 0.7, [0.7, 0.8, 0.9, 1.0, 1.1]);
+  if (!popup.found) {
+    ctx.log(`❌ 未找到弹出研究按钮 (confidence: ${popup.confidence.toFixed(3)})`);
+    return 'no_research_button';
   }
+  const popupX = popup.x;
+  const popupY = popup.y;
+  ctx.log(`识别弹出研究按钮 (${popupX}, ${popupY})`);
   await ctx.tap(popupX, popupY);
   await ctx.sleep(2);
 
@@ -218,19 +205,24 @@ export async function researchTech(
   // 第 3 步: 在面板中滑动寻找目标科技
   // ============================================
   ctx.log('--- 第 3 步: 滑动寻找目标科技 ---');
-  const maxPages = 5;
+  const maxPages = 6;
   let techFound = false;
 
   for (let page = 0; page < maxPages; page++) {
     ctx.log(`扫描第 ${page + 1} 页...`);
 
-    // 用图像识别找科技
-    const found = await ctx.tapImage(techTemplatePath, 0.65);
-    if (found) {
-      ctx.log(`✅ 找到科技: ${targetTech}`);
+    // 多尺度匹配：解决滑动后图标轻微缩放导致置信度波动问题
+    const scales = [0.9, 0.95, 1.0, 1.05, 1.1];
+    const result = await ctx.findImageWithLocation(techTemplatePath, 0.6, scales);
+
+    if (result.found) {
+      ctx.log(`✅ 找到科技: ${targetTech} (置信度: ${result.confidence.toFixed(3)})`);
+      await ctx.tap(result.x, result.y);
       techFound = true;
       break;
     }
+
+    ctx.log(`  未找到，最佳置信度: ${result.confidence.toFixed(3)}`);
 
     // 没找到，向左滑动
     if (page < maxPages - 1) {

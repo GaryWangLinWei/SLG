@@ -22,6 +22,7 @@ export interface RemoteState {
   deviceOnline: boolean;
   logs: LogEntry[];
   runningTasks: string[];
+  starting: boolean;
 }
 
 const MAX_LOGS = 500;
@@ -46,7 +47,7 @@ function timestampToTime(ts: number): string {
 /** 远程控制 WebSocket Hook，自动重连 */
 export function useRemoteSocket(sessionToken: string | null) {
   const [state, setState] = useState<RemoteState>({
-    connected: false, deviceOnline: false, logs: [], runningTasks: [],
+    connected: false, deviceOnline: false, logs: [], runningTasks: [], starting: false,
   });
   const wsRef = useRef<WebSocket | null>(null);
   const pendingResponses = useRef<Map<string, (resp: any) => void>>(new Map());
@@ -82,6 +83,7 @@ export function useRemoteSocket(sessionToken: string | null) {
           ...s,
           deviceOnline: !!msg.data.online,
           runningTasks: msg.data.runningTasks || [],
+          starting: !!msg.data.starting,
         }));
         return;
       }
@@ -95,6 +97,11 @@ export function useRemoteSocket(sessionToken: string | null) {
           timestamp: msg.timestamp,
         };
         setState(s => ({ ...s, logs: [...s.logs, entry].slice(-MAX_LOGS) }));
+        return;
+      }
+
+      if (msg.type === 'log_clear') {
+        setState(s => ({ ...s, logs: [] }));
         return;
       }
     };

@@ -56,26 +56,14 @@ export async function explore(
     // 第 3 步: 图像识别弹出侦查按钮
     ctx.log('  [3/8] 识别弹出侦查按钮');
     const popScoutTemplate = path.join(TEMPLATE_DIR, 'pop_zhenChaBtn.png');
-    const CACHE_KEY = 'pop_ScoutBtn';
-    let popX: number;
-    let popY: number;
-
-    const cached = ctx.getCachedLocation(CACHE_KEY);
-    if (cached) {
-      popX = cached.x;
-      popY = cached.y;
-      ctx.log(`  使用缓存的侦查按钮坐标 (${popX}, ${popY})`);
-    } else {
-      const popup = await ctx.findImageWithLocation(popScoutTemplate, 0.7, [0.7, 0.8, 0.9, 1.0, 1.1]);
-      if (!popup.found) {
-        ctx.log(`  ❌ 未找到弹出侦查按钮 (confidence: ${popup.confidence.toFixed(3)})`);
-        return { result: 'no_scout_button', dispatched: 0 };
-      }
-      popX = popup.x;
-      popY = popup.y;
-      ctx.setCachedLocation(CACHE_KEY, popX, popY);
-      ctx.log(`  识别并缓存侦查按钮 (${popX}, ${popY})，置信度: ${popup.confidence.toFixed(3)}`);
+    const popup = await ctx.findImageWithLocation(popScoutTemplate, 0.7, [0.7, 0.8, 0.9, 1.0, 1.1]);
+    if (!popup.found) {
+      ctx.log(`  ❌ 未找到弹出侦查按钮 (confidence: ${popup.confidence.toFixed(3)})`);
+      return { result: 'no_scout_button', dispatched: 0 };
     }
+    const popX = popup.x;
+    const popY = popup.y;
+    ctx.log(`  识别侦查按钮 (${popX}, ${popY})，置信度: ${popup.confidence.toFixed(3)}`);
 
     // 第 4 步: 点击弹出侦查按钮
     ctx.log(`  [4/8] 点击侦查按钮 (${popX}, ${popY})`);

@@ -34,17 +34,16 @@ class RemoteCodeService {
     return { code, expiresAt };
   }
 
-  /** 验证验证码，通过则生成 session token */
+  /** 验证验证码，通过则生成 session token。10 分钟窗口内可多次兑换，每次发新 sessionToken */
   verifyCode(code: string): VerifyCodeResult {
     const db = getDb();
     const row: any = db.prepare(`
-      SELECT id, device_id, expires_at, used FROM remote_codes WHERE code = ?
+      SELECT id, device_id, expires_at FROM remote_codes WHERE code = ?
     `).get(code);
     if (!row) return { success: false, error: '验证码不存在' };
-    if (row.used) return { success: false, error: '验证码已使用' };
     if (Date.now() > row.expires_at) return { success: false, error: '验证码已过期' };
 
-    // 标记已使用
+    // 记录最后一次使用时间（不再限制次数）
     db.prepare(`UPDATE remote_codes SET used = 1, used_at = ? WHERE id = ?`).run(Date.now(), row.id);
     // 生成 session token
     const sessionToken = randomBytes(32).toString('hex');

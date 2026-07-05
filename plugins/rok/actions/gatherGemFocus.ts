@@ -1,5 +1,6 @@
 import { PluginContext } from '../../../core/plugin';
 import { getTemplatesDir } from '../../../core/resourcePath';
+import { ocrService } from '../../../core/ocr/OcrService';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 // import sharp from 'sharp';
@@ -12,6 +13,7 @@ import {
   checkIdleTeamsAvailable,
   dispatchToTeamPopup,
   createSpiralState,
+  parseCoord,
 } from './gatherGem';
 
 const TEMPLATE_DIR = getTemplatesDir();
@@ -295,7 +297,25 @@ export async function gatherGemFocus(
         ctx, config, teams, 0, hasPaging, collectedCoords, teamPage
       );
       hasPaging = r.hasPaging;
-      if (r.dispatched) dispatched++;
+      if (r.dispatched) {
+        dispatched++;
+        // 记录坐标防止重复派队
+        const coordRegionPath = await ctx.captureRegion(400, 11, 137, 32);
+        try {
+          try {
+            const coordText = await ocrService.readCoordinates(coordRegionPath);
+            ctx.log(`  [坐标] 记录已采集: ${coordText}`);
+            const curCoord = parseCoord(coordText);
+            if (curCoord) {
+              collectedCoords.push(curCoord);
+            }
+          } catch (e) {
+            ctx.log(`  ⚠️ 坐标 OCR 失败，跳过记录: ${(e as Error).message}`);
+          }
+        } finally {
+          await fs.unlink(coordRegionPath).catch(() => {});
+        }
+      }
       continue;
     }
 
@@ -320,6 +340,22 @@ export async function gatherGemFocus(
     await ctx.tap(march.x, march.y);
     await ctx.sleep(1.5);
     dispatched++;
+    // 记录坐标防止重复派队
+    const coordRegionPath = await ctx.captureRegion(400, 11, 137, 32);
+    try {
+      try {
+        const coordText = await ocrService.readCoordinates(coordRegionPath);
+        ctx.log(`  [坐标] 记录已采集: ${coordText}`);
+        const curCoord = parseCoord(coordText);
+        if (curCoord) {
+          collectedCoords.push(curCoord);
+        }
+      } catch (e) {
+        ctx.log(`  ⚠️ 坐标 OCR 失败，跳过记录: ${(e as Error).message}`);
+      }
+    } finally {
+      await fs.unlink(coordRegionPath).catch(() => {});
+    }
   }
 
   ctx.log(`=== 专注模式结束：派出 ${dispatched} 队 ===`);

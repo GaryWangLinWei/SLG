@@ -39,6 +39,12 @@ class RemoteLogService {
     return rows.reverse(); // 返回时按时间正序
   }
 
+  /** 清空指定设备的所有历史日志（点击"开始"时电脑端触发） */
+  clearDevice(deviceId: string): void {
+    const db = getDb();
+    db.prepare(`DELETE FROM remote_logs WHERE device_id = ?`).run(deviceId);
+  }
+
   /** 清理：删除 7 天前的日志 + 单设备超过 10000 条的部分 */
   cleanup(): void {
     const db = getDb();

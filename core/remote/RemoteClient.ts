@@ -50,6 +50,17 @@ class RemoteClient {
     if (this.logBuffer.length >= LOG_BATCH_SIZE) this.flushLogs();
   }
 
+  /** 通知云端清空该设备日志（重启计数），云端会广播给所有 user */
+  pushLogClear(): void {
+    if (!this.connected || !this.ws || !this.opts) return;
+    // 先把 buffer 里未发送的日志丢弃（避免清后又冒出老日志）
+    this.logBuffer = [];
+    this.send({
+      type: 'log_clear', id: randomUUID(), deviceId: this.opts.deviceId,
+      data: {}, timestamp: Date.now(),
+    });
+  }
+
   pushStatus(status: StatusData): void {
     if (!this.connected || !this.ws || !this.opts) return;
     this.send({ type: 'status', id: randomUUID(), deviceId: this.opts.deviceId, data: status, timestamp: Date.now() });

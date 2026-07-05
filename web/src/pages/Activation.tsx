@@ -84,6 +84,25 @@ export default function ActivationPage() {
             </div>
           )}
 
+          {status?.fingerprintMismatch && (
+            <div className="mb-4 p-4 bg-amber-50 border border-amber-300 rounded-xl text-amber-700 text-sm">
+              <p className="font-bold text-base mb-1">⚠️ 设备不匹配</p>
+              <p className="mb-2">检测到当前设备与激活时的设备不一致。</p>
+              <p className="text-xs text-amber-600 mb-1">当前设备指纹：</p>
+              <code className="text-xs bg-white px-2 py-1 rounded block mb-2 break-all">
+                {status.deviceFingerprint || '未知'}
+              </code>
+              <p className="text-xs text-amber-600">请联系客服处理，或使用新的激活码激活</p>
+            </div>
+          )}
+
+          {status?.isOffline && (
+            <div className="mb-4 p-4 bg-amber-50 border border-amber-300 rounded-xl text-amber-700 text-sm text-center">
+              <p className="font-bold text-base mb-1">⚠️ 离线时间过长</p>
+              <p className="text-amber-600">请连接网络后重试激活</p>
+            </div>
+          )}
+
           <form onSubmit={handleSubmit} noValidate>
             <div className="mb-6">
               <label className="block text-sm font-medium text-slate-700 mb-2">

@@ -18,10 +18,18 @@ const ACTION_MAP: Record<string, { pluginId: string; actionId: string }> = {
 class RemoteContextService implements RemoteContext {
   private defaultAccountId = '';
   private loopRunning = false;
+  private starting = false;
 
   /** 设置远程控制要操作的默认账号（主页第一个账号） */
   setDefaultAccount(accountId: string): void {
     this.defaultAccountId = accountId;
+  }
+
+  /** 前端调用：上报"正在启动游戏"状态，会立即推 status 给云端 */
+  setStarting(starting: boolean): void {
+    if (this.starting === starting) return;
+    this.starting = starting;
+    this.pushStatus();
   }
 
   /** 手机发来 start_loop：广播 SSE 让 Home.tsx 触发 handleStartAll */
@@ -29,6 +37,8 @@ class RemoteContextService implements RemoteContext {
     if (!hasRemoteControlClients()) {
       return { success: false, error: 'Electron 窗口未打开，请先打开 Electron' };
     }
+    // 兜底：任何 start 之前先通知云端清空历史日志（本地日志由 Home.tsx 的 handleStartAll 清）
+    remoteClient.pushLogClear();
     emitRemoteControl('start_loop');
     return { success: true };
   }
@@ -108,6 +118,7 @@ class RemoteContextService implements RemoteContext {
     return {
       online: true,
       runningTasks,
+      starting: this.starting,
     };
   }
 }

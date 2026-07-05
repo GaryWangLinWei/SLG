@@ -14,21 +14,14 @@ export async function readGemCount(ctx: PluginContext): Promise<number | null> {
   );
 
   try {
-    const text = (await ocrService.readDigits(regionPath)).trim();
+    const text = (await ocrService.readGemCount(regionPath)).trim();
     ctx.log(`[GEM-COUNT] OCR: "${text}"`);
 
-    // 提取数字（支持 "1.2K" "1234" "1,234" 等格式）
-    const numMatch = text.match(/(\d[\d,.]*[KkMm]?|\d+)/);
+    // 提取数字（支持 "5,562" 等千位分隔符格式）
+    const numMatch = text.match(/(\d[\d,]*|\d+)/);
     if (numMatch) {
-      const raw = numMatch[1].toUpperCase().replace(/,/g, '');
-      let num: number;
-      if (raw.endsWith('K')) {
-        num = Math.round(parseFloat(raw.slice(0, -1)) * 1000);
-      } else if (raw.endsWith('M')) {
-        num = Math.round(parseFloat(raw.slice(0, -1)) * 1_000_000);
-      } else {
-        num = parseInt(raw, 10);
-      }
+      const raw = numMatch[1].replace(/,/g, '');  // 移除千位分隔符
+      const num = parseInt(raw, 10);
       if (!isNaN(num)) {
         ctx.log(`[GEM-COUNT] ${num}`);
         return num;

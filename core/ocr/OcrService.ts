@@ -9,6 +9,10 @@ type OcrWorker = Tesseract.Worker;
 
 const LANG_PATH = getTraineddataDir();
 
+// OCR 单次识别超时（ms）。tesseract.js worker 偶发卡死，超时后强制 terminate 重建。
+const OCR_TIMEOUT_MS = 8000;
+const OCR_TIMEOUT_MS_CHS = 15000;
+
 class OcrService {
   private worker: OcrWorker | null = null;
   private workerChs: OcrWorker | null = null;
@@ -28,12 +32,41 @@ class OcrService {
   }
 
   /**
+   * 带超时的识别包装：超时时强制 terminate worker 并置空字段（下次调用自动重建），
+   * 避免 tesseract.js worker 卡死后整个任务永久阻塞。
+   */
+  private async recognizeWithTimeout(
+    worker: OcrWorker,
+    imagePath: string,
+    isChinese: boolean = false
+  ): Promise<string> {
+    const timeoutMs = isChinese ? OCR_TIMEOUT_MS_CHS : OCR_TIMEOUT_MS;
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      const result = await Promise.race([
+        worker.recognize(imagePath),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`OCR 超时 (${timeoutMs}ms)`)), timeoutMs);
+        }),
+      ]);
+      return (result as Tesseract.RecognizeResult).data.text.trim();
+    } catch (err) {
+      // 超时或识别失败：销毁卡死的 worker，让下次调用重建
+      console.warn(`[OCR] recognize 失败/超时，重建 worker: ${(err as Error).message}`);
+      try { await worker.terminate(); } catch { /* ignore */ }
+      if (isChinese) this.workerChs = null; else this.worker = null;
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /**
    * 识别图像中的文本
    */
   async readText(imagePath: string): Promise<string> {
     const worker = await this.getWorker();
-    const { data } = await worker.recognize(imagePath);
-    return data.text.trim();
+    return this.recognizeWithTimeout(worker, imagePath);
   }
 
   /**
@@ -44,9 +77,14 @@ class OcrService {
     await worker.setParameters({
       tessedit_char_whitelist: '0123456789/',
     });
-    const { data } = await worker.recognize(imagePath);
-    await worker.setParameters({ tessedit_char_whitelist: '' });
-    return data.text.trim();
+    try {
+      return await this.recognizeWithTimeout(worker, imagePath);
+    } finally {
+      // worker 可能已被 terminate（超时时），只有还活着才尝试还原参数
+      if (this.worker === worker) {
+        await worker.setParameters({ tessedit_char_whitelist: '' }).catch(() => {});
+      }
+    }
   }
 
   /**
@@ -65,9 +103,13 @@ class OcrService {
     await worker.setParameters({
       tessedit_char_whitelist: '0123456789',
     });
-    const { data } = await worker.recognize(imagePath);
-    await worker.setParameters({ tessedit_char_whitelist: '' });
-    return data.text.trim();
+    try {
+      return await this.recognizeWithTimeout(worker, imagePath);
+    } finally {
+      if (this.worker === worker) {
+        await worker.setParameters({ tessedit_char_whitelist: '' }).catch(() => {});
+      }
+    }
   }
 
   /**
@@ -78,9 +120,13 @@ class OcrService {
     await worker.setParameters({
       tessedit_char_whitelist: '0123456789:hHmM',
     });
-    const { data } = await worker.recognize(imagePath);
-    await worker.setParameters({ tessedit_char_whitelist: '' });
-    return data.text.trim();
+    try {
+      return await this.recognizeWithTimeout(worker, imagePath);
+    } finally {
+      if (this.worker === worker) {
+        await worker.setParameters({ tessedit_char_whitelist: '' }).catch(() => {});
+      }
+    }
   }
 
   /**
@@ -91,11 +137,15 @@ class OcrService {
     await worker.setParameters({
       tessedit_char_whitelist: '0123456789',
     });
-    const { data } = await worker.recognize(imagePath);
-    await worker.setParameters({ tessedit_char_whitelist: '' });
-    const result = data.text.trim();
-    console.log(`[Tesseract] 宝石坐标识别结果: "${result}"`);
-    return result;
+    try {
+      const result = await this.recognizeWithTimeout(worker, imagePath);
+      console.log(`[Tesseract] 宝石坐标识别结果: "${result}"`);
+      return result;
+    } finally {
+      if (this.worker === worker) {
+        await worker.setParameters({ tessedit_char_whitelist: '' }).catch(() => {});
+      }
+    }
   }
 
   /**
@@ -106,11 +156,15 @@ class OcrService {
     await worker.setParameters({
       tessedit_char_whitelist: '0123456789',
     });
-    const { data } = await worker.recognize(imagePath);
-    await worker.setParameters({ tessedit_char_whitelist: '' });
-    const result = data.text.trim();
-    console.log(`[Tesseract] 山洞坐标识别结果: "${result}"`);
-    return result;
+    try {
+      const result = await this.recognizeWithTimeout(worker, imagePath);
+      console.log(`[Tesseract] 山洞坐标识别结果: "${result}"`);
+      return result;
+    } finally {
+      if (this.worker === worker) {
+        await worker.setParameters({ tessedit_char_whitelist: '' }).catch(() => {});
+      }
+    }
   }
 
   /**
@@ -121,9 +175,13 @@ class OcrService {
     await worker.setParameters({
       tessedit_char_whitelist: '0123456789',
     });
-    const { data } = await worker.recognize(imagePath);
-    await worker.setParameters({ tessedit_char_whitelist: '' });
-    return data.text.trim();
+    try {
+      return await this.recognizeWithTimeout(worker, imagePath);
+    } finally {
+      if (this.worker === worker) {
+        await worker.setParameters({ tessedit_char_whitelist: '' }).catch(() => {});
+      }
+    }
   }
 
   /**
@@ -142,9 +200,13 @@ class OcrService {
     await worker.setParameters({
       tessedit_char_whitelist: '0123456789,',
     });
-    const { data } = await worker.recognize(imagePath);
-    await worker.setParameters({ tessedit_char_whitelist: '' });
-    return data.text.trim();
+    try {
+      return await this.recognizeWithTimeout(worker, imagePath);
+    } finally {
+      if (this.worker === worker) {
+        await worker.setParameters({ tessedit_char_whitelist: '' }).catch(() => {});
+      }
+    }
   }
 
   /**
@@ -152,8 +214,7 @@ class OcrService {
    */
   async readChineseText(imagePath: string): Promise<string> {
     const worker = await this.getChineseWorker();
-    const { data } = await worker.recognize(imagePath);
-    return data.text.trim();
+    return this.recognizeWithTimeout(worker, imagePath, true);
   }
 
   async destroy(): Promise<void> {

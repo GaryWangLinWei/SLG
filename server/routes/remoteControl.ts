@@ -77,4 +77,17 @@ router.post('/loop-state', async (ctx: any) => {
   ctx.body = { success: true };
 });
 
+// 前端上报"正在启动游戏"状态
+router.post('/starting-state', async (ctx: any) => {
+  const { starting } = ctx.request.body as any;
+  if (typeof starting !== 'boolean') {
+    ctx.status = 400;
+    ctx.body = { success: false, error: 'starting must be boolean' };
+    return;
+  }
+  const { remoteContextService } = require('../services/RemoteContextService');
+  remoteContextService.setStarting(starting);
+  ctx.body = { success: true };
+});
+
 export default router;

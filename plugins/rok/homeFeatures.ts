@@ -3,6 +3,9 @@ export type TeamPageChoice = 'gather' | 'attack' | 'other';
 export const DEFAULT_COLLECT_RESOURCES_INTERVAL_MINUTES = 240;
 export const MIN_COLLECT_RESOURCES_INTERVAL_MINUTES = 2;
 
+export const DEFAULT_AUTO_RECONNECT_INTERVAL_MINUTES = 5;
+export const MIN_AUTO_RECONNECT_INTERVAL_MINUTES = 0;
+
 export function getCollectResourcesIntervalSeconds(minutes: number): number {
   const baseMinutes = Number.isFinite(minutes) ? Math.max(MIN_COLLECT_RESOURCES_INTERVAL_MINUTES, minutes) : DEFAULT_COLLECT_RESOURCES_INTERVAL_MINUTES;
   return baseMinutes * 60 * (0.85 + Math.random() * 0.3);
@@ -26,6 +29,7 @@ export interface HomeFeatures {
   worldChatMessages: string[];
   worldChatInterval: number;
   helpTeammates: boolean;
+  autoReconnectIntervalMinutes: number;
   autoRallyFort: boolean;
   rallyFortLevel: number;
   rallyFortTeam: number;
@@ -37,6 +41,7 @@ export interface HomeFeatures {
   gemGatherTeamPage: TeamPageChoice;
   gemGatherActiveHours: number;
   gemGatherRestHours: number;
+  gemGatherMixRatio: number;
   autoCaveExplore: boolean;
   nightMode: boolean;
   joinRallyEnabled: boolean;
@@ -61,6 +66,8 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
     { type: '石矿', level: 3 },
     { type: '金矿', level: 2 },
     { type: '', level: 1 },
+    { type: '', level: 1 },
+    { type: '', level: 1 },
   ],
   resourceGatherTeamPage: 'gather',
   trainTroops: false,
@@ -71,6 +78,7 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   worldChatMessages: ['', '', ''],
   worldChatInterval: 300,
   helpTeammates: false,
+  autoReconnectIntervalMinutes: 5,
   autoRallyFort: false,
   rallyFortLevel: 0,
   rallyFortTeam: 1,
@@ -82,6 +90,7 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   gemGatherTeamPage: 'gather',
   gemGatherActiveHours: 2,
   gemGatherRestHours: 1,
+  gemGatherMixRatio: 0.5,
   autoCaveExplore: false,
   nightMode: false,
   joinRallyEnabled: false,

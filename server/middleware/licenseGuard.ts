@@ -7,7 +7,8 @@ const PUBLIC_PATHS = [
   '/api/license',
   '/api/remote/connection-status',
   '/api/remote/start-client',
-  '/api/remote-control'
+  '/api/remote-control',
+  '/api/logs'
 ];
 
 function isPublicPath(path: string): boolean {

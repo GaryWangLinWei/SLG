@@ -1,7 +1,7 @@
 import { WebSocketServer, WebSocket } from 'ws';
 import { Server as HttpServer } from 'http';
 import { randomUUID } from 'crypto';
-import { remoteCodeService } from './RemoteCodeService';
+import { remoteDeviceService } from './RemoteDeviceService';
 import { remoteLogService } from './RemoteLogService';
 import { WsMessage, AuthData, LogData, CommandData, StatusData } from '../ws/messages';
 
@@ -87,7 +87,7 @@ class WebSocketHub {
       this.broadcastStatusToUsers(deviceId, { online: true, runningTasks: [] });
       return { success: true, deviceId };
     } else {
-      const result = remoteCodeService.verifySession(auth.token);
+      const result = remoteDeviceService.verifySession(auth.token);
       if (!result.valid) return { success: false, error: '会话无效或已过期' };
       const userConn: UserConnection = { ws, sessionToken: auth.token, deviceId: result.deviceId!, connectedAt: Date.now() };
       this.users.add(userConn);
@@ -111,6 +111,10 @@ class WebSocketHub {
             message: log.message, level: log.level || 'info', timestamp: msg.timestamp,
           }]);
         }
+        this.broadcastToUsers(deviceId, msg);
+      } else if (msg.type === 'log_clear') {
+        // 电脑端点击"开始"通知云端清空日志
+        remoteLogService.clearDevice(deviceId);
         this.broadcastToUsers(deviceId, msg);
       } else if (msg.type === 'response' || msg.type === 'status') {
         this.broadcastToUsers(deviceId, msg);

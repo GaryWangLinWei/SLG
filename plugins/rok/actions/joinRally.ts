@@ -172,15 +172,6 @@ export async function joinRally(
 
     const distPath = await ctx.captureRegion(col.distance.x, col.distance.y, col.distance.width, col.distance.height);
     const distText = await ocrService.readDistance(distPath);
-
-    // 保存 OCR 识别距离时的截图供调试
-    const debugDir = path.join(process.cwd(), 'temp', 'debug', 'rally_ocr');
-    await fs.mkdir(debugDir, { recursive: true });
-    const debugFileName = `rally_dist_${Date.now()}_col${i + 1}.png`;
-    const debugSavePath = path.join(debugDir, debugFileName);
-    await fs.copyFile(distPath, debugSavePath);
-    ctx.log(`    [调试] 距离截图已保存: ${debugSavePath}`);
-
     await fs.unlink(distPath).catch(() => {});
     ctx.log(`    距离 OCR: "${distText}"`);
 

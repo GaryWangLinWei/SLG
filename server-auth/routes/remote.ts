@@ -1,62 +1,88 @@
 import Router from 'koa-router';
-import { remoteCodeService } from '../services/RemoteCodeService';
+import { remoteDeviceService } from '../services/RemoteDeviceService';
 import { remoteLogService } from '../services/RemoteLogService';
 import { webSocketHub } from '../services/WebSocketHub';
 
 const router = new Router({ prefix: '/api/remote' });
 
+// 失败锁：key = ip + shortId，错 5 次锁 5 分钟
 const failureCounter = new Map<string, { count: number; lockedUntil: number }>();
+const MAX_FAILURES = 5;
+const LOCK_DURATION_MS = 5 * 60 * 1000;
 
-function checkFailureLock(ip: string): { locked: boolean; remaining?: number } {
-  const entry = failureCounter.get(ip);
+function lockKey(ip: string, shortId: string): string {
+  return `${ip}|${shortId.toUpperCase()}`;
+}
+
+function checkFailureLock(key: string): { locked: boolean; remaining?: number } {
+  const entry = failureCounter.get(key);
   if (!entry) return { locked: false };
   if (entry.lockedUntil > Date.now()) {
     return { locked: true, remaining: Math.ceil((entry.lockedUntil - Date.now()) / 1000) };
   }
-  if (entry.lockedUntil <= Date.now() && entry.count >= 3) failureCounter.delete(ip);
+  if (entry.lockedUntil <= Date.now() && entry.count >= MAX_FAILURES) failureCounter.delete(key);
   return { locked: false };
 }
 
-function recordFailure(ip: string): void {
-  const entry = failureCounter.get(ip) || { count: 0, lockedUntil: 0 };
+function recordFailure(key: string): void {
+  const entry = failureCounter.get(key) || { count: 0, lockedUntil: 0 };
   entry.count++;
-  if (entry.count >= 3) entry.lockedUntil = Date.now() + 60 * 1000;
-  failureCounter.set(ip, entry);
+  if (entry.count >= MAX_FAILURES) entry.lockedUntil = Date.now() + LOCK_DURATION_MS;
+  failureCounter.set(key, entry);
 }
 
-router.post('/generate-code', async (ctx) => {
-  const { deviceId, activationCode } = ctx.request.body as any;
-  if (!deviceId || !activationCode) {
+/** 电脑端：设置/修改访问密码 */
+router.post('/set-password', async (ctx) => {
+  const { deviceId, activationCode, password } = ctx.request.body as any;
+  if (!deviceId || !activationCode || !password) {
     ctx.status = 400;
-    ctx.body = { success: false, error: '缺少 deviceId 或 activationCode' };
+    ctx.body = { success: false, error: '缺少 deviceId / activationCode / password' };
     return;
   }
-  const result = remoteCodeService.generateCode(deviceId, activationCode);
-  ctx.body = { success: true, code: result.code, expiresAt: result.expiresAt };
+  const result = remoteDeviceService.setPassword(deviceId, activationCode, password);
+  if (!result.success) {
+    ctx.status = 400;
+    ctx.body = result;
+    return;
+  }
+  ctx.body = result;
 });
 
-router.post('/verify-code', async (ctx) => {
+/** 电脑端：查询密码是否已设置 */
+router.post('/has-password', async (ctx) => {
+  const { deviceId } = ctx.request.body as any;
+  if (!deviceId) {
+    ctx.status = 400;
+    ctx.body = { success: false, error: '缺少 deviceId' };
+    return;
+  }
+  ctx.body = { success: true, hasPassword: remoteDeviceService.hasPassword(deviceId) };
+});
+
+/** 手机端：识别码 + 密码 → sessionToken */
+router.post('/verify-password', async (ctx) => {
   const ip = ctx.request.ip || 'unknown';
-  const lock = checkFailureLock(ip);
+  const { shortId, password } = ctx.request.body as any;
+  if (!shortId || !password) {
+    ctx.status = 400;
+    ctx.body = { success: false, error: '缺少 shortId 或 password' };
+    return;
+  }
+  const key = lockKey(ip, shortId);
+  const lock = checkFailureLock(key);
   if (lock.locked) {
     ctx.status = 429;
     ctx.body = { success: false, error: `错误次数过多，请 ${lock.remaining} 秒后重试` };
     return;
   }
-  const { code } = ctx.request.body as any;
-  if (!code) {
-    ctx.status = 400;
-    ctx.body = { success: false, error: '缺少 code' };
-    return;
-  }
-  const result = remoteCodeService.verifyCode(code);
+  const result = remoteDeviceService.verifyPassword(shortId, password);
   if (!result.success) {
-    recordFailure(ip);
+    recordFailure(key);
     ctx.status = 401;
     ctx.body = result;
     return;
   }
-  failureCounter.delete(ip);
+  failureCounter.delete(key);
   ctx.body = {
     success: true,
     sessionToken: result.sessionToken,
@@ -74,7 +100,7 @@ router.get('/logs', async (ctx) => {
     ctx.body = { success: false, error: '缺少 sessionToken' };
     return;
   }
-  const result = remoteCodeService.verifySession(sessionToken);
+  const result = remoteDeviceService.verifySession(sessionToken);
   if (!result.valid) {
     ctx.status = 401;
     ctx.body = { success: false, error: '会话无效或已过期' };
@@ -91,7 +117,7 @@ router.get('/status', async (ctx) => {
     ctx.body = { success: false, error: '缺少 sessionToken' };
     return;
   }
-  const result = remoteCodeService.verifySession(sessionToken);
+  const result = remoteDeviceService.verifySession(sessionToken);
   if (!result.valid) {
     ctx.status = 401;
     ctx.body = { success: false, error: '会话无效或已过期' };

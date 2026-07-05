@@ -6,6 +6,7 @@ import * as fs from 'fs/promises';
 import sharp from 'sharp';
 import { ensureInWorld } from '../utils/location';
 import { ensureTeamPage, TeamPage } from '../utils/teamPage';
+import { getTeamButtons } from '../utils/teamButtons';
 
 const TEMPLATE_DIR = getTemplatesDir();
 const PAGE_INDICATOR_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_page_indicator.png');
@@ -48,20 +49,6 @@ const RESOURCE_BUTTON_RECTS: Record<string, {
     plus: { x1: 1437, y1: 509, x2: 1465, y2: 538 },
     search: { x1: 1203, y1: 584, x2: 1351, y2: 637 },
   },
-};
-const TEAM_BUTTONS_NO_PAGE: Record<number, { x: number; y: number }> = {
-  1: { x: 1378, y: 292 },
-  2: { x: 1378, y: 359 },
-  3: { x: 1378, y: 430 },
-  4: { x: 1378, y: 499 },
-  5: { x: 1378, y: 565 },
-};
-const TEAM_BUTTONS_PAGED: Record<number, { x: number; y: number }> = {
-  1: { x: 1378, y: 328 },
-  2: { x: 1378, y: 392 },
-  3: { x: 1378, y: 465 },
-  4: { x: 1378, y: 529 },
-  5: { x: 1378, y: 595 },
 };
 const MARCH_BUTTON = { x: 1154, y: 791 };
 const CLOSE_POPUP_BUTTON = { x: 1392, y: 57 };
@@ -223,7 +210,7 @@ export async function gatherSingleResource(
   }
 
   // Step 8: Select team by number and check if state changed (button highlighted)
-  const teamButtons = hasPaging ? TEAM_BUTTONS_PAGED : TEAM_BUTTONS_NO_PAGE;
+  const teamButtons = getTeamButtons(hasPaging);
   const teamBtn = teamButtons[task.team];
   if (!teamBtn) {
     ctx.log(`  ❌ 无效的队伍序号: ${task.team}`);

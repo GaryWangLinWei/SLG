@@ -43,6 +43,17 @@ let nightEndOffsetMinutes = 0;         // 夜间下线结束抖动（每次开�
 let bottomBarChecked = false;          // 主循环是否已确认底部菜单栏（launch-game 后需重置）
 let relaunchRequested = false;         // launch-game 后请求各子循环重置状态、从头开始（等价于重新点开始运行）
 
+// 日志聚合：loopLogs 是唯一真源；组件挂载时注册 setter，卸载时置 null。
+// 这样即使 Home 被卸载（切页/后台），日志也不会因 setter 失效而丢失。
+let logSetter: ((updater: (prev: string[]) => string[]) => void) | null = null;
+function pushLog(msg: string) {
+  const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
+  loopLogs = [...loopLogs, line];
+  if (logSetter) {
+    try { logSetter(prev => [...prev, line]); } catch {}
+  }
+}
+
 const LOOP_STATE_KEY = 'loop-state';
 const TEAM_PAGE_OPTIONS: Array<{ value: TeamPageChoice; label: string }> = [
   { value: 'gather', label: '蓝' },
@@ -261,7 +272,12 @@ export function HomePage() {
       setPasswordSaving(false);
     }
   }
-  useEffect(() => { loopLogs = logs; }, [logs]);
+  useEffect(() => {
+    // 挂载时把 loopLogs 灌到 UI；卸载时不再写回（pushLog 是 loopLogs 的唯一写入者）
+    logSetter = setLogs;
+    setLogs(loopLogs);
+    return () => { logSetter = null; };
+  }, []);
   const logContainerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (logContainerRef.current) {
@@ -488,7 +504,7 @@ export function HomePage() {
       loopCompletedBuildings = [false, false, false, false, false];
       loopCompletedTechs = [false, false, false, false, false];
     } catch (e: any) {
-      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 配置切换失败: ${e.message}`]);
+      pushLog(`⚠️ 配置切换失败: ${e.message}`);
     }
   };
 
@@ -519,17 +535,18 @@ export function HomePage() {
 
   const handleStartAll = async (source: 'local' | 'remote' = 'local') => {
     if (!currentAccountId) {
-      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 未选择账号`]);
+      pushLog(`❌ 未选择账号`);
       return;
     }
     if (deviceLoading) return;  // 连接过程中重复触发防抖
     if (loopRunning) return;    // 循环已在启动/运行中，防止重入（远程 SSE 二次触发时挡住）
     // 清空本次运行前的所有日志：本地 UI + 后端环形缓冲 + 云端历史 + 手机端 UI（通过 SSE / WS 广播）
+    loopLogs = [];
     setLogs([]);
     lastPostedLogIndexRef.current = 0;
     pendingLogBatchRef.current = [];
     const sourceLabel = source === 'remote' ? '📱 手机端' : '💻 电脑端';
-    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${sourceLabel} 触发开始运行`]);
+    pushLog(`${sourceLabel} 触发开始运行`);
     console.log('[LogClear] calling /api/logs/clear');
     fetch(`${LOCAL_API_BASE}/api/logs/clear`, { method: 'POST' })
       .then(r => r.json())
@@ -541,13 +558,13 @@ export function HomePage() {
         const result = await api.device.connect(currentAccountId);
         setDeviceConnected(result.connected);
         if (!result.connected) {
-          setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 设备连接失败: ${result.message}`]);
+          pushLog(`❌ 设备连接失败: ${result.message}`);
           setDeviceLoading(false);
           return;
         }
-        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 设备已连接`]);
+        pushLog(`✅ 设备已连接`);
       } catch (e: any) {
-        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 设备连接异常: ${e.message || e}`]);
+        pushLog(`❌ 设备连接异常: ${e.message || e}`);
         setDeviceLoading(false);
         return;
       }
@@ -557,7 +574,7 @@ export function HomePage() {
     // 远程触发：确保游戏已启动（launchGame 内部已做进程检测，已跑则跳过）
     if (source === 'remote') {
       try {
-        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📱 远程启动：确认游戏进程`]);
+        pushLog(`📱 远程启动：确认游戏进程`);
         // 通知手机端进入"启动游戏中"状态，按钮显示等待
         fetch(`${LOCAL_API_BASE}/api/remote-control/starting-state`, {
           method: 'POST',
@@ -569,7 +586,7 @@ export function HomePage() {
           await api.tasks.run(r.task.id);
         }
       } catch (e: any) {
-        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ launchGame 失败: ${e.message || e}`]);
+        pushLog(`⚠️ launchGame 失败: ${e.message || e}`);
       } finally {
         fetch(`${LOCAL_API_BASE}/api/remote-control/starting-state`, {
           method: 'POST',
@@ -588,7 +605,7 @@ export function HomePage() {
       (features.autoWorldChat && features.worldChatMessages.some((m: string) => m.trim())) ||
       (features.autoRallyFort && features.rallyFortLevel > 0) ||
       (features.gemGatherEnabled && (features.gemGatherEnabled && features.gemGatherMode === 'focus')) ||
-      (features.gemGatherEnabled && !(features.gemGatherEnabled && features.gemGatherMode === 'focus') && features.gemGatherTeams.some((t: number) => t)) ||
+      (features.gemGatherEnabled && features.gemGatherTeams.some((t: number) => t)) ||
       features.autoCaveExplore ||
       features.helpTeammates ||
       features.collectResources ||
@@ -616,6 +633,7 @@ export function HomePage() {
     if (features.nightMode) {
       initialLogs.push(`[${new Date().toLocaleTimeString()}] 🌙 夜间下线窗口：${formatMinuteOfDay(NIGHT_START_MINUTE + nightStartOffsetMinutes)} - ${formatMinuteOfDay(NIGHT_END_MINUTE + nightEndOffsetMinutes)}`);
     }
+    loopLogs = initialLogs;
     setLogs(initialLogs);
 
     // Reset completion state for a fresh run (module-level for loop, state for UI)
@@ -657,7 +675,7 @@ export function HomePage() {
         const waitMs = waitMin * 60 * 1000;
         const msg1 = `🔌 检测到游戏掉线，等待 ${waitMin} 分钟后打开游戏`;
         console.log(`[ensureGameRunning] ${msg1}`);
-        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg1}`]);
+        pushLog(`${msg1}`);
         const startWait = monotonicNow();
         while (!loopStopped && (monotonicNow() - startWait) < waitMs) {
           await sleep(1);
@@ -666,7 +684,7 @@ export function HomePage() {
 
         const msg2 = `🎮 尝试拉起游戏`;
         console.log(`[ensureGameRunning] ${msg2}`);
-        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${msg2}`]);
+        pushLog(`${msg2}`);
         const lr = await api.tasks.create(currentAccountId, 'com.rok.automation', 'launch-game');
         if (lr.success) await api.tasks.run(lr.task.id);
         // 启动后界面变化，强制主循环重新检查底部菜单栏
@@ -694,7 +712,7 @@ export function HomePage() {
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (features.gatherResources && !features.autoExplore && !features.autoWorldChat && !(features.gemGatherEnabled && features.gemGatherMode === 'focus')) {
+          if (features.gatherResources && !features.autoExplore && !features.autoWorldChat) {
             const gatherTasks = features.gatherTasks
               .map((t: { type: string; level: number }, i: number) => ({ ...t, team: i + 1 }))
               .filter((t: { type: string; level: number; team: number }) => t.type);
@@ -713,12 +731,12 @@ export function HomePage() {
                   const logs = runResult.task?.logs ?? [];
                   const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
                   if (hasExpiredLog) {
-                    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
+                    pushLog(`⛔ 许可证已到期，停止运行`);
                     loopStopped = true;
                     setExpiredMessage('激活码已到期，请重新激活');
                     refreshStatus();
                   } else {
-                    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 城外采集 完成`]);
+                    pushLog(`✅ 城外采集 完成`);
                   }
                 }
               } catch {} finally { releaseLock(); }
@@ -738,7 +756,7 @@ export function HomePage() {
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (features.helpTeammates && !features.autoExplore && !features.autoWorldChat && !(features.gemGatherEnabled && features.gemGatherMode === 'focus')) {
+          if (features.helpTeammates && !features.autoExplore && !features.autoWorldChat) {
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
@@ -753,12 +771,12 @@ export function HomePage() {
                 const logs = runResult.task?.logs ?? [];
                 const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
                 if (hasExpiredLog) {
-                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
+                  pushLog(`⛔ 许可证已到期，停止运行`);
                   loopStopped = true;
                   setExpiredMessage('激活码已到期，请重新激活');
                   refreshStatus();
                 } else {
-                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 帮助盟友 完成`]);
+                  pushLog(`✅ 帮助盟友 完成`);
                 }
               }
             } catch {} finally { releaseLock(); }
@@ -777,7 +795,7 @@ export function HomePage() {
         while (!loopStopped) {
           if (first) { first = false; continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (features.collectResources && !features.autoExplore && !features.autoWorldChat && !(features.gemGatherEnabled && features.gemGatherMode === 'focus')) {
+          if (features.collectResources && !features.autoExplore && !features.autoWorldChat) {
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
@@ -792,12 +810,12 @@ export function HomePage() {
                 const logs = runResult.task?.logs ?? [];
                 const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
                 if (hasExpiredLog) {
-                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
+                  pushLog(`⛔ 许可证已到期，停止运行`);
                   loopStopped = true;
                   setExpiredMessage('激活码已到期，请重新激活');
                   refreshStatus();
                 } else {
-                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ✅ 收集资源 完成`]);
+                  pushLog(`✅ 收集资源 完成`);
                 }
               }
             } catch {} finally { releaseLock(); }
@@ -816,7 +834,7 @@ export function HomePage() {
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (features.autoRallyFort && features.rallyFortLevel > 0 && !features.autoExplore && !features.autoWorldChat && !(features.gemGatherEnabled && features.gemGatherMode === 'focus')) {
+          if (features.autoRallyFort && features.rallyFortLevel > 0 && !features.autoExplore && !features.autoWorldChat) {
             if (loopStopped) break;
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
@@ -833,7 +851,7 @@ export function HomePage() {
 
                 if (runResult.task?.status === 'stopped') {
                   loopStopped = true;
-                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ ${createResult.task.actionId} 已被停止`]);
+                  pushLog(`⏹️ ${createResult.task.actionId} 已被停止`);
                   return;
                 }
 
@@ -850,19 +868,19 @@ export function HomePage() {
                   cd = 120;
                 }
                 if (hasExpiredLog) {
-                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
+                  pushLog(`⛔ 许可证已到期，停止运行`);
                   loopStopped = true;
                   setExpiredMessage('激活码已到期，请重新激活');
                   refreshStatus();
                 } else {
                   const cdLabel = isStamina ? '75分钟' : isSuccess ? '10分钟' : '2分钟';
-                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${isSuccess ? '✅' : isStamina ? '🔋' : '⚠️'} 城寨 Lv.${features.rallyFortLevel} 队伍${features.rallyFortTeam} ${isSuccess ? '集结成功' : isStamina ? '行动力不足' : '未找到城寨'}，CD ${cdLabel}`]);
+                  pushLog(`${isSuccess ? '✅' : isStamina ? '🔋' : '⚠️'} 城寨 Lv.${features.rallyFortLevel} 队伍${features.rallyFortTeam} ${isSuccess ? '集结成功' : isStamina ? '行动力不足' : '未找到城寨'}，CD ${cdLabel}`);
                 }
               }
             } catch {} finally { releaseLock(); }
             if (loopStopped) break;
             const cdJitter = cd * (0.85 + Math.random() * 0.3);
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏰 城寨完成，${cdJitter.toFixed(0)} 秒后下一轮`]);
+            pushLog(`🏰 城寨完成，${cdJitter.toFixed(0)} 秒后下一轮`);
             const startWait = monotonicNow();
             while (!loopStopped && (monotonicNow() - startWait) < cdJitter * 1000) {
               await sleep(1);
@@ -881,7 +899,7 @@ export function HomePage() {
         while (!loopStopped) {
           if (first) { first = false; await sleep(15); continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (features.joinRallyEnabled && !features.autoExplore && !features.autoWorldChat && !(features.gemGatherEnabled && features.gemGatherMode === 'focus')) {
+          if (features.joinRallyEnabled && !features.autoExplore && !features.autoWorldChat) {
             if (loopStopped) break;
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
@@ -905,7 +923,7 @@ export function HomePage() {
 
                 if (runResult.task?.status === 'stopped') {
                   loopStopped = true;
-                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ ${createResult.task.actionId} 已被停止`]);
+                  pushLog(`⏹️ ${createResult.task.actionId} 已被停止`);
                   return;
                 }
 
@@ -925,21 +943,21 @@ export function HomePage() {
                   cd = 180; // 3 分钟
                 }
                 if (hasExpiredLog) {
-                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
+                  pushLog(`⛔ 许可证已到期，停止运行`);
                   loopStopped = true;
                   setExpiredMessage('激活码已到期，请重新激活');
                   refreshStatus();
                 } else {
                   const cdLabel = isSuccess ? '10分钟' : isNoIdle ? '2分钟' : '3分钟';
                   const targetLabel = (features.joinRallyTargetFort && features.joinRallyTargetLohar) ? '城寨/洛哈' : features.joinRallyTargetFort ? '城寨' : '洛哈';
-                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ${isSuccess ? '✅' : isNoIdle ? '⏸️' : isDistanceExceed ? '📍' : '⚠️'} 加入${targetLabel}集结 队伍${features.joinRallyTeam} ${isSuccess ? '成功' : isNoIdle ? '无空闲队伍' : isDistanceExceed ? '超出距离' : '无可用集结'}，CD ${cdLabel}`]);
+                  pushLog(`${isSuccess ? '✅' : isNoIdle ? '⏸️' : isDistanceExceed ? '📍' : '⚠️'} 加入${targetLabel}集结 队伍${features.joinRallyTeam} ${isSuccess ? '成功' : isNoIdle ? '无空闲队伍' : isDistanceExceed ? '超出距离' : '无可用集结'}，CD ${cdLabel}`);
                 }
                 firstRun = false; // 首次执行完后标记为非首次
               }
             } catch {} finally { releaseLock(); }
             if (loopStopped) break;
             const cdJitter = cd * (0.85 + Math.random() * 0.3);
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🤝 加入集结完成，${cdJitter.toFixed(0)} 秒后下一轮`]);
+            pushLog(`🤝 加入集结完成，${cdJitter.toFixed(0)} 秒后下一轮`);
             const startWait = monotonicNow();
             while (!loopStopped && (monotonicNow() - startWait) < cdJitter * 1000) {
               await sleep(1);
@@ -961,9 +979,9 @@ export function HomePage() {
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (features.autoCaveExplore && !features.autoExplore && !features.autoWorldChat && !(features.gemGatherEnabled && features.gemGatherMode === 'focus')) {
+          if (features.autoCaveExplore && !features.autoExplore && !features.autoWorldChat) {
             if (!buildingOptions.includes('斥候营地')) {
-              setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记斥候营地位置，跳过山洞探索`]);
+              pushLog(`⚠️ 未标记斥候营地位置，跳过山洞探索`);
             } else {
               if (!await acquireLock()) break;
               if (offlineActive) { releaseLock(); await sleep(30); continue; }
@@ -979,12 +997,12 @@ export function HomePage() {
                   const logs = runResult.task?.logs ?? [];
                   const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
                   if (hasExpiredLog) {
-                    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
+                    pushLog(`⛔ 许可证已到期，停止运行`);
                     loopStopped = true;
                     setExpiredMessage('激活码已到期，请重新激活');
                     refreshStatus();
                   } else {
-                    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏔️ 山洞探索 完成`]);
+                    pushLog(`🏔️ 山洞探索 完成`);
                   }
                 }
               } catch {} finally { releaseLock(); }
@@ -1011,7 +1029,7 @@ export function HomePage() {
           const shouldOffline = inNightWindow || inGemRest;
 
           if (shouldOffline && !lastOfflineState) {
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🌙 进入下线状态（${inNightWindow ? '夜间' : '宝石休息'}）`]);
+            pushLog(`🌙 进入下线状态（${inNightWindow ? '夜间' : '宝石休息'}）`);
             offlineActive = true;
             lastOfflineState = true;
             if (await acquireLock()) {
@@ -1027,7 +1045,7 @@ export function HomePage() {
               } catch {} finally { releaseLock(); }
             }
           } else if (!shouldOffline && lastOfflineState) {
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ☀️ 恢复上线状态`]);
+            pushLog(`☀️ 恢复上线状态`);
             if (await acquireLock()) {
               try {
                 const r = await api.tasks.create(currentAccountId, 'com.rok.automation', 'launch-game');
@@ -1084,7 +1102,7 @@ export function HomePage() {
             relaunchRequested = false;
             moduleGemRestActive = false;
             setGemRestCountdown('');
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🔄 游戏重新上线，宝石采集从头开始`]);
+            pushLog(`🔄 游戏重新上线，宝石采集从头开始`);
             continue;
           }
 
@@ -1108,17 +1126,17 @@ export function HomePage() {
           const activeHours = Number(f.gemGatherActiveHours) || 2;
           const restHours = Number(f.gemGatherRestHours) || 1;
           const mode = f.gemGatherMode;
-          // 混合模式：进入本 active 阶段随机确定专注占比 30%~70%
-          const focusRatio = mode === 'mixed' ? (0.3 + Math.random() * 0.4) : (mode === 'focus' ? 1 : 0);
+          const p = Math.min(1, Math.max(0, Number(f.gemGatherMixRatio) || 0));
+          // 混合模式：首轮驻扎概率 min(1, 2p)；驻扎后 -0.2(1-p)、普通后 +0.4p；clamp [0, 1]
+          let focusRatio = mode === 'focus' ? 1 : mode === 'normal' ? 0 : Math.min(1, 2 * p);
 
           // ── active 阶段 ──
           const activeEnd = monotonicNow() + activeHours * 3600 * 1000;
           setGemRestCountdown('');
           const startLabel = mode === 'mixed'
-            ? `混合采集开始，本期专注占比 ${Math.round(focusRatio * 100)}%`
-            : `${mode === 'focus' ? '专注' : '普通'}采集开始`;
-          setLogs(prev => [...prev,
-            `[${new Date().toLocaleTimeString()}] 💎 ${startLabel}，持续 ${activeHours}h`]);
+            ? `混合采集开始，首轮驻扎`
+            : `${mode === 'focus' ? '驻扎' : '普通'}采集开始`;
+          pushLog(`💎 ${startLabel}，持续 ${activeHours}h`);
 
           while (!loopStopped && !relaunchRequested && monotonicNow() < activeEnd) {
             if (offlineActive) { await sleep(30); continue; }
@@ -1128,13 +1146,18 @@ export function HomePage() {
             const isFocus = Math.random() < focusRatio;
             const actionId = isFocus ? 'gem-gather-focus' : 'gem-gather';
             const intervalSec = isFocus ? 60 : 300;
+            // 更新下一轮概率（仅混合模式）：驻扎 -0.2(1-p)、普通 +0.4p，clamp [0, 1]
+            if (mode === 'mixed') {
+              focusRatio = Math.min(1, Math.max(0, focusRatio + (isFocus ? -0.2 * (1 - p) : 0.4 * p)));
+              pushLog(`💎 下一轮驻扎概率 ${Math.round(focusRatio * 100)}%`);
+            }
             try {
               // 采集前先读一次宝石数，更新已采集计数
               const current = await readCount();
               if (current !== null && localInitialCount !== null) {
                 moduleGemCollectedCount = Math.max(0, current - localInitialCount);
                 setGemCollectedCount(moduleGemCollectedCount);
-                setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💎 已采集: ${moduleGemCollectedCount} 颗`]);
+                pushLog(`💎 已采集: ${moduleGemCollectedCount} 颗`);
               }
 
               const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, { teams: f.gemGatherTeams, teamPage: f.gemGatherTeamPage });
@@ -1147,12 +1170,12 @@ export function HomePage() {
                 const logs = runResult.task?.logs ?? [];
                 const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
                 if (hasExpiredLog) {
-                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
+                  pushLog(`⛔ 许可证已到期，停止运行`);
                   loopStopped = true;
                   setExpiredMessage('激活码已到期，请重新激活');
                   refreshStatus();
                 } else {
-                  setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💎 宝石采集(${isFocus ? '专注' : '普通'})完成`]);
+                  pushLog(`💎 宝石采集(${isFocus ? '驻扎' : '普通'})完成`);
                 }
               }
             } catch {} finally { releaseLock(); }
@@ -1174,8 +1197,7 @@ export function HomePage() {
           const restEnd = monotonicNow() + restDurationMs;
           const restEndWall = Date.now() + restDurationMs;
           moduleGemRestActive = true;
-          setLogs(prev => [...prev,
-            `[${new Date().toLocaleTimeString()}] 💤 宝石采集休息 ${restHours}h，${new Date(restEndWall).toLocaleTimeString()} 恢复`]);
+          pushLog(`💤 宝石采集休息 ${restHours}h，${new Date(restEndWall).toLocaleTimeString()} 恢复`);
           while (!loopStopped && !relaunchRequested && monotonicNow() < restEnd) {
             const remaining = Math.max(0, restEnd - monotonicNow());
             const h = Math.floor(remaining / 3600000);
@@ -1190,18 +1212,18 @@ export function HomePage() {
       })();
 
       // 山洞探索 — 独立模式，与其他 action 互斥
-      // 专注模式 — 独占运行，跳过所有其他功能
-      const hasMainWork = !(features.gemGatherEnabled && features.gemGatherMode === 'focus') && (features.autoExplore || features.autoWorldChat || features.upgradeBuildings || features.autoResearch || features.trainTroops);
+      const hasMainWork = features.autoExplore || features.autoWorldChat || features.upgradeBuildings || features.autoResearch || features.trainTroops;
       if (!hasMainWork) {
-        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ℹ️ 未启用建筑/科技/训练，主循环跳过`]);
+        pushLog(`ℹ️ 未启用建筑/科技/训练，主循环跳过`);
       }
       while (!loopStopped && hasMainWork) {
         round++;
-        setLogs(prev => { const next = [...prev, `[${new Date().toLocaleTimeString()}] 🔄 第${round}轮`]; saveLoopState(currentAccountId); return next; });
+        pushLog(`🔄 第${round}轮`);
+        saveLoopState(currentAccountId);
 
 
         const handleLicenseExpired = () => {
-          setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⛔ 许可证已到期，停止运行`]);
+          pushLog(`⛔ 许可证已到期，停止运行`);
           loopStopped = true;
           setExpiredMessage('激活码已到期，请重新激活');
           refreshStatus();
@@ -1221,7 +1243,7 @@ export function HomePage() {
               // 任务在排队等锁期间被停止
               if (runResult.task?.status === 'stopped') {
                 loopStopped = true;
-                setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ ${createResult.task.actionId} 已被停止`]);
+                pushLog(`⏹️ ${createResult.task.actionId} 已被停止`);
                 return runResult.task?.logs ?? [];
               }
 
@@ -1234,7 +1256,8 @@ export function HomePage() {
                 return logs;
               }
 
-              setLogs(prev => { const next = [...prev, `[${new Date().toLocaleTimeString()}] ✅ ${createResult.task.actionId} 完成`]; saveLoopState(currentAccountId); return next; });
+              pushLog(`✅ ${createResult.task.actionId} 完成`);
+              saveLoopState(currentAccountId);
               return logs;
             }
           } catch (e: any) {
@@ -1246,7 +1269,7 @@ export function HomePage() {
               handleLicenseExpired();
               return [];
             }
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 执行失败: ${e}`]);
+            pushLog(`❌ 执行失败: ${e}`);
           }
           return [];
         };
@@ -1275,7 +1298,7 @@ export function HomePage() {
         // 探索模式：与其他任务互斥，只执行探索
         if (features.autoExplore) {
           if (!buildingOptions.includes('斥候营地')) {
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记斥候营地位置，跳过迷雾探索`]);
+            pushLog(`⚠️ 未标记斥候营地位置，跳过迷雾探索`);
           } else {
             if (await acquireLock()) {
               try { if (!offlineActive) await runTask('explore', { maxScouts: features.exploreCount }); }
@@ -1285,7 +1308,7 @@ export function HomePage() {
           if (loopStopped) break;
           // 探索模式下固定 1 分钟后检查
           const exploreNextWake = 30 + Math.random() * 15;
-          setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🔍 探索模式，下次检查 ${exploreNextWake.toFixed(0)} 秒后`]);
+          pushLog(`🔍 探索模式，下次检查 ${exploreNextWake.toFixed(0)} 秒后`);
           const exploreDragSafety = 5;
           const exploreDragWindow = exploreNextWake - exploreDragSafety;
           if (exploreDragWindow > 20 && Math.random() < 0.05) {
@@ -1313,7 +1336,7 @@ export function HomePage() {
         if (features.autoWorldChat) {
           const messages = (features.worldChatMessages || []).filter((m: string) => m.trim());
           if (messages.length === 0) {
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未填写喊话内容，跳过`]);
+            pushLog(`⚠️ 未填写喊话内容，跳过`);
             loopStopped = true;
             break;
           }
@@ -1323,7 +1346,7 @@ export function HomePage() {
             for (let i = 0; i < messages.length && !loopStopped; i++) {
               // 第一条不等，后续等 15s
               if (i > 0) {
-                setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📢 下一条消息 15 秒后`]);
+                pushLog(`📢 下一条消息 15 秒后`);
                 await sleep(15);
               }
 
@@ -1340,7 +1363,7 @@ export function HomePage() {
             // 一轮结束，等 CD
             const cd = features.worldChatInterval || 300;
             const cdJitter = cd * (0.85 + Math.random() * 0.3);
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📢 一轮喊话完成，${cdJitter.toFixed(0)} 秒后开始下一轮`]);
+            pushLog(`📢 一轮喊话完成，${cdJitter.toFixed(0)} 秒后开始下一轮`);
 
             const cdStartWait = monotonicNow();
             const dragSafety = 5;
@@ -1418,9 +1441,9 @@ export function HomePage() {
 
         if (hasResearch && (timers.research === null || timers.research! <= 0)) {
           if (!buildingOptions.includes('学院')) {
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 未标记学院位置，跳过研究科技`]);
+            pushLog(`⚠️ 未标记学院位置，跳过研究科技`);
           } else if (timers.build1Building === '学院' || timers.build2Building === '学院') {
-            setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏗️ 学院正在升级中，跳过研究科技`]);
+            pushLog(`🏗️ 学院正在升级中，跳过研究科技`);
           } else {
             const techs = features.selectedTechs.filter((t: string, i: number) => t && !loopCompletedTechs[i]);
             if (techs.length > 0) {
@@ -1460,7 +1483,7 @@ export function HomePage() {
               if ((tasks[b] ?? 0) <= 0) return false;
               if (trainTimerMap[b] !== null && trainTimerMap[b]! > 0) return false;
               if (upgradingBuildings.has(b)) {
-                setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏗️ ${b}正在升级中，跳过训练`]);
+                pushLog(`🏗️ ${b}正在升级中，跳过训练`);
                 return false;
               }
               return true;
@@ -1504,7 +1527,7 @@ export function HomePage() {
         }
         nextWake = Math.max(60, nextWake); // 最少等 60 秒
 
-        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏳ 下次检查 ${nextWake.toFixed(0)} 秒后 (build1=${latestTimers.build1}s build2=${latestTimers.build2}s train=${latestTimers.train_bingying}/${latestTimers.train_majiu}/${latestTimers.train_bachang}/${latestTimers.train_gongcheng}s research=${latestTimers.research}s)`]);
+        pushLog(`⏳ 下次检查 ${nextWake.toFixed(0)} 秒后 (build1=${latestTimers.build1}s build2=${latestTimers.build2}s train=${latestTimers.train_bingying}/${latestTimers.train_majiu}/${latestTimers.train_bachang}/${latestTimers.train_gongcheng}s research=${latestTimers.research}s)`);
 
         // 等待期间随机拖拽
         const dragSafetyMargin = 5;
@@ -1537,7 +1560,7 @@ export function HomePage() {
       runningTaskIdsRef.current = [];
       setTaskRunning(false);
       setRunningTaskIds([]);
-      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ 循环已停止`]);
+      pushLog(`⏹️ 循环已停止`);
     })();
   };
 
@@ -1556,18 +1579,18 @@ export function HomePage() {
     moduleGemCollectedCount = 0;
     setGemInitialCount(null);
     setGemCollectedCount(0);
-    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ 已停止所有任务`]);
+    pushLog(`⏹️ 已停止所有任务`);
 
     // 远程触发：停止后杀掉游戏进程
     if (source === 'remote' && currentAccountId) {
       try {
-        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📱 远程停止：关闭游戏进程`]);
+        pushLog(`📱 远程停止：关闭游戏进程`);
         const r = await api.tasks.create(currentAccountId, 'com.rok.automation', 'kill-game');
         if (r.success) {
           await api.tasks.run(r.task.id);
         }
       } catch (e: any) {
-        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ killGame 失败: ${e.message || e}`]);
+        pushLog(`⚠️ killGame 失败: ${e.message || e}`);
       }
     }
   };
@@ -1701,7 +1724,7 @@ export function HomePage() {
           <div className="grid grid-cols-2 gap-4">
 
             {/* 智能采集宝石 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : (features.gemGatherEnabled && features.gemGatherMode === 'focus') ? 'border-purple-500 bg-purple-50' : isFeatureLocked('gemGather') ? 'bg-amber-50/60 border-amber-300 border-dashed' : features.gemGatherEnabled ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : isFeatureLocked('gemGather') ? 'bg-amber-50/60 border-amber-300 border-dashed' : features.gemGatherEnabled ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               {isFeatureLocked('gemGather') && (
                 <div className="absolute -top-1.5 right-3 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-md shadow-amber-200 flex items-center gap-1"
                   title="升级到 Pro 解锁">
@@ -1743,7 +1766,7 @@ export function HomePage() {
                         setFeatures({ ...features, gemGatherTeams: next.length === 0 ? [teamNum] : next });
                       }}
                       className="sr-only" />
-                    <span className={`w-6 h-6 rounded flex items-center justify-center text-xs border ${features.gemGatherTeams.includes(teamNum) ? 'bg-cyan-500 border-cyan-600 text-white' : 'bg-white border-slate-200 text-slate-400'} ${!features.gemGatherEnabled ? 'opacity-50' : ''}`}>
+                    <span className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-semibold border ${features.gemGatherTeams.includes(teamNum) ? 'bg-emerald-100 border-emerald-300 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-400'} ${!features.gemGatherEnabled ? 'opacity-50' : ''}`}>
                       {teamNum}
                     </span>
                   </label>
@@ -1752,21 +1775,27 @@ export function HomePage() {
               </div>
               <div className="flex items-center gap-2 mt-2">
                 <span className="text-xs text-slate-400 whitespace-nowrap">模式</span>
-                {(['normal', 'focus', 'mixed'] as const).map(mode => {
-                  const label = mode === 'normal' ? '普通' : mode === 'focus' ? '专注' : '混合';
+                <span className="text-xs text-slate-500 whitespace-nowrap">普通</span>
+                {(() => {
+                  const ratio = features.gemGatherMixRatio ?? 0.5;
                   const disabled = !features.gemGatherEnabled || isFeatureLocked('gemGather') || features.autoExplore || features.autoWorldChat;
-                  const active = features.gemGatherMode === mode;
                   return (
-                    <label key={mode} className={`flex items-center gap-1 ${disabled ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
-                      <input type="radio" name="gemGatherMode"
-                        checked={active}
+                    <div className={`slider-capsule flex-1 max-w-[160px] ${disabled ? 'is-disabled opacity-60' : ''}`}>
+                      <div className="track" />
+                      <div className="fill" style={{ width: `${ratio * 100}%` }} />
+                      <input type="range" min={0} max={1} step={0.1}
+                        value={ratio}
                         disabled={disabled}
-                        onChange={() => setFeatures({ ...features, gemGatherMode: mode })}
-                        className="sr-only" />
-                      <span className={`px-2 py-0.5 rounded text-xs border ${active ? 'bg-orange-500 border-orange-600 text-white' : 'bg-white border-slate-300 text-slate-600'}`}>{label}</span>
-                    </label>
+                        onChange={(e) => {
+                          const r = Math.min(1, Math.max(0, Number(e.target.value)));
+                          const mode = r === 0 ? 'normal' : r === 1 ? 'focus' : 'mixed';
+                          setFeatures({ ...features, gemGatherMixRatio: r, gemGatherMode: mode });
+                        }} />
+                    </div>
                   );
-                })}
+                })()}
+                <span className="text-xs text-slate-500 whitespace-nowrap">驻扎</span>
+                <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full w-12 text-center tabular-nums">{Math.round((features.gemGatherMixRatio ?? 0.5) * 100)}%</span>
                 <span className="text-xs text-slate-400 whitespace-nowrap ml-auto">队伍页</span>
                 {renderTeamPageSelect(features.gemGatherTeamPage, (v) => setFeatures({ ...features, gemGatherTeamPage: v }), features.autoExplore || features.autoWorldChat || !features.gemGatherEnabled || isFeatureLocked('gemGather'))}
               </div>
@@ -1805,11 +1834,11 @@ export function HomePage() {
             </div>
 
             {/* 城外资源采集 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')) ? 'bg-slate-100 border-slate-200 opacity-70' :features.gatherResources ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.gatherResources ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center text-base">🌾</span>城外资源采集</span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.gatherResources} disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')}
+                  <input type="checkbox" checked={features.gatherResources} disabled={features.autoExplore || features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, gatherResources: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.gatherResources ? 'bg-emerald-500' : 'bg-slate-200'}`} />
@@ -1819,7 +1848,7 @@ export function HomePage() {
               <div className="grid grid-cols-5 gap-1 mt-2">
                 {features.gatherTasks.slice(0, 5).map((task: { type: string; level: number }, i: number) => (
                   <div key={i} className="flex flex-col gap-1">
-                    <select value={task.type} disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')} onChange={(e) => {
+                    <select value={task.type} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
                       const next = [...features.gatherTasks]; next[i] = { ...next[i], type: e.target.value };
                       setFeatures({ ...features, gatherTasks: next });
                     }}
@@ -1827,7 +1856,7 @@ export function HomePage() {
                       <option value="">-</option>
                       {RESOURCE_TYPES.map(t => (<option key={t} value={t}>{t}</option>))}
                     </select>
-                    <select value={task.level} disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')} onChange={(e) => {
+                    <select value={task.level} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
                       const next = [...features.gatherTasks]; next[i] = { ...next[i], level: Number(e.target.value) };
                       setFeatures({ ...features, gatherTasks: next });
                     }}
@@ -1859,7 +1888,7 @@ export function HomePage() {
                           const i = idx + 5;
                           return (
                             <div key={i} className="flex flex-col gap-1">
-                              <select value={task.type} disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')} onChange={(e) => {
+                              <select value={task.type} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
                                 const next = [...features.gatherTasks]; next[i] = { ...next[i], type: e.target.value };
                                 setFeatures({ ...features, gatherTasks: next });
                               }}
@@ -1867,7 +1896,7 @@ export function HomePage() {
                                 <option value="">-</option>
                                 {RESOURCE_TYPES.map(t => (<option key={t} value={t}>{t}</option>))}
                               </select>
-                              <select value={task.level} disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')} onChange={(e) => {
+                              <select value={task.level} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
                                 const next = [...features.gatherTasks]; next[i] = { ...next[i], level: Number(e.target.value) };
                                 setFeatures({ ...features, gatherTasks: next });
                               }}
@@ -1884,17 +1913,17 @@ export function HomePage() {
               })()}
               <div className="flex items-center gap-2 mt-1.5">
                 <span className="text-xs text-slate-400 whitespace-nowrap">队伍页</span>
-                {renderTeamPageSelect(features.resourceGatherTeamPage, (v) => setFeatures({ ...features, resourceGatherTeamPage: v }), features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus'))}
+                {renderTeamPageSelect(features.resourceGatherTeamPage, (v) => setFeatures({ ...features, resourceGatherTeamPage: v }), features.autoExplore || features.autoWorldChat)}
               </div>
             </div>
 
             {/* 自动攻打城寨 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')) ? 'bg-slate-100 border-slate-200 opacity-70' : features.autoRallyFort ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : features.autoRallyFort ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center text-base">🏰</span>自动攻打城寨</span>
-                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoExplore || features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
                   <input type="checkbox" checked={features.autoRallyFort}
-                    disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')}
+                    disabled={features.autoExplore || features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, autoRallyFort: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.autoRallyFort ? 'bg-emerald-500' : 'bg-slate-200'}`} />
@@ -1905,7 +1934,7 @@ export function HomePage() {
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-400 whitespace-nowrap">目标等级</span>
                   <select value={features.rallyFortLevel}
-                    disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')}
+                    disabled={features.autoExplore || features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, rallyFortLevel: Number(e.target.value) })}
                     className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-20">
                     <option value={0}>—</option>
@@ -1913,7 +1942,7 @@ export function HomePage() {
                   </select>
                   <span className="text-xs text-slate-400 whitespace-nowrap ml-2">派遣第</span>
                   <select value={features.rallyFortTeam}
-                    disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')}
+                    disabled={features.autoExplore || features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, rallyFortTeam: Number(e.target.value) })}
                     className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-16">
                     {[1,2,3,4,5].map(t => (<option key={t} value={t}>{t}</option>))}
@@ -1922,10 +1951,10 @@ export function HomePage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-500 w-16" title="当搜索不到对应等级的城寨后，降级搜索。">降级搜索</span>
-                  <label className={`relative inline-flex items-center ${(features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
+                  <label className={`relative inline-flex items-center ${(features.autoExplore || features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
                     title="当搜索不到对应等级的城寨后，降级搜索。">
                     <input type="checkbox" checked={features.rallyFortDowngrade}
-                      disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')}
+                      disabled={features.autoExplore || features.autoWorldChat}
                       onChange={(e) => setFeatures({ ...features, rallyFortDowngrade: e.target.checked })}
                       className="sr-only peer" />
                     <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${features.rallyFortDowngrade ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
@@ -1939,7 +1968,7 @@ export function HomePage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-400 whitespace-nowrap">队伍页</span>
-                  {renderTeamPageSelect(features.rallyFortTeamPage, (v) => setFeatures({ ...features, rallyFortTeamPage: v }), features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus'))}
+                  {renderTeamPageSelect(features.rallyFortTeamPage, (v) => setFeatures({ ...features, rallyFortTeamPage: v }), features.autoExplore || features.autoWorldChat)}
                 </div>
               </div>
 
@@ -1947,7 +1976,7 @@ export function HomePage() {
 
             {/* 加入集结 */}
             <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${
-              (features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')) ? 'bg-slate-100 border-slate-200 opacity-70' :
+              (features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :
               features.joinRallyEnabled ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'
             }`}>
               <div className="flex items-center justify-between">
@@ -1956,10 +1985,10 @@ export function HomePage() {
                   加入集结
                 </span>
                 <label className={`relative w-10 h-[22px] flex-shrink-0 ${
-                  (features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'
+                  (features.autoExplore || features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'
                 }`}>
                   <input type="checkbox" checked={features.joinRallyEnabled}
-                    disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')}
+                    disabled={features.autoExplore || features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, joinRallyEnabled: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.joinRallyEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
@@ -2023,11 +2052,11 @@ export function HomePage() {
             </div>
 
             {/* 自动升级建筑 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')) ? 'bg-slate-100 border-slate-200 opacity-70' :features.upgradeBuildings ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.upgradeBuildings ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center text-base">🏗️</span>自动升级建筑</span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.upgradeBuildings} disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')}
+                  <input type="checkbox" checked={features.upgradeBuildings} disabled={features.autoExplore || features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, upgradeBuildings: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.upgradeBuildings ? 'bg-emerald-500' : 'bg-slate-200'}`} />
@@ -2036,7 +2065,7 @@ export function HomePage() {
               </div>
               <div className="flex items-center gap-2 flex-wrap mt-2">
                 {features.selectedBuildings.map((val: string, i: number) => (
-                  <select key={i} value={val} disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')} onChange={(e) => {
+                  <select key={i} value={val} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
                     const next = [...features.selectedBuildings]; next[i] = e.target.value;
                     const nextCompleted = [...features.completedBuildings]; nextCompleted[i] = false;
                     setFeatures({ ...features, selectedBuildings: next, completedBuildings: nextCompleted });
@@ -2066,11 +2095,11 @@ export function HomePage() {
             </div>
 
             {/* 自动研究科技 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')) ? 'bg-slate-100 border-slate-200 opacity-70' :features.autoResearch ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.autoResearch ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center text-base">🔬</span>自动研究科技</span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.autoResearch} disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')}
+                  <input type="checkbox" checked={features.autoResearch} disabled={features.autoExplore || features.autoWorldChat}
                     onChange={(e) => {
                       if (e.target.checked && !buildingOptions.includes('学院')) {
                         alert('请在坐标配置页标记学院位置');
@@ -2114,11 +2143,11 @@ export function HomePage() {
             </div>
 
             {/* 自动训练兵种 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')) ? 'bg-slate-100 border-slate-200 opacity-70' :features.trainTroops ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.trainTroops ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center text-base">⚔️</span>自动训练兵种</span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.trainTroops} disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')}
+                  <input type="checkbox" checked={features.trainTroops} disabled={features.autoExplore || features.autoWorldChat}
                     onChange={(e) => {
                       if (e.target.checked) {
                         const missing = ['兵营', '马厩', '靶场', '攻城武器厂'].filter(b => !buildingOptions.includes(b));
@@ -2138,7 +2167,7 @@ export function HomePage() {
                 {(['兵营', '马厩', '靶场', '攻城武器厂'] as const).map(building => (
                   <div key={building} className="flex items-center gap-2">
                     <span className="text-xs text-slate-500 w-16">{({ 兵营: '⚔️', 马厩: '🐴', 靶场: '🎯', 攻城武器厂: '⚙️' } as Record<string, string>)[building]} {building}</span>
-                    <select value={(features.trainTasks as Record<string, number>)[building] ?? 0} disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')} onChange={(e) => {
+                    <select value={(features.trainTasks as Record<string, number>)[building] ?? 0} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
                       const next = { ...features.trainTasks as Record<string, number>, [building]: Number(e.target.value) };
                       setFeatures({ ...features, trainTasks: next });
                     }}
@@ -2156,9 +2185,9 @@ export function HomePage() {
             <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${features.autoWorldChat ? 'border-purple-500 bg-purple-50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center text-base">📢</span>自动喊话</span>
-                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoExplore || (features.gemGatherEnabled && features.gemGatherMode === 'focus')) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoExplore) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
                   <input type="checkbox" checked={features.autoWorldChat}
-                    disabled={features.autoExplore || (features.gemGatherEnabled && features.gemGatherMode === 'focus')}
+                    disabled={features.autoExplore}
                     onChange={(e) => setFeatures({ ...features, autoWorldChat: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.autoWorldChat ? 'bg-purple-500' : 'bg-slate-200'}`} />
@@ -2215,7 +2244,7 @@ export function HomePage() {
                   自动帮助盟友
                 </span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.helpTeammates} disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')}
+                  <input type="checkbox" checked={features.helpTeammates} disabled={features.autoExplore || features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, helpTeammates: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.helpTeammates ? 'bg-emerald-500' : 'bg-slate-200'}`} />
@@ -2234,7 +2263,7 @@ export function HomePage() {
                     min={MIN_COLLECT_RESOURCES_INTERVAL_MINUTES}
                     step={1}
                     value={features.collectResourcesIntervalMinutes}
-                    disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')}
+                    disabled={features.autoExplore || features.autoWorldChat}
                     onChange={(e) => setFeatures({
                       ...features,
                       collectResourcesIntervalMinutes: Math.max(MIN_COLLECT_RESOURCES_INTERVAL_MINUTES, Number(e.target.value) || MIN_COLLECT_RESOURCES_INTERVAL_MINUTES),
@@ -2243,7 +2272,7 @@ export function HomePage() {
                   />
                   <span className="text-xs text-slate-400">分钟</span>
                   <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                    <input type="checkbox" checked={features.collectResources} disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')}
+                    <input type="checkbox" checked={features.collectResources} disabled={features.autoExplore || features.autoWorldChat}
                       onChange={(e) => setFeatures({ ...features, collectResources: e.target.checked })}
                       className="sr-only" />
                     <span className={`absolute inset-0 rounded-full transition-colors ${features.collectResources ? 'bg-emerald-500' : 'bg-slate-200'}`} />
@@ -2261,7 +2290,7 @@ export function HomePage() {
                     min={0}
                     step={1}
                     value={features.autoReconnectIntervalMinutes}
-                    disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')}
+                    disabled={features.autoExplore || features.autoWorldChat}
                     onChange={(e) => setFeatures({
                       ...features,
                       autoReconnectIntervalMinutes: Math.max(0, Number(e.target.value) || 0),
@@ -2292,9 +2321,9 @@ export function HomePage() {
                     <span className="text-xs text-slate-400">· 需标记斥候营地坐标</span>
                   </div>
                 </div>
-                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
                   <input type="checkbox" checked={features.autoExplore}
-                    disabled={features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')}
+                    disabled={features.autoWorldChat}
                     onChange={(e) => {
                       if (e.target.checked && !buildingOptions.includes('斥候营地')) {
                         alert('请在坐标配置页标记斥候营地位置');
@@ -2317,9 +2346,9 @@ export function HomePage() {
                   山洞探索
                   <span className="text-xs text-slate-400">· 每2分钟</span>
                 </span>
-                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoExplore || features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
                   <input type="checkbox" checked={features.autoCaveExplore}
-                    disabled={features.autoExplore || features.autoWorldChat || (features.gemGatherEnabled && features.gemGatherMode === 'focus')}
+                    disabled={features.autoExplore || features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, autoCaveExplore: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.autoCaveExplore ? 'bg-emerald-500' : 'bg-slate-200'}`} />

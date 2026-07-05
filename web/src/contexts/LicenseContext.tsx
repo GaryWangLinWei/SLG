@@ -9,6 +9,8 @@ export interface LicenseStatus {
   graceRemainingMinutes?: number;
   deviceFingerprint?: string;
   tier?: 'basic' | 'pro';
+  fingerprintMismatch?: boolean;
+  storedFingerprint?: string;
 }
 
 interface LicenseContextType {

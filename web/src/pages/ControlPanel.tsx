@@ -3,10 +3,11 @@ import { useState } from 'react';
 interface ControlPanelProps {
   deviceOnline: boolean;
   loopRunning: boolean;
+  starting?: boolean;
   onSendCommand: (action: string, payload?: any) => Promise<any>;
 }
 
-export default function ControlPanel({ deviceOnline, loopRunning, onSendCommand }: ControlPanelProps) {
+export default function ControlPanel({ deviceOnline, loopRunning, starting = false, onSendCommand }: ControlPanelProps) {
   const [busy, setBusy] = useState<'start' | 'stop' | null>(null);
   const [toast, setToast] = useState('');
 
@@ -52,21 +53,21 @@ export default function ControlPanel({ deviceOnline, loopRunning, onSendCommand 
       <div className="bg-slate-800 border border-slate-700 rounded-xl p-4">
         <div className="text-sm text-slate-400">当前状态</div>
         <div className="text-2xl font-bold mt-1">
-          {loopRunning ? '🟢 运行中' : '⚪ 已停止'}
+          {starting ? '⏳ 启动游戏中' : loopRunning ? '🟢 运行中' : '⚪ 已停止'}
         </div>
       </div>
 
       <button
         onClick={handleStart}
-        disabled={!deviceOnline || busy !== null || loopRunning}
+        disabled={!deviceOnline || busy !== null || loopRunning || starting}
         className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 disabled:bg-slate-700 disabled:text-slate-500 rounded-xl text-lg font-medium transition-colors"
       >
-        {busy === 'start' ? '发送中...' : loopRunning ? '已在运行' : '▶️ 开始运行'}
+        {busy === 'start' ? '发送中...' : starting ? '⏳ 启动游戏中...' : loopRunning ? '已在运行' : '▶️ 开始运行'}
       </button>
 
       <button
         onClick={handleStop}
-        disabled={!deviceOnline || busy !== null || !loopRunning}
+        disabled={!deviceOnline || busy !== null || (!loopRunning && !starting)}
         className="w-full py-4 bg-red-600 hover:bg-red-700 disabled:bg-slate-700 disabled:text-slate-500 rounded-xl text-lg font-medium transition-colors"
       >
         {busy === 'stop' ? '发送中...' : '⏹️ 停止运行'}

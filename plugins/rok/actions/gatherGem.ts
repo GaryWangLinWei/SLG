@@ -8,6 +8,7 @@ import * as fs from 'fs/promises';
 import sharp from 'sharp';
 import { ocrService } from '../../../core/ocr/OcrService';
 import { ensureTeamPage, TeamPage } from '../utils/teamPage';
+import { getTeamButtons } from '../utils/teamButtons';
 
 const vision = new Vision();
 
@@ -27,20 +28,6 @@ const WORLD_SWITCH_BUTTON_RECT = { x1: 39, y1: 776, x2: 115, y2: 858 };
 const SELECT_TEAM_BUTTON_RECT = { x1: 1154, y1: 151, x2: 1373, y2: 214 };
 const MARCH_BUTTON_RECT = { x1: 1031, y1: 754, x2: 1292, y2: 820 };
 const PINCHED_GEM_TARGET_RECT = { x1: 792, y1: 426, x2: 878, y2: 502 };
-const TEAM_BUTTONS_NO_PAGE: Record<number, { x: number; y: number }> = {
-  1: { x: 1378, y: 292 },
-  2: { x: 1378, y: 359 },
-  3: { x: 1378, y: 430 },
-  4: { x: 1378, y: 499 },
-  5: { x: 1378, y: 565 },
-};
-const TEAM_BUTTONS_PAGED: Record<number, { x: number; y: number }> = {
-  1: { x: 1378, y: 328 },
-  2: { x: 1378, y: 392 },
-  3: { x: 1378, y: 465 },
-  4: { x: 1378, y: 529 },
-  5: { x: 1378, y: 595 },
-};
 const MARCH_BUTTON = { x: 1154, y: 791 };
 const CLOSE_POPUP_BUTTON = { x: 1392, y: 57 };
 
@@ -502,7 +489,7 @@ export async function dispatchToTeamPopup(
     }
   }
 
-  const teamButtons = (hasPaging ?? false) ? TEAM_BUTTONS_PAGED : TEAM_BUTTONS_NO_PAGE;
+  const teamButtons = getTeamButtons(hasPaging);
 
   if (nextTeamIdx >= teams.length) {
     ctx.log(`  所有配置队伍已派出（${teams.length}队），关闭弹窗`);

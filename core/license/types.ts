@@ -6,6 +6,8 @@ export interface LicenseStatus {
   graceRemainingMinutes?: number;
   deviceFingerprint?: string;
   tier?: 'basic' | 'pro';
+  fingerprintMismatch?: boolean;      // 设备指纹不匹配
+  storedFingerprint?: string;          // 存储的指纹（用于对比）
 }
 
 export interface ActivationData {

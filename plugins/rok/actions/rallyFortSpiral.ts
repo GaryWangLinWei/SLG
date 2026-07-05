@@ -57,7 +57,7 @@ async function trySelectFort(
   const ocrX = match.x - 15;
   const ocrY = match.y + 12;
   const ocrRegionPath = await ctx.captureRegion(ocrX, ocrY, 30, 13);
-  const ocrText = await ocrService.readText(ocrRegionPath);
+  const ocrText = await ocrService.readDigits(ocrRegionPath);
   await fs.unlink(ocrRegionPath).catch(() => {});
   ctx.log(`  OCR 识别等级: "${ocrText}"`);
 

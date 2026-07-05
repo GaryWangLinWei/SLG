@@ -166,6 +166,16 @@ function createWindow() {
   });
   mainWindow.setMenu(null);
 
+  // 生产环境 F12 / Ctrl+Shift+I 切换 DevTools（排障用；默认菜单被去掉后需要手动挂快捷键）
+  mainWindow.webContents.on('before-input-event', (_event, input) => {
+    const isF12 = input.type === 'keyDown' && input.key === 'F12';
+    const isCtrlShiftI = input.type === 'keyDown' && input.control && input.shift && input.key.toLowerCase() === 'i';
+    if (isF12 || isCtrlShiftI) {
+      if (mainWindow?.webContents.isDevToolsOpened()) mainWindow.webContents.closeDevTools();
+      else mainWindow?.webContents.openDevTools({ mode: 'detach' });
+    }
+  });
+
   // Load app
   if (isDev) {
     // Development: load from Vite dev server
@@ -173,10 +183,7 @@ function createWindow() {
     // Open DevTools in dev mode
     mainWindow.webContents.openDevTools();
   } else {
-    // Production: load built React app, no DevTools
-    mainWindow.webContents.on('devtools-opened', () => {
-      mainWindow?.webContents.closeDevTools();
-    });
+    // Production: load built React app. DevTools 允许通过 F12 / Ctrl+Shift+I 手动打开（排障用）
     mainWindow.loadFile(path.join(__dirname, '../../web/dist/index.html'));
   }
 
@@ -363,6 +370,21 @@ if (!gotTheLock) {
         if (status.activated && status.deviceFingerprint) {
           const AUTH_URL = process.env.AUTH_SERVER_URL || 'http://106.15.11.158:3456';
           const WS_URL = AUTH_URL.replace(/^http/, 'ws') + '/ws/remote';
+          // dev 模式下 server 跑在独立进程，本进程的 remoteClient 无法访问 server 的 TaskService。
+          // 改由 server 进程通过 HTTP 触发自己的 RemoteClient 启动。
+          if (isDev) {
+            try {
+              await fetch('http://localhost:3000/api/remote/start-client', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ wsUrl: WS_URL, deviceId: status.deviceFingerprint }),
+              });
+              console.log('[Electron] asked server process to start RemoteClient');
+            } catch (e) {
+              console.error('[Electron] failed to ask server to start RemoteClient:', e);
+            }
+            return;
+          }
           remoteClient.start({
             serverUrl: WS_URL,
             deviceId: status.deviceFingerprint,

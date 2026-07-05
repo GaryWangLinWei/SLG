@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { HashRouter as Router, Routes, Route, Link, useLocation } from 'react-router-dom';
+import { HashRouter as Router, Routes, Route, Link, useLocation, Navigate } from 'react-router-dom';
 import { HomePage } from './pages/Home';
 
 import { PluginsPage } from './pages/Plugins';
@@ -453,10 +453,18 @@ function UpdateUI() {
 }
 
 function AppContent() {
+  // 生产环境的手机浏览器访问根路径时直接跳到远程访问登录页，
+  // 避免误进 LicenseGate 的激活码页面。
+  // 判定条件：非 Electron 且非 localhost/内网 IP（保留开发调试用的浏览器访问）
+  const isElectron = typeof window !== 'undefined' && 'electronAPI' in window;
+  const host = typeof window !== 'undefined' ? window.location.hostname : '';
+  const isLocalDev = host === 'localhost' || host === '127.0.0.1' || host.startsWith('192.168.') || host.startsWith('10.');
+  const shouldRedirectToRemote = !isElectron && !isLocalDev;
   return (
     <Routes>
       <Route path="/remote-access" element={<RemoteAccessPage />} />
       <Route path="/mobile" element={<MobilePage />} />
+      {shouldRedirectToRemote && <Route path="/" element={<Navigate to="/remote-access" replace />} />}
       <Route
         path="*"
         element={
