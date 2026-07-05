@@ -182,3 +182,11 @@ export class SnakeStrategy implements GemSearchStrategy {
     return step;
   }
 }
+
+export function pickStrategy(opts: StrategyOpts): GemSearchStrategy {
+  const r = Math.random();
+  if (r < 0.4) return new SpiralStrategy(opts);
+  if (r < 0.8) return new ReverseSpiralStrategy(opts);
+  if (r < 0.9) return new RandomWalkStrategy(opts);
+  return new SnakeStrategy(opts);
+}

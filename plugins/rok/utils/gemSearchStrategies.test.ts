@@ -158,3 +158,35 @@ describe('SnakeStrategy', () => {
     jest.restoreAllMocks();
   });
 });
+
+import { pickStrategy } from './gemSearchStrategies';
+
+describe('pickStrategy', () => {
+  const opts = { centerX: 800, centerY: 450, halfW: 400, halfH: 225 };
+
+  it('random < 0.4 → spiral', () => {
+    jest.spyOn(Math, 'random').mockReturnValueOnce(0.2);
+    expect(pickStrategy(opts).name).toBe('spiral');
+    jest.restoreAllMocks();
+  });
+
+  it('0.4 <= random < 0.8 → reverse-spiral', () => {
+    jest.spyOn(Math, 'random').mockReturnValueOnce(0.5);
+    expect(pickStrategy(opts).name).toBe('reverse-spiral');
+    jest.restoreAllMocks();
+  });
+
+  it('0.8 <= random < 0.9 → random-walk', () => {
+    jest.spyOn(Math, 'random').mockReturnValueOnce(0.85);
+    expect(pickStrategy(opts).name).toBe('random-walk');
+    jest.restoreAllMocks();
+  });
+
+  it('random >= 0.9 → snake', () => {
+    jest.spyOn(Math, 'random')
+      .mockReturnValueOnce(0.95)
+      .mockReturnValue(0);
+    expect(pickStrategy(opts).name).toBe('snake');
+    jest.restoreAllMocks();
+  });
+});
