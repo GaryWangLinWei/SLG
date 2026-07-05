@@ -103,3 +103,58 @@ describe('RandomWalkStrategy', () => {
     expect(s.name).toBe('random-walk');
   });
 });
+
+import { SnakeStrategy } from './gemSearchStrategies';
+
+describe('SnakeStrategy', () => {
+  it('name = "snake"', () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    const s = new SnakeStrategy({ centerX: 800, centerY: 450, halfW: 400, halfH: 225 });
+    expect(s.name).toBe('snake');
+    jest.restoreAllMocks();
+  });
+
+  it('从右下象限、顺时针开始：第 1 行是右 4 段', () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    const s = new SnakeStrategy({ centerX: 800, centerY: 450, halfW: 400, halfH: 225 });
+    for (let i = 0; i < 4; i++) {
+      const step = s.next()!;
+      expect(step.fromX).toBe(1200);
+      expect(step.toX).toBe(400);
+      expect(step.fromY).toBe(450);
+    }
+    jest.restoreAllMocks();
+  });
+
+  it('第 1 行 4 段后是纵向 1 格（下）', () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    const s = new SnakeStrategy({ centerX: 800, centerY: 450, halfW: 400, halfH: 225 });
+    for (let i = 0; i < 4; i++) s.next();
+    const nudge = s.next()!;
+    expect(nudge.fromY).toBe(675);
+    expect(nudge.toY).toBe(225);
+    jest.restoreAllMocks();
+  });
+
+  it('第 2 行是左 4 段', () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    const s = new SnakeStrategy({ centerX: 800, centerY: 450, halfW: 400, halfH: 225 });
+    for (let i = 0; i < 5; i++) s.next();
+    for (let i = 0; i < 4; i++) {
+      const step = s.next()!;
+      expect(step.fromX).toBe(400);
+      expect(step.toX).toBe(1200);
+    }
+    jest.restoreAllMocks();
+  });
+
+  it('4 象限总共 128 步，之后返回 null', () => {
+    jest.spyOn(Math, 'random').mockReturnValue(0);
+    const s = new SnakeStrategy({ centerX: 800, centerY: 450, halfW: 400, halfH: 225 });
+    for (let i = 0; i < 128; i++) {
+      expect(s.next()).not.toBeNull();
+    }
+    expect(s.next()).toBeNull();
+    jest.restoreAllMocks();
+  });
+});
