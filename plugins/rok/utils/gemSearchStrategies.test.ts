@@ -73,3 +73,33 @@ describe('ReverseSpiralStrategy', () => {
     expect(s.name).toBe('reverse-spiral');
   });
 });
+
+import { RandomWalkStrategy } from './gemSearchStrategies';
+
+describe('RandomWalkStrategy', () => {
+  it('首步用 Math.random 选 4 方向之一', () => {
+    jest.spyOn(Math, 'random').mockReturnValueOnce(0.6);
+    const s = new RandomWalkStrategy({ centerX: 800, centerY: 450, halfW: 400, halfH: 225 });
+    const step = s.next()!;
+    expect(step.fromX).toBe(400);
+    expect(step.toX).toBe(1200);
+    jest.restoreAllMocks();
+  });
+
+  it('后续步不选"上一步的反方向"', () => {
+    jest.spyOn(Math, 'random')
+      .mockReturnValueOnce(0)
+      .mockReturnValueOnce(0.5);
+    const s = new RandomWalkStrategy({ centerX: 800, centerY: 450, halfW: 400, halfH: 225 });
+    s.next();
+    const step = s.next()!;
+    expect(step.fromY).toBe(675);
+    expect(step.toY).toBe(225);
+    jest.restoreAllMocks();
+  });
+
+  it('name = "random-walk"', () => {
+    const s = new RandomWalkStrategy({ centerX: 800, centerY: 450, halfW: 400, halfH: 225 });
+    expect(s.name).toBe('random-walk');
+  });
+});

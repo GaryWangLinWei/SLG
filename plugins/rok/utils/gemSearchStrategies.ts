@@ -80,3 +80,24 @@ export class ReverseSpiralStrategy implements GemSearchStrategy {
     return makeStep(this.opts.centerX, this.opts.centerY, this.opts.halfW, this.opts.halfH, d.dx, d.dy);
   }
 }
+
+export class RandomWalkStrategy implements GemSearchStrategy {
+  readonly name = 'random-walk';
+  private lastDirIndex: number | null = null;
+
+  constructor(private opts: StrategyOpts) {}
+
+  next(): SwipeStep {
+    let chosen: number;
+    if (this.lastDirIndex === null) {
+      chosen = Math.floor(Math.random() * 4);
+    } else {
+      const forbidden = (this.lastDirIndex + 2) % 4;
+      const candidates = [0, 1, 2, 3].filter(i => i !== forbidden);
+      chosen = candidates[Math.floor(Math.random() * candidates.length)];
+    }
+    this.lastDirIndex = chosen;
+    const d = DIRS[chosen];
+    return makeStep(this.opts.centerX, this.opts.centerY, this.opts.halfW, this.opts.halfH, d.dx, d.dy);
+  }
+}
