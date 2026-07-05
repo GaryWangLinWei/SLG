@@ -35,13 +35,13 @@ describe('gatherGem 螺旋搜索等待', () => {
   });
 });
 
-describe('gatherGem 螺旋搜索状态', () => {
-  it('随机化起始方向、搜索中心和最大搜索步数', () => {
+describe('gatherGem 搜索状态', () => {
+  it('初始化通用参数（中心、halfW/H、maxAttempts）并挂载策略实例', () => {
     const randomSpy = jest.spyOn(Math, 'random')
-      .mockReturnValueOnce(0.75) // dirIndex = 3
       .mockReturnValueOnce(0.25) // centerX = 780
       .mockReturnValueOnce(0.8)  // centerY = 465
-      .mockReturnValueOnce(1);   // maxAttempts = 110%
+      .mockReturnValueOnce(1)    // maxAttempts = 110%
+      .mockReturnValueOnce(0);   // pickStrategy → spiral (r < 0.4)
 
     const state = createSpiralState({
       gemGather: {
@@ -51,12 +51,14 @@ describe('gatherGem 螺旋搜索状态', () => {
       },
     } as any);
 
-    expect(state.dirIndex).toBe(3);
     expect(state.centerX).toBe(780);
     expect(state.centerY).toBe(465);
     expect(state.maxAttempts).toBe(33);
     expect(state.halfW).toBe(Math.round(1600 * 0.6 / 2));
     expect(state.halfH).toBe(Math.round(900 * 0.5 / 2));
+    expect(state.strategy.name).toBe('spiral');
+    expect(state.moveCount).toBe(0);
+    expect(state.checkedCenter).toBe(false);
 
     randomSpy.mockRestore();
   });

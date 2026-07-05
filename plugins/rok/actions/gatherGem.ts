@@ -9,6 +9,7 @@ import sharp from 'sharp';
 import { ocrService } from '../../../core/ocr/OcrService';
 import { ensureTeamPage, TeamPage } from '../utils/teamPage';
 import { getTeamButtons } from '../utils/teamButtons';
+import { GemSearchStrategy, pickStrategy } from '../utils/gemSearchStrategies';
 
 const vision = new Vision();
 
@@ -66,14 +67,6 @@ function isCoordRecorded(
   }
   return false;
 }
-
-const SPIRAL_DIRECTIONS = [
-  { dx: 0, dy: -1 },  // 上
-  { dx: 1, dy: 0 },   // 右
-  { dx: 0, dy: 1 },   // 下
-  { dx: -1, dy: 0 },  // 左
-];
-const SPIRAL_DIR_NAMES = ['↑', '→', '↓', '←'];
 
 export function nextGemSearchPauseSeconds(): number {
   const roll = Math.random();
@@ -174,35 +167,33 @@ export async function isGemOccupied(
 }
 
 export interface SpiralState {
-  step: number;
-  dirIndex: number;
   moveCount: number;
-  dirSwipes: number;
   checkedCenter: boolean;
   centerX: number;
   centerY: number;
   halfW: number;
   halfH: number;
   maxAttempts: number;
+  strategy: GemSearchStrategy;
 }
 
 export function createSpiralState(config: RokConfig): SpiralState {
   const gg = config.gemGather;
-  const dirIndex = Math.floor(Math.random() * 4);
   const centerX = 800 + Math.round((Math.random() * 2 - 1) * 40);
   const centerY = 450 + Math.round((Math.random() * 2 - 1) * 25);
   const maxAttemptScale = 0.9 + Math.random() * 0.2;
+  const halfW = Math.round(1600 * (gg.spiralSwipeRatioH ?? gg.spiralSwipeRatio) / 2);
+  const halfH = Math.round(900 * gg.spiralSwipeRatio / 2);
+  const strategy = pickStrategy({ centerX, centerY, halfW, halfH });
   return {
-    step: 1,
-    dirIndex,
     moveCount: 0,
-    dirSwipes: 0,
     checkedCenter: false,
     centerX,
     centerY,
-    halfW: Math.round(1600 * (gg.spiralSwipeRatioH ?? gg.spiralSwipeRatio) / 2),
-    halfH: Math.round(900 * gg.spiralSwipeRatio / 2),
-    maxAttempts: Math.max(1, Math.round(gg.searchMaxAttempts * maxAttemptScale)),
+    halfW,
+    halfH,
+    maxAttempts: Math.round(gg.searchMaxAttempts * maxAttemptScale),
+    strategy,
   };
 }
 
@@ -334,44 +325,32 @@ export async function searchAndClickGem(
       }
     }
 
+    if (!gemFound) {
+      ctx.log(`  [搜索] 策略: ${spiralState.strategy.name}`);
+    }
+
     while (!gemFound && spiralState.moveCount < spiralState.maxAttempts) {
-      const dir = SPIRAL_DIRECTIONS[spiralState.dirIndex % 4];
+      const step = spiralState.strategy.next();
+      if (!step) {
+        ctx.log(`  [搜索] 策略 ${spiralState.strategy.name} 已耗尽`);
+        break;
+      }
+      spiralState.moveCount++;
+      await ctx.swipe(step.fromX, step.fromY, step.toX, step.toY, 500, false);
+      await ctx.sleep(nextGemSearchPauseSeconds());
 
-      while (
-        spiralState.dirSwipes < spiralState.step &&
-        !gemFound &&
-        spiralState.moveCount < spiralState.maxAttempts
-      ) {
-        const cx = spiralState.centerX;
-        const cy = spiralState.centerY;
-        const fromX = dir.dx !== 0 ? (cx + dir.dx * spiralState.halfW) : cx + 50;
-        const fromY = dir.dy !== 0 ? (cy + dir.dy * spiralState.halfH) : cy;
-        const toX   = dir.dx !== 0 ? (cx - dir.dx * spiralState.halfW) : cx + 50;
-        const toY   = dir.dy !== 0 ? (cy - dir.dy * spiralState.halfH) : cy;
-        spiralState.moveCount++;
-        spiralState.dirSwipes++;
-        await ctx.swipe(fromX, fromY, toX, toY, 500, false);
-        await ctx.sleep(nextGemSearchPauseSeconds());
-
-        const detections = await ctx.detectWithScreenshot(0.35);
-        ctx.log(`  [搜索] ${SPIRAL_DIR_NAMES[spiralState.dirIndex % 4]}(${spiralState.moveCount}) 找到 ${detections.length} 个宝石候选`);
-        const validDet = detections.find(d => !isInChatZone(d.x, d.y));
-        if (validDet) {
-          if (await isGemOccupied(ctx, validDet.x, validDet.y)) {
-            ctx.log(`  宝石 (${validDet.x}, ${validDet.y}) 已被占用，继续搜索`);
-          } else {
-            gemX = validDet.x; gemY = validDet.y;
-            ctx.log(`  找到空闲宝石矿 (${gemX}, ${gemY}) confidence: ${validDet.confidence.toFixed(3)}`);
-            gemFound = true;
-            break;
-          }
+      const detections = await ctx.detectWithScreenshot(0.35);
+      ctx.log(`  [搜索] step ${spiralState.moveCount}/${spiralState.maxAttempts} 找到 ${detections.length} 个宝石候选`);
+      const validDet = detections.find(d => !isInChatZone(d.x, d.y));
+      if (validDet) {
+        if (await isGemOccupied(ctx, validDet.x, validDet.y)) {
+          ctx.log(`  宝石 (${validDet.x}, ${validDet.y}) 已被占用，继续搜索`);
+        } else {
+          gemX = validDet.x; gemY = validDet.y;
+          ctx.log(`  找到空闲宝石矿 (${gemX}, ${gemY}) confidence: ${validDet.confidence.toFixed(3)}`);
+          gemFound = true;
         }
       }
-
-      if (gemFound) break;
-      if (spiralState.dirIndex % 2 === 1) spiralState.step++;
-      spiralState.dirIndex++;
-      spiralState.dirSwipes = 0;
     }
 
     if (!gemFound) return { found: false };
