@@ -52,3 +52,31 @@ export class SpiralStrategy implements GemSearchStrategy {
     return makeStep(this.opts.centerX, this.opts.centerY, this.opts.halfW, this.opts.halfH, d.dx, d.dy);
   }
 }
+
+// 反向方向序列：左→上→右→下
+const REVERSE_DIRS = [
+  { dx: -1, dy:  0 }, // 左
+  { dx:  0, dy: -1 }, // 上
+  { dx:  1, dy:  0 }, // 右
+  { dx:  0, dy:  1 }, // 下
+];
+
+export class ReverseSpiralStrategy implements GemSearchStrategy {
+  readonly name = 'reverse-spiral';
+  private step = 1;
+  private dirIndex = 0;
+  private dirSwipes = 0;
+
+  constructor(private opts: StrategyOpts) {}
+
+  next(): SwipeStep {
+    if (this.dirSwipes >= this.step) {
+      if (this.dirIndex % 2 === 1) this.step++;
+      this.dirIndex = (this.dirIndex + 1) % 4;
+      this.dirSwipes = 0;
+    }
+    const d = REVERSE_DIRS[this.dirIndex];
+    this.dirSwipes++;
+    return makeStep(this.opts.centerX, this.opts.centerY, this.opts.halfW, this.opts.halfH, d.dx, d.dy);
+  }
+}

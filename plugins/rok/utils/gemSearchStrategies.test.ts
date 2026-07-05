@@ -38,3 +38,38 @@ describe('SpiralStrategy', () => {
     expect(s.name).toBe('spiral');
   });
 });
+
+import { ReverseSpiralStrategy } from './gemSearchStrategies';
+
+describe('ReverseSpiralStrategy', () => {
+  it('方向序列 左→上→右→下，每 2 次换向后步长 +1', () => {
+    const s = new ReverseSpiralStrategy({ centerX: 800, centerY: 450, halfW: 400, halfH: 225 });
+
+    // 左 1 (dx=-1): fromX = 800 + (-1)*400 = 400, toX = 800 - (-1)*400 = 1200
+    let step = s.next()!;
+    expect(step.fromX).toBe(400);
+    expect(step.toX).toBe(1200);
+
+    // 上 1 (dy=-1): fromY = 450 + (-1)*225 = 225, toY = 450 - (-1)*225 = 675
+    step = s.next()!;
+    expect(step.fromY).toBe(225);
+    expect(step.toY).toBe(675);
+
+    // 右 2 (dx=1): fromX = 800 + 400 = 1200
+    step = s.next()!;
+    expect(step.fromX).toBe(1200);
+    step = s.next()!;
+    expect(step.fromX).toBe(1200);
+
+    // 下 2 (dy=1): fromY = 450 + 225 = 675
+    step = s.next()!;
+    expect(step.fromY).toBe(675);
+    step = s.next()!;
+    expect(step.fromY).toBe(675);
+  });
+
+  it('name = "reverse-spiral"', () => {
+    const s = new ReverseSpiralStrategy({ centerX: 800, centerY: 450, halfW: 400, halfH: 225 });
+    expect(s.name).toBe('reverse-spiral');
+  });
+});
