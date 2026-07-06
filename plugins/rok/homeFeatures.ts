@@ -42,6 +42,7 @@ export interface HomeFeatures {
   gemGatherActiveHours: number;
   gemGatherRestHours: number;
   gemGatherMixRatio: number;
+  gemSearchWeights: { spiral: number; reverseSpiral: number; randomWalk: number; snake: number };
   autoCaveExplore: boolean;
   nightMode: boolean;
   joinRallyEnabled: boolean;
@@ -50,6 +51,8 @@ export interface HomeFeatures {
   joinRallyTargetFort: boolean;
   joinRallyTargetLohar: boolean;
   joinRallyMaxDistance: number;
+  produceMaterialEnabled: boolean;
+  produceMaterialType: 'leather' | 'iron' | 'ebony' | 'bone';
 }
 
 export const DEFAULT_HOME_FEATURES: HomeFeatures = {
@@ -91,6 +94,7 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   gemGatherActiveHours: 2,
   gemGatherRestHours: 1,
   gemGatherMixRatio: 0.5,
+  gemSearchWeights: { spiral: 40, reverseSpiral: 40, randomWalk: 10, snake: 10 },
   autoCaveExplore: false,
   nightMode: false,
   joinRallyEnabled: false,
@@ -99,4 +103,6 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   joinRallyTargetFort: true,
   joinRallyTargetLohar: true,
   joinRallyMaxDistance: 50,
+  produceMaterialEnabled: false,
+  produceMaterialType: 'leather',
 };
