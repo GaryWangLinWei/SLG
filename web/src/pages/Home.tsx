@@ -1024,36 +1024,38 @@ export function HomePage() {
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (features.produceMaterialEnabled && !features.autoExplore && !features.autoWorldChat) {
-            if (!buildingOptions.includes('铁匠铺')) {
-              pushLog(`⚠️ 未标记铁匠铺位置，跳过生产装备材料`);
-            } else {
-              if (!await acquireLock()) break;
-              if (offlineActive) { releaseLock(); await sleep(30); continue; }
-              await ensureGameRunning();
-              try {
-                const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'produce-equip-material', { material: features.produceMaterialType });
-                if (createResult.success) {
-                  runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
-                  setRunningTaskIds([...runningTaskIdsRef.current]);
-                  const runResult = await api.tasks.run(createResult.task.id);
-                  runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
-                  setRunningTaskIds([...runningTaskIdsRef.current]);
-                  const logs = runResult.task?.logs ?? [];
-                  const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
-                  if (hasExpiredLog) {
-                    pushLog(`⛔ 许可证已到期，停止运行`);
-                    loopStopped = true;
-                    setExpiredMessage('激活码已到期，请重新激活');
-                    refreshStatus();
-                  } else {
-                    pushLog(`⚒️ 生产装备材料 完成`);
-                  }
-                }
-              } catch {} finally { releaseLock(); }
-            }
+          if (!features.produceMaterialEnabled || features.autoExplore || features.autoWorldChat) {
+            await sleep(30);
+            continue;
           }
-          // 2~4 小时随机
+          if (!buildingOptions.includes('铁匠铺')) {
+            pushLog(`⚠️ 未标记铁匠铺位置，跳过生产装备材料`);
+          } else {
+            if (!await acquireLock()) break;
+            if (offlineActive) { releaseLock(); await sleep(30); continue; }
+            await ensureGameRunning();
+            try {
+              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'produce-equip-material', { material: features.produceMaterialType });
+              if (createResult.success) {
+                runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
+                setRunningTaskIds([...runningTaskIdsRef.current]);
+                const runResult = await api.tasks.run(createResult.task.id);
+                runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
+                setRunningTaskIds([...runningTaskIdsRef.current]);
+                const logs = runResult.task?.logs ?? [];
+                const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
+                if (hasExpiredLog) {
+                  pushLog(`⛔ 许可证已到期，停止运行`);
+                  loopStopped = true;
+                  setExpiredMessage('激活码已到期，请重新激活');
+                  refreshStatus();
+                } else {
+                  pushLog(`⚒️ 生产装备材料 完成`);
+                }
+              }
+            } catch {} finally { releaseLock(); }
+          }
+          // 已尝试执行本轮，等 2~4 小时随机再触发下一次
           const intervalSec = (2 + Math.random() * 2) * 3600;
           const startWait = monotonicNow();
           while (!loopStopped && (monotonicNow() - startWait) < intervalSec * 1000) {
