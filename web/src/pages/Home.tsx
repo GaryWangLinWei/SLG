@@ -2453,7 +2453,6 @@ export function HomePage() {
                     <option value="ebony">乌木</option>
                     <option value="bone">兽骨</option>
                   </select>
-                  <span className="text-xs text-slate-400">· 每2~4小时</span>
                 </span>
                 <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoExplore || features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
                   <input type="checkbox" checked={features.produceMaterialEnabled}
