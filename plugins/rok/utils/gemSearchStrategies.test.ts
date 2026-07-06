@@ -42,7 +42,7 @@ describe('SpiralStrategy', () => {
 import { ReverseSpiralStrategy } from './gemSearchStrategies';
 
 describe('ReverseSpiralStrategy', () => {
-  it('方向序列 左→上→右→下，每 2 次换向后步长 +1', () => {
+  it('方向序列 左→下→右→上（逆时针），每 2 次换向后步长 +1', () => {
     const s = new ReverseSpiralStrategy({ centerX: 800, centerY: 450, halfW: 400, halfH: 225 });
 
     // 左 1 (dx=-1): fromX = 800 + (-1)*400 = 400, toX = 800 - (-1)*400 = 1200
@@ -50,10 +50,10 @@ describe('ReverseSpiralStrategy', () => {
     expect(step.fromX).toBe(400);
     expect(step.toX).toBe(1200);
 
-    // 上 1 (dy=-1): fromY = 450 + (-1)*225 = 225, toY = 450 - (-1)*225 = 675
+    // 下 1 (dy=1): fromY = 450 + 225 = 675, toY = 450 - 225 = 225
     step = s.next()!;
-    expect(step.fromY).toBe(225);
-    expect(step.toY).toBe(675);
+    expect(step.fromY).toBe(675);
+    expect(step.toY).toBe(225);
 
     // 右 2 (dx=1): fromX = 800 + 400 = 1200
     step = s.next()!;
@@ -61,11 +61,11 @@ describe('ReverseSpiralStrategy', () => {
     step = s.next()!;
     expect(step.fromX).toBe(1200);
 
-    // 下 2 (dy=1): fromY = 450 + 225 = 675
+    // 上 2 (dy=-1): fromY = 450 - 225 = 225
     step = s.next()!;
-    expect(step.fromY).toBe(675);
+    expect(step.fromY).toBe(225);
     step = s.next()!;
-    expect(step.fromY).toBe(675);
+    expect(step.fromY).toBe(225);
   });
 
   it('name = "reverse-spiral"', () => {

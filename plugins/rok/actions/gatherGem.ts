@@ -9,7 +9,7 @@ import sharp from 'sharp';
 import { ocrService } from '../../../core/ocr/OcrService';
 import { ensureTeamPage, TeamPage } from '../utils/teamPage';
 import { getTeamButtons } from '../utils/teamButtons';
-import { GemSearchStrategy, pickStrategy } from '../utils/gemSearchStrategies';
+import { GemSearchStrategy, GemSearchWeights, pickStrategy, pickSnakeStartQuadrant } from '../utils/gemSearchStrategies';
 
 const vision = new Vision();
 
@@ -45,6 +45,17 @@ const GEM_VERIFY_TEMPLATES = [
 ];
 // 中心附近检测区域：屏幕中心 ±80px
 const GEM_VERIFY_REGION = { x: 800 - 80, y: 450 - 80, w: 160, h: 160 };
+// dev 环境下：二次确认失败的截图保存目录
+const GEM_VERIFY_FAIL_DIR = 'D:/SLG/temp/debug/gem_verify_fail';
+
+function isDevEnv(): boolean {
+  try {
+    const { app } = require('electron');
+    return !app.isPackaged;
+  } catch {
+    return true;
+  }
+}
 
 /** 直接返回纯数字串作为坐标标识，不分割 X/Y */
 export function parseCoord(text: string): string | null {
@@ -106,6 +117,24 @@ export async function verifyGemAtCenter(ctx: PluginContext): Promise<boolean> {
       return true;
     } else {
       ctx.log('  ❌ 中心附近无宝石，缩地继续螺旋搜索');
+      if (isDevEnv()) {
+        try {
+          await fs.mkdir(GEM_VERIFY_FAIL_DIR, { recursive: true });
+          const fullShot = await ctx.captureRegion(0, 0, 1600, 900);
+          try {
+            const outPath = path.join(
+              GEM_VERIFY_FAIL_DIR,
+              `fail_${Date.now()}_conf${Math.round(maxConfidence * 100)}.png`
+            );
+            await fs.copyFile(fullShot, outPath);
+            ctx.log(`  [调试] 已保存失败截图: ${outPath}`);
+          } finally {
+            await fs.unlink(fullShot).catch(() => {});
+          }
+        } catch (e) {
+          ctx.log(`  [调试] 保存失败截图出错: ${(e as Error).message}`);
+        }
+      }
       return false;
     }
   } finally {
@@ -177,14 +206,49 @@ export interface SpiralState {
   strategy: GemSearchStrategy;
 }
 
-export function createSpiralState(config: RokConfig): SpiralState {
+export async function detectChengbaoQuadrant(ctx: PluginContext): Promise<number | null> {
+  const result = await ctx.findImageWithLocation(CHENGBAO_TEMPLATE, 0.7);
+  if (!result.found) {
+    ctx.log(`  [起点象限] 未识别到城寨，snake 起点保持均匀随机`);
+    return null;
+  }
+  const dx = result.x - 800;
+  const dy = result.y - 450;
+  // 0=右下 1=左下 2=左上 3=右上
+  const q = dx >= 0 ? (dy >= 0 ? 0 : 3) : (dy >= 0 ? 1 : 2);
+  const names = ['右下', '左下', '左上', '右上'];
+  ctx.log(`  [起点象限] 城寨 @ (${result.x}, ${result.y}) → ${names[q]}象限`);
+  return q;
+}
+
+export async function createSpiralState(ctx: PluginContext, config: RokConfig, weights?: GemSearchWeights): Promise<SpiralState> {
   const gg = config.gemGather;
   const centerX = 800 + Math.round((Math.random() * 2 - 1) * 40);
   const centerY = 450 + Math.round((Math.random() * 2 - 1) * 25);
   const maxAttemptScale = 0.9 + Math.random() * 0.2;
   const halfW = Math.round(1600 * (gg.spiralSwipeRatioH ?? gg.spiralSwipeRatio) / 2);
   const halfH = Math.round(900 * gg.spiralSwipeRatio / 2);
-  const strategy = pickStrategy({ centerX, centerY, halfW, halfH });
+  // 先按权重决定策略名（不实例化），只有 snake 才做城寨象限检测
+  const w = weights ?? { spiral: 40, reverseSpiral: 40, randomWalk: 10, snake: 10 };
+  const total = w.spiral + w.reverseSpiral + w.randomWalk + w.snake;
+  let picked: 'spiral' | 'reverseSpiral' | 'randomWalk' | 'snake' = 'spiral';
+  if (total > 0) {
+    const r = Math.random() * total;
+    let acc = w.spiral;
+    if (r < acc) picked = 'spiral';
+    else if (r < (acc += w.reverseSpiral)) picked = 'reverseSpiral';
+    else if (r < (acc += w.randomWalk)) picked = 'randomWalk';
+    else picked = 'snake';
+  }
+  let snakeStart: number | undefined;
+  if (picked === 'snake') {
+    const chengbaoQ = await detectChengbaoQuadrant(ctx);
+    if (chengbaoQ !== null) snakeStart = pickSnakeStartQuadrant(chengbaoQ);
+  }
+  // 用固定权重让 pickStrategy 命中同一个策略
+  const forcedWeights: GemSearchWeights = { spiral: 0, reverseSpiral: 0, randomWalk: 0, snake: 0 };
+  forcedWeights[picked] = 1;
+  const strategy = pickStrategy({ centerX, centerY, halfW, halfH }, snakeStart, forcedWeights);
   return {
     moveCount: 0,
     checkedCenter: false,
@@ -326,7 +390,13 @@ export async function searchAndClickGem(
     }
 
     if (!gemFound) {
-      ctx.log(`  [搜索] 策略: ${spiralState.strategy.name}`);
+      const nameMap: Record<string, string> = {
+        'spiral': '螺旋',
+        'reverse-spiral': '反螺旋',
+        'random-walk': '随机游走',
+        'snake': '蛇形',
+      };
+      ctx.log(`  [搜索] 策略: ${nameMap[spiralState.strategy.name] ?? spiralState.strategy.name}`);
     }
 
     while (!gemFound && spiralState.moveCount < spiralState.maxAttempts) {
@@ -574,7 +644,7 @@ export async function gatherGem(
   ctx: PluginContext,
   config: RokConfig,
   teams: number[],
-  options?: { collectedCoords?: Array<{ x: number; y: number } | string>; teamPage?: TeamPage }
+  options?: { collectedCoords?: Array<{ x: number; y: number } | string>; teamPage?: TeamPage; searchWeights?: GemSearchWeights }
 ): Promise<GemGatherOutcome> {
   ctx.log(`=== 智能采集宝石 队伍[${teams.join(', ')}] ===`);
 
@@ -623,7 +693,7 @@ export async function gatherGem(
   await ctx.sleep(1);
 
   // 螺旋搜索状态（全程接续，不因换队重置）
-  const spiralState = createSpiralState(config);
+  const spiralState = await createSpiralState(ctx, config, options?.searchWeights);
 
   ctx.log(`[3/7] 方形螺旋搜索宝石矿（YOLO 检测, 上限 ${gg.searchMaxAttempts} 步）`);
 

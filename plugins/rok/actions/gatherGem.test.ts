@@ -36,14 +36,19 @@ describe('gatherGem 螺旋搜索等待', () => {
 });
 
 describe('gatherGem 搜索状态', () => {
-  it('初始化通用参数（中心、halfW/H、maxAttempts）并挂载策略实例', () => {
+  it('初始化通用参数（中心、halfW/H、maxAttempts）并挂载策略实例', async () => {
     const randomSpy = jest.spyOn(Math, 'random')
       .mockReturnValueOnce(0.25) // centerX = 780
       .mockReturnValueOnce(0.8)  // centerY = 465
       .mockReturnValueOnce(1)    // maxAttempts = 110%
       .mockReturnValueOnce(0);   // pickStrategy → spiral (r < 0.4)
 
-    const state = createSpiralState({
+    const ctx: any = {
+      findImageWithLocation: jest.fn(async () => ({ found: false, confidence: 0, x: 0, y: 0 })),
+      log: jest.fn(),
+    };
+
+    const state = await createSpiralState(ctx, {
       gemGather: {
         spiralSwipeRatio: 0.5,
         spiralSwipeRatioH: 0.6,

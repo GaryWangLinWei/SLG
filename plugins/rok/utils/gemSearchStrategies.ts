@@ -53,12 +53,12 @@ export class SpiralStrategy implements GemSearchStrategy {
   }
 }
 
-// 反向方向序列：左→上→右→下
+// 反向（逆时针）方向序列：左→下→右→上
 const REVERSE_DIRS = [
   { dx: -1, dy:  0 }, // 左
-  { dx:  0, dy: -1 }, // 上
-  { dx:  1, dy:  0 }, // 右
   { dx:  0, dy:  1 }, // 下
+  { dx:  1, dy:  0 }, // 右
+  { dx:  0, dy: -1 }, // 上
 ];
 
 export class ReverseSpiralStrategy implements GemSearchStrategy {
@@ -129,8 +129,8 @@ export class SnakeStrategy implements GemSearchStrategy {
   private phase: 'row' | 'vnudge' | 'transition' | 'done' = 'row';
   private transitionCol = 0;
 
-  constructor(private opts: StrategyOpts) {
-    const start = Math.floor(Math.random() * 4);
+  constructor(private opts: StrategyOpts, startQuadrant?: number) {
+    const start = startQuadrant ?? Math.floor(Math.random() * 4);
     const cw = Math.random() < 0.5;
     const base = cw ? CW_ORDER : CCW_ORDER;
     const shift = base.indexOf(start);
@@ -183,10 +183,43 @@ export class SnakeStrategy implements GemSearchStrategy {
   }
 }
 
-export function pickStrategy(opts: StrategyOpts): GemSearchStrategy {
+/**
+ * 按城寨所在象限加权挑选 snake 起点象限。
+ * 所在 50%，相邻各 20%，对角 10%。
+ */
+export function pickSnakeStartQuadrant(chengbaoQuadrant: number): number {
+  const adj1 = (chengbaoQuadrant + 1) % 4;
+  const adj2 = (chengbaoQuadrant + 3) % 4;
+  const opp = (chengbaoQuadrant + 2) % 4;
   const r = Math.random();
-  if (r < 0.4) return new SpiralStrategy(opts);
-  if (r < 0.8) return new ReverseSpiralStrategy(opts);
-  if (r < 0.9) return new RandomWalkStrategy(opts);
-  return new SnakeStrategy(opts);
+  if (r < 0.5) return chengbaoQuadrant;
+  if (r < 0.7) return adj1;
+  if (r < 0.9) return adj2;
+  return opp;
+}
+
+export interface GemSearchWeights {
+  spiral: number;
+  reverseSpiral: number;
+  randomWalk: number;
+  snake: number;
+}
+
+const DEFAULT_WEIGHTS: GemSearchWeights = { spiral: 40, reverseSpiral: 40, randomWalk: 10, snake: 10 };
+
+export function pickStrategy(
+  opts: StrategyOpts,
+  snakeStartQuadrant?: number,
+  weights: GemSearchWeights = DEFAULT_WEIGHTS,
+): GemSearchStrategy {
+  const total = weights.spiral + weights.reverseSpiral + weights.randomWalk + weights.snake;
+  if (total <= 0) return new SpiralStrategy(opts);
+  const r = Math.random() * total;
+  let acc = weights.spiral;
+  if (r < acc) return new SpiralStrategy(opts);
+  acc += weights.reverseSpiral;
+  if (r < acc) return new ReverseSpiralStrategy(opts);
+  acc += weights.randomWalk;
+  if (r < acc) return new RandomWalkStrategy(opts);
+  return new SnakeStrategy(opts, snakeStartQuadrant);
 }

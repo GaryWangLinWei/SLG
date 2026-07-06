@@ -6,6 +6,7 @@ import * as fs from 'fs/promises';
 // import sharp from 'sharp';
 import { RokConfig } from '../index';
 import { TeamPage } from '../utils/teamPage';
+import { GemSearchWeights } from '../utils/gemSearchStrategies';
 import {
   gatherGem,
   zoomOutToWorld,
@@ -196,12 +197,13 @@ export async function gatherGemFocus(
   ctx: PluginContext,
   config: RokConfig,
   teams: number[],
-  teamPage: TeamPage = 'gather'
+  teamPage: TeamPage = 'gather',
+  searchWeights?: GemSearchWeights,
 ): Promise<GemGatherOutcome> {
   ctx.log(`=== 宝石采集专注模式 队伍[${teams.join(', ')}] ===`);
   const worldBtn = config.resourceCollect.worldSwitchButton;
   const collectedCoords: string[] = [];
-  const spiralState = createSpiralState(config);
+  const spiralState = await createSpiralState(ctx, config, searchWeights);
   let dispatched = 0;
   let hasPaging: boolean | null = null;
   let quotaFull = false;
@@ -246,7 +248,7 @@ export async function gatherGemFocus(
       dispatched += r.dispatched;
       // gatherGem 内部独立维护 spiralState 且可能让视角回到城内，
       // 重置焦点循环的 spiralState 以避免与实际视角错位
-      Object.assign(spiralState, createSpiralState(config));
+      Object.assign(spiralState, await createSpiralState(ctx, config, searchWeights));
       await ctx.sleep(2);
       continue;
     }
@@ -261,7 +263,7 @@ export async function gatherGemFocus(
 
     await zoomOutToWorld(ctx, worldBtn);
     // 每次接续派矿都从新螺旋开始搜，避免沿用上一轮已耗尽的 spiralState 直接返回搜不到矿
-    Object.assign(spiralState, createSpiralState(config));
+    Object.assign(spiralState, await createSpiralState(ctx, config, searchWeights));
     const gem = await searchAndClickGem(ctx, config, spiralState, collectedCoords);
     if (!gem.found) {
       ctx.log('[step 3.2] 搜不到矿，退大 UI 回 step 1');
