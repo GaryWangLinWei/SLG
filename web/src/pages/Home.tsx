@@ -345,6 +345,7 @@ export function HomePage() {
 
   const [features, setFeatures] = useState(loadFeatures);
   const [showExtraGatherSlots, setShowExtraGatherSlots] = useState(false);
+  const [showGemSearchWeights, setShowGemSearchWeights] = useState(true);
   const featuresRef = useRef(features);
   featuresRef.current = features;
 
@@ -609,7 +610,8 @@ export function HomePage() {
       features.autoCaveExplore ||
       features.helpTeammates ||
       features.collectResources ||
-      features.joinRallyEnabled;
+      features.joinRallyEnabled ||
+      features.produceMaterialEnabled;
     if (!hasAnyFeature) {
       alert('请先开启至少一个功能再运行');
       return;
@@ -1160,7 +1162,7 @@ export function HomePage() {
                 pushLog(`💎 已采集: ${moduleGemCollectedCount} 颗`);
               }
 
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, { teams: f.gemGatherTeams, teamPage: f.gemGatherTeamPage });
+              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, { teams: f.gemGatherTeams, teamPage: f.gemGatherTeamPage, searchWeights: f.gemSearchWeights });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1814,6 +1816,42 @@ export function HomePage() {
                   className="w-12 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
                 <span className="text-xs text-slate-400">小时</span>
               </div>
+              <div className="mt-2">
+                <button type="button"
+                  onClick={() => setShowGemSearchWeights(v => !v)}
+                  className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 transition-colors">
+                  <span>搜索路径权重</span>
+                  <span className={`transition-transform ${showGemSearchWeights ? 'rotate-180' : ''}`}>▼</span>
+                </button>
+                {showGemSearchWeights && (() => {
+                  const w = features.gemSearchWeights ?? { spiral: 40, reverseSpiral: 40, randomWalk: 10, snake: 10 };
+                  const total = w.spiral + w.reverseSpiral + w.randomWalk + w.snake;
+                  const rows: Array<Array<readonly [keyof typeof w, string]>> = [
+                    [['spiral', '螺旋'], ['reverseSpiral', '反螺旋']],
+                    [['randomWalk', '随机'], ['snake', '蛇形']],
+                  ];
+                  const renderCell = (key: keyof typeof w, label: string) => (
+                    <label key={String(key)} className="flex items-center gap-1">
+                      <span className="text-xs text-slate-500 w-12">{label}</span>
+                      <input type="number" min={0} max={100} value={w[key]}
+                        disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
+                        onChange={(e) => setFeatures({ ...features, gemSearchWeights: { ...w, [key]: Math.max(0, Number(e.target.value) || 0) } })}
+                        className="w-12 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
+                    </label>
+                  );
+                  return (
+                    <div className="mt-1.5 flex flex-col gap-1 w-fit">
+                      <div className="flex items-center gap-4">
+                        {rows[0].map(([k, l]) => renderCell(k, l))}
+                      </div>
+                      <div className="flex items-center gap-4">
+                        {rows[1].map(([k, l]) => renderCell(k, l))}
+                        <span className={`text-xs tabular-nums ml-2 ${total === 0 ? 'text-red-500' : 'text-slate-400'}`}>合计 {total}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
               {gemRestCountdown && (
                 <p className="text-xs text-amber-600 mt-1">💤 休息中 剩余 {gemRestCountdown}</p>
               )}
@@ -2353,6 +2391,33 @@ export function HomePage() {
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.autoCaveExplore ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                   <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoCaveExplore ? 'translate-x-[18px]' : ''}`} />
+                </label>
+              </div>
+              {/* 生产装备材料 */}
+              <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0">
+                <span className="flex items-center gap-2 text-sm text-slate-700">
+                  <span className="w-6 h-6 bg-orange-100 rounded flex items-center justify-center text-xs">⚒️</span>
+                  生产装备材料
+                  <select
+                    value={features.produceMaterialType}
+                    disabled={features.autoExplore || features.autoWorldChat || !features.produceMaterialEnabled}
+                    onChange={(e) => setFeatures({ ...features, produceMaterialType: e.target.value as 'leather' | 'iron' | 'ebony' | 'bone' })}
+                    className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-xs disabled:opacity-50"
+                  >
+                    <option value="leather">皮革</option>
+                    <option value="iron">铁矿石</option>
+                    <option value="ebony">乌木</option>
+                    <option value="bone">兽骨</option>
+                  </select>
+                  <span className="text-xs text-slate-400">· 每2~4小时</span>
+                </span>
+                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoExplore || features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                  <input type="checkbox" checked={features.produceMaterialEnabled}
+                    disabled={features.autoExplore || features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, produceMaterialEnabled: e.target.checked })}
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.produceMaterialEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.produceMaterialEnabled ? 'translate-x-[18px]' : ''}`} />
                 </label>
               </div>
             </div>
