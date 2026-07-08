@@ -304,8 +304,17 @@ export function HomePage() {
     return f;
   };
 
-  const loadFeatures = () => {
-    try {
+  // 切 profile 时保留的全局字段（不属于任何单个账号）
+  const GLOBAL_FIELDS = ['autoSwitchAccount', 'switchMode', 'switchIntervalMinutes', 'switchProfileIds'] as const;
+  const preserveGlobalFields = (prev: any, next: any) => {
+    const out = { ...next };
+    for (const k of GLOBAL_FIELDS) {
+      if (prev[k] !== undefined) out[k] = prev[k];
+    }
+    return out;
+  };
+
+  const loadFeatures = () => {    try {
       const saved = localStorage.getItem('home-features');
       if (saved) {
         const parsed = JSON.parse(saved);
@@ -457,13 +466,13 @@ export function HomePage() {
       try {
         const res = await api.config.getRokConfig(currentAccountId);
         if (res.success && res.config?.homeFeatures) {
-          setFeatures((prev: typeof DEFAULT_FEATURES) => padGatherTasks({
+          setFeatures((prev: typeof DEFAULT_FEATURES) => preserveGlobalFields(prev, padGatherTasks({
             ...DEFAULT_HOME_FEATURES,
             ...res.config.homeFeatures,
             gemGatherMode: migrateGemMode(res.config.homeFeatures),
             completedBuildings: prev.completedBuildings,
             completedTechs: prev.completedTechs,
-          }));
+          })));
         } else {
           // One-shot migration: save current localStorage features to config
           setFeatures((prev: typeof DEFAULT_FEATURES) => {
@@ -496,15 +505,15 @@ export function HomePage() {
       setActiveConfigName(newName);
       const res = await api.config.getRokConfig(currentAccountId);
       if (res.success && res.config?.homeFeatures) {
-        setFeatures(padGatherTasks({
+        setFeatures((prev: typeof DEFAULT_FEATURES) => preserveGlobalFields(prev, padGatherTasks({
           ...DEFAULT_HOME_FEATURES,
           ...res.config.homeFeatures,
           gemGatherMode: migrateGemMode(res.config.homeFeatures),
           completedBuildings: [false, false, false, false, false],
           completedTechs: [false, false, false, false, false],
-        }));
+        })));
       } else {
-        setFeatures({ ...DEFAULT_FEATURES });
+        setFeatures((prev: typeof DEFAULT_FEATURES) => preserveGlobalFields(prev, { ...DEFAULT_FEATURES }));
       }
       loopCompletedBuildings = [false, false, false, false, false];
       loopCompletedTechs = [false, false, false, false, false];
@@ -760,8 +769,8 @@ export function HomePage() {
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (features.gatherResources && !features.autoExplore && !features.autoWorldChat) {
-            const gatherTasks = features.gatherTasks
+          if (featuresRef.current.gatherResources && !featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
+            const gatherTasks = featuresRef.current.gatherTasks
               .map((t: { type: string; level: number }, i: number) => ({ ...t, team: i + 1 }))
               .filter((t: { type: string; level: number; team: number }) => t.type);
             if (gatherTasks.length > 0) {
@@ -769,7 +778,7 @@ export function HomePage() {
               if (offlineActive) { releaseLock(); await sleep(30); continue; }
               await ensureGameRunning();
               try {
-                const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'gather-resources', { gatherTasks, teamPage: features.resourceGatherTeamPage });
+                const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'gather-resources', { gatherTasks, teamPage: featuresRef.current.resourceGatherTeamPage });
                 if (createResult.success) {
                   runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                   setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -804,7 +813,7 @@ export function HomePage() {
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (features.helpTeammates && !features.autoExplore && !features.autoWorldChat) {
+          if (featuresRef.current.helpTeammates && !featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
@@ -843,7 +852,7 @@ export function HomePage() {
         while (!loopStopped) {
           if (first) { first = false; continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (features.collectResources && !features.autoExplore && !features.autoWorldChat) {
+          if (featuresRef.current.collectResources && !featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
@@ -868,7 +877,7 @@ export function HomePage() {
               }
             } catch {} finally { releaseLock(); }
           }
-          const collectInterval = getCollectResourcesIntervalSeconds(features.collectResourcesIntervalMinutes);
+          const collectInterval = getCollectResourcesIntervalSeconds(featuresRef.current.collectResourcesIntervalMinutes);
           const startWait = monotonicNow();
           while (!loopStopped && (monotonicNow() - startWait) < collectInterval * 1000) {
             await sleep(1);
@@ -909,6 +918,20 @@ export function HomePage() {
               }
               if (ok) {
                 await api.config.switchProfile(currentAccountId, nextProfile);
+                // 载入新 profile 的功能开关（保留全局字段）
+                try {
+                  const nextCfg = await api.config.getRokConfig(currentAccountId, nextProfile);
+                  if (nextCfg.success && nextCfg.config?.homeFeatures) {
+                    setActiveConfigName(nextProfile);
+                    setFeatures((prev: typeof DEFAULT_FEATURES) => preserveGlobalFields(prev, padGatherTasks({
+                      ...DEFAULT_HOME_FEATURES,
+                      ...nextCfg.config.homeFeatures,
+                      gemGatherMode: migrateGemMode(nextCfg.config.homeFeatures),
+                      completedBuildings: [false, false, false, false, false],
+                      completedTechs: [false, false, false, false, false],
+                    })));
+                  }
+                } catch {}
                 resetAllCooldowns();
                 switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
                 pushLog(`✅ 切号完成，已激活 ${nextProfile}`);
@@ -927,14 +950,14 @@ export function HomePage() {
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (features.autoRallyFort && features.rallyFortLevel > 0 && !features.autoExplore && !features.autoWorldChat) {
+          if (featuresRef.current.autoRallyFort && featuresRef.current.rallyFortLevel > 0 && !featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
             if (loopStopped) break;
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
             let cd = 600; // 默认 CD，实际根据结果确定
             try {
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'rally-fort', { level: features.rallyFortLevel, team: features.rallyFortTeam, downgrade: features.rallyFortDowngrade, teamPage: features.rallyFortTeamPage });
+              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'rally-fort', { level: featuresRef.current.rallyFortLevel, team: featuresRef.current.rallyFortTeam, downgrade: featuresRef.current.rallyFortDowngrade, teamPage: featuresRef.current.rallyFortTeamPage });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -967,7 +990,7 @@ export function HomePage() {
                   refreshStatus();
                 } else {
                   const cdLabel = isStamina ? '75分钟' : isSuccess ? '10分钟' : '2分钟';
-                  pushLog(`${isSuccess ? '✅' : isStamina ? '🔋' : '⚠️'} 城寨 Lv.${features.rallyFortLevel} 队伍${features.rallyFortTeam} ${isSuccess ? '集结成功' : isStamina ? '行动力不足' : '未找到城寨'}，CD ${cdLabel}`);
+                  pushLog(`${isSuccess ? '✅' : isStamina ? '🔋' : '⚠️'} 城寨 Lv.${featuresRef.current.rallyFortLevel} 队伍${featuresRef.current.rallyFortTeam} ${isSuccess ? '集结成功' : isStamina ? '行动力不足' : '未找到城寨'}，CD ${cdLabel}`);
                   markRoundDone();
                 }
               }
@@ -993,7 +1016,7 @@ export function HomePage() {
         while (!loopStopped) {
           if (first) { first = false; await sleep(15); continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (features.joinRallyEnabled && !features.autoExplore && !features.autoWorldChat) {
+          if (featuresRef.current.joinRallyEnabled && !featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
             if (loopStopped) break;
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
@@ -1001,11 +1024,11 @@ export function HomePage() {
             let cd = 300; // 默认 CD 5 分钟
             try {
               const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'join-rally', {
-                team: features.joinRallyTeam,
-                teamPage: features.joinRallyTeamPage,
-                targetFort: features.joinRallyTargetFort,
-                targetLohar: features.joinRallyTargetLohar,
-                maxDistance: features.joinRallyMaxDistance,
+                team: featuresRef.current.joinRallyTeam,
+                teamPage: featuresRef.current.joinRallyTeamPage,
+                targetFort: featuresRef.current.joinRallyTargetFort,
+                targetLohar: featuresRef.current.joinRallyTargetLohar,
+                maxDistance: featuresRef.current.joinRallyMaxDistance,
                 firstRun,
               });
               if (createResult.success) {
@@ -1043,8 +1066,8 @@ export function HomePage() {
                   refreshStatus();
                 } else {
                   const cdLabel = isSuccess ? '10分钟' : isNoIdle ? '2分钟' : '3分钟';
-                  const targetLabel = (features.joinRallyTargetFort && features.joinRallyTargetLohar) ? '城寨/洛哈' : features.joinRallyTargetFort ? '城寨' : '洛哈';
-                  pushLog(`${isSuccess ? '✅' : isNoIdle ? '⏸️' : isDistanceExceed ? '📍' : '⚠️'} 加入${targetLabel}集结 队伍${features.joinRallyTeam} ${isSuccess ? '成功' : isNoIdle ? '无空闲队伍' : isDistanceExceed ? '超出距离' : '无可用集结'}，CD ${cdLabel}`);
+                  const targetLabel = (featuresRef.current.joinRallyTargetFort && featuresRef.current.joinRallyTargetLohar) ? '城寨/洛哈' : featuresRef.current.joinRallyTargetFort ? '城寨' : '洛哈';
+                  pushLog(`${isSuccess ? '✅' : isNoIdle ? '⏸️' : isDistanceExceed ? '📍' : '⚠️'} 加入${targetLabel}集结 队伍${featuresRef.current.joinRallyTeam} ${isSuccess ? '成功' : isNoIdle ? '无空闲队伍' : isDistanceExceed ? '超出距离' : '无可用集结'}，CD ${cdLabel}`);
                   markRoundDone();
                 }
                 firstRun = false; // 首次执行完后标记为非首次
@@ -1074,7 +1097,7 @@ export function HomePage() {
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (features.autoCaveExplore && !features.autoExplore && !features.autoWorldChat) {
+          if (featuresRef.current.autoCaveExplore && !featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
             if (!buildingOptions.includes('斥候营地')) {
               pushLog(`⚠️ 未标记斥候营地位置，跳过山洞探索`);
             } else {
@@ -1195,7 +1218,7 @@ export function HomePage() {
         while (!loopStopped) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (!features.produceMaterialEnabled || features.autoExplore || features.autoWorldChat) {
+          if (!featuresRef.current.produceMaterialEnabled || featuresRef.current.autoExplore || featuresRef.current.autoWorldChat) {
             await sleep(30);
             continue;
           }
@@ -1206,7 +1229,7 @@ export function HomePage() {
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
             try {
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'produce-equip-material', { material: features.produceMaterialType });
+              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'produce-equip-material', { material: featuresRef.current.produceMaterialType });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
