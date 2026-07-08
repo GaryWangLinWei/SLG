@@ -46,8 +46,6 @@ let relaunchRequested = false;         // launch-game 后请求各子循环重�
 let pendingAccountSwitch = false;    // 切号触发 flag：per-round 每轮末尾置 true；per-time setTimeout 到点置 true
 let switchTargetIdx = 0;             // 下一个要切到的 profile 索引（0 或 1）
 let switchTimerId: ReturnType<typeof setTimeout> | null = null;
-// Task 8 会用到这些变量，先引用一次避免 TS6133
-void pendingAccountSwitch; void switchTargetIdx; void switchTimerId;
 
 // 日志聚合：loopLogs 是唯一真源；组件挂载时注册 setter，卸载时置 null。
 // 这样即使 Home 被卸载（切页/后台），日志也不会因 setter 失效而丢失。
@@ -631,6 +629,22 @@ export function HomePage() {
     loopStopped = false;
     saveLoopState(currentAccountId);
     setTaskRunning(true);
+
+    pendingAccountSwitch = false;
+    switchTargetIdx = 0;
+    if (switchTimerId) { clearTimeout(switchTimerId); switchTimerId = null; }
+    const scheduleSwitchTimer = () => {
+      if (switchTimerId) clearTimeout(switchTimerId);
+      const feat = featuresRef.current;
+      if (!feat.autoSwitchAccount || feat.switchMode !== 'per-time') return;
+      const ms = Math.max(1, feat.switchIntervalMinutes) * 60 * 1000;
+      switchTimerId = setTimeout(() => {
+        pendingAccountSwitch = true;
+        scheduleSwitchTimer();
+      }, ms);
+    };
+    scheduleSwitchTimer();
+
     const isExploreMode = features.autoExplore;
     const isWorldChatMode = features.autoWorldChat;
     const interval = isExploreMode ? 60 : isWorldChatMode ? features.worldChatInterval : GATHER_LOOP_INTERVAL;
@@ -663,7 +677,6 @@ export function HomePage() {
       moduleGemCollectedCount = 0;
       moduleGemRestActive = false;
     };
-    void resetAllCooldowns;
 
     const sleep = async (s: number) => new Promise(r => setTimeout(r, s * 1000));
 
@@ -1369,6 +1382,45 @@ export function HomePage() {
         pushLog(`ℹ️ 未启用建筑/科技/训练，主循环跳过`);
       }
       while (!loopStopped && hasMainWork) {
+        // ==== 自动切号 ====
+        if (featuresRef.current.autoSwitchAccount && pendingAccountSwitch) {
+          pendingAccountSwitch = false;
+          const ids = featuresRef.current.switchProfileIds;
+          const validIds = (ids || []).filter((s: string) => !!s);
+          if (validIds.length >= 2) {
+            const nextProfile = validIds[switchTargetIdx];
+            pushLog(`🔀 切号 → ${nextProfile}`);
+            if (await acquireLock()) {
+              try {
+                const cfgRes = await api.config.getRokConfig(currentAccountId, nextProfile);
+                const targetName = (cfgRes.config as any)?.accountSwitch?.accountName || '';
+                if (!targetName) {
+                  pushLog(`⚠️ profile "${nextProfile}" 未填账号编号，跳过`);
+                } else {
+                  let ok = false;
+                  for (let attempt = 1; attempt <= 2 && !loopStopped; attempt++) {
+                    const cr = await api.tasks.create(currentAccountId, 'com.rok.automation', 'switch-account', { targetName });
+                    if (!cr.success) break;
+                    const rr = await api.tasks.run(cr.task.id);
+                    const logs = rr.task?.logs ?? [];
+                    if (logs.some((l: string) => l.includes('切换账号: success'))) { ok = true; break; }
+                    pushLog(`⚠️ 切号第 ${attempt} 次失败`);
+                  }
+                  if (ok) {
+                    await api.config.switchProfile(currentAccountId, nextProfile);
+                    resetAllCooldowns();
+                    switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
+                    pushLog(`✅ 切号完成，已激活 ${nextProfile}`);
+                  } else {
+                    pushLog(`❌ 切号 ${nextProfile} 失败，跳过`);
+                    switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
+                  }
+                }
+              } finally { releaseLock(); }
+            }
+          }
+        }
+
         round++;
         pushLog(`🔄 第${round}轮`);
         saveLoopState(currentAccountId);
@@ -1681,6 +1733,11 @@ export function HomePage() {
 
         pushLog(`⏳ 下次检查 ${nextWake.toFixed(0)} 秒后 (build1=${latestTimers.build1}s build2=${latestTimers.build2}s train=${latestTimers.train_bingying}/${latestTimers.train_majiu}/${latestTimers.train_bachang}/${latestTimers.train_gongcheng}s research=${latestTimers.research}s)`);
 
+        // ==== 一轮结束，per-round 模式触发切号 ====
+        if (featuresRef.current.autoSwitchAccount && featuresRef.current.switchMode === 'per-round') {
+          pendingAccountSwitch = true;
+        }
+
         // 等待期间随机拖拽
         const dragSafetyMargin = 5;
         const dragWindow = nextWake - dragSafetyMargin;
@@ -1721,6 +1778,7 @@ export function HomePage() {
     loopRunning = false;
     setLoopRunningState(false);
     clearLoopState();
+    if (switchTimerId) { clearTimeout(switchTimerId); switchTimerId = null; }
     if (runningTaskIdsRef.current.length > 0) {
       await Promise.all(runningTaskIdsRef.current.map(id => api.tasks.stop(id).catch(() => {})));
     }
