@@ -40,6 +40,7 @@ export function ConfigPage() {
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [clearConfirm, setClearConfirm] = useState(false);
   const [overwriteTarget, setOverwriteTarget] = useState<string | null>(null);
+  const [accountSwitchName, setAccountSwitchName] = useState<string>('');
 
   const checkStatus = useCallback(async () => {
     if (!currentAccountId) return;
@@ -58,6 +59,7 @@ export function ConfigPage() {
           const entries = Object.entries(res.config.buildingPositions as Record<string, { x: number; y: number }>);
           setBuildingPositions(entries.map(([name, pos]) => ({ name, x: pos.x, y: pos.y })));
         }
+        setAccountSwitchName((res.config as any).accountSwitch?.accountName ?? '');
       }
     } catch { /* ignore */ }
   }, [currentAccountId]);
@@ -88,6 +90,7 @@ export function ConfigPage() {
         } else {
           setBuildingPositions([]);
         }
+        setAccountSwitchName((res.config as any).accountSwitch?.accountName ?? '');
       }
     } catch (e: any) {
       setMessage(e.message || '切换失败');
@@ -153,7 +156,7 @@ export function ConfigPage() {
     const bp: Record<string, { x: number; y: number }> = {};
     positions.forEach(b => { bp[b.name] = { x: b.x, y: b.y }; });
     try {
-      await api.config.saveRokConfig(currentAccountId, { buildingPositions: bp }, configName);
+      await api.config.saveRokConfig(currentAccountId, { buildingPositions: bp, accountSwitch: { accountName: accountSwitchName } } as any, configName);
       setMessage('已保存');
     } catch { setMessage('保存失败'); }
   };
@@ -342,6 +345,19 @@ export function ConfigPage() {
         )}
 
         <span className="text-xs text-slate-400 ml-auto">{configNames.length}/5</span>
+      </div>
+
+      {/* 账号编号 */}
+      <div className="flex items-center gap-2 mb-4 bg-white rounded-lg shadow-sm p-3">
+        <label className="text-sm text-slate-600 whitespace-nowrap">账号编号:</label>
+        <input
+          type="text"
+          value={accountSwitchName}
+          onChange={(e) => setAccountSwitchName(e.target.value)}
+          onBlur={() => autoSave(buildingPositions)}
+          placeholder="241872258"
+          className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded"
+        />
       </div>
 
       {/* Create inline input */}
