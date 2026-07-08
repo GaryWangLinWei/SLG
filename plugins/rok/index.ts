@@ -22,6 +22,7 @@ import { launchGame } from './actions/launchGame';
 import { checkGameRunning } from './actions/checkGameRunning';
 import { checkAttack } from './actions/checkAttack';
 import { autoShield } from './actions/autoShield';
+import { switchAccount } from './actions/switchAccount';
 import { ensureInCity, ensureBottomBarCollapsed } from './utils/location';
 import { TeamPage } from './utils/teamPage';
 import { ocrService } from '../../core/ocr/OcrService';
@@ -842,6 +843,20 @@ export const RiseOfKingdomsPlugin: Plugin = {
       run: async (ctx) => {
         const result = await autoShield(ctx);
         ctx.log(`自动开盾: ${result}`);
+      }
+    },
+    {
+      id: 'switch-account',
+      name: '切换账号',
+      description: '通过用户中心切换到指定编号的游戏账号',
+      run: async (ctx, params) => {
+        const targetName = params?.targetName as string | undefined;
+        if (!targetName) {
+          ctx.log('❌ 未提供 targetName');
+          return;
+        }
+        const result = await switchAccount(ctx, targetName);
+        ctx.log(`切换账号: ${result}`);
       }
     },
   ],
