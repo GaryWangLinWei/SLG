@@ -17,6 +17,7 @@ let loopLogs: string[] = [];
 let loopCompletedBuildings: boolean[] = [false, false, false, false, false];
 let loopCompletedTechs: boolean[] = [false, false, false, false, false];
 let deviceBusy = false;
+let attackPreempt = false;   // 攻击检测抢占旗：其它子循环 acquireLock 时让路
 const GATHER_LOOP_INTERVAL = 300; // 城外采集独立循环间隔（秒）
 // 旧字段 gemGatherFocusMode -> 新字段 gemGatherMode 迁移
 function migrateGemMode(raw: any): 'normal' | 'focus' | 'mixed' {
@@ -42,6 +43,11 @@ let nightStartOffsetMinutes = 0;       // 夜间下线开始抖动（每次开�
 let nightEndOffsetMinutes = 0;         // 夜间下线结束抖动（每次开始运行生成一次）
 let bottomBarChecked = false;          // 主循环是否已确认底部菜单栏（launch-game 后需重置）
 let relaunchRequested = false;         // launch-game 后请求各子循环重置状态、从头开始（等价于重新点开始运行）
+let pendingAccountSwitch = false;    // 切号触发 flag：per-round 每轮末尾置 true；per-time setTimeout 到点置 true
+let switchTargetIdx = 0;             // 下一个要切到的 profile 索引（0 或 1）
+let switchTimerId: ReturnType<typeof setTimeout> | null = null;
+// Task 8 会用到这些变量，先引用一次避免 TS6133
+void pendingAccountSwitch; void switchTargetIdx; void switchTimerId;
 
 // 日志聚合：loopLogs 是唯一真源；组件挂载时注册 setter，卸载时置 null。
 // 这样即使 Home 被卸载（切页/后台），日志也不会因 setter 失效而丢失。
@@ -611,7 +617,8 @@ export function HomePage() {
       features.helpTeammates ||
       features.collectResources ||
       features.joinRallyEnabled ||
-      features.produceMaterialEnabled;
+      features.produceMaterialEnabled ||
+      features.attackDetectEnabled;
     if (!hasAnyFeature) {
       alert('请先开启至少一个功能再运行');
       return;
@@ -647,15 +654,34 @@ export function HomePage() {
       completedTechs: [false, false, false, false, false],
     }));
 
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const resetAllCooldowns = () => {
+      // 切号后新号所有子任务都要从头跑，等价于重启循环：
+      bottomBarChecked = false;
+      relaunchRequested = true;    // 让宝石 active/rest 循环 break 出去重新开始
+      moduleGemInitialCount = null;
+      moduleGemCollectedCount = 0;
+      moduleGemRestActive = false;
+    };
+    void resetAllCooldowns;
+
     const sleep = async (s: number) => new Promise(r => setTimeout(r, s * 1000));
 
     const acquireLock = async (): Promise<boolean> => {
-      while (deviceBusy && !loopStopped) { await sleep(0.3); }
+      while ((deviceBusy || attackPreempt) && !loopStopped) { await sleep(0.3); }
       if (loopStopped) return false;
       deviceBusy = true;
       return true;
     };
     const releaseLock = () => { deviceBusy = false; };
+
+    // 攻击检测专用锁：不受 attackPreempt 阻塞（自己就是抢占方）
+    const acquireLockForAttack = async (): Promise<boolean> => {
+      while (deviceBusy && !loopStopped) { await sleep(0.3); }
+      if (loopStopped) return false;
+      deviceBusy = true;
+      return true;
+    };
 
     // 检测游戏进程；掉线则按设定分钟数等待后拉起。0 分钟视为关闭。调用者必须已持锁。
     const ensureGameRunning = async (): Promise<void> => {
@@ -1018,6 +1044,83 @@ export function HomePage() {
         }
       })();
 
+      // 攻击检测独立循环 — 5s 一次，不抢锁；命中后抬旗抢占其它循环，再执行开盾
+      const attackLoop = (async () => {
+        let first = true;
+        while (!loopStopped) {
+          if (first) { first = false; await sleep(5); continue; }
+          if (offlineActive) { await sleep(30); continue; }
+          const f = featuresRef.current;
+          if (!f.attackDetectEnabled) { await sleep(5); continue; }
+
+          // [1] 纯检测：不抢锁，直接跑 check-attack
+          let attacked = false;
+          try {
+            const cr = await api.tasks.create(currentAccountId, 'com.rok.automation', 'check-attack');
+            if (cr.success) {
+              const rr = await api.tasks.run(cr.task.id);
+              const logs = rr.task?.logs ?? [];
+              attacked = logs.some((l: string) => l.includes('[CHECK-ATTACK] attacked=true'));
+            }
+          } catch {}
+
+          if (!attacked) { await sleep(5); continue; }
+
+          pushLog(`⚠️ 检测到被攻击`);
+
+          // [2] 未启用自动开盾：只记日志，间隔加长避免刷屏
+          if (!f.autoShieldEnabled) {
+            await sleep(30);
+            continue;
+          }
+
+          // [3] 抬旗抢占，等其它循环 releaseLock，然后拿锁执行开盾
+          attackPreempt = true;
+          try {
+            if (!await acquireLockForAttack()) break;
+            try {
+              await ensureGameRunning();
+              const cr2 = await api.tasks.create(currentAccountId, 'com.rok.automation', 'auto-shield');
+              if (cr2.success) {
+                runningTaskIdsRef.current = [...runningTaskIdsRef.current, cr2.task.id];
+                setRunningTaskIds([...runningTaskIdsRef.current]);
+                const rr2 = await api.tasks.run(cr2.task.id);
+                runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== cr2.task.id);
+                setRunningTaskIds([...runningTaskIdsRef.current]);
+                const logs2 = rr2.task?.logs ?? [];
+                const hasExpiredLog = logs2.some((l: string) => l.includes('许可证已过期'));
+                if (hasExpiredLog) {
+                  pushLog(`⛔ 许可证已到期，停止运行`);
+                  loopStopped = true;
+                  setExpiredMessage('激活码已到期，请重新激活');
+                  refreshStatus();
+                } else {
+                  const shieldSuccess = logs2.some((l: string) => l.includes('自动开盾: success'));
+                  if (shieldSuccess) {
+                    pushLog(`🛡️ 自动开盾 完成，2 小时后再检测`);
+                    releaseLock();
+                    attackPreempt = false;
+                    await sleep(2 * 60 * 60);
+                    continue;
+                  } else {
+                    pushLog(`🛡️ 自动开盾 完成`);
+                  }
+                }
+              }
+            } catch (e: any) {
+              pushLog(`⚠️ 自动开盾失败: ${e.message || e}`);
+            } finally {
+              releaseLock();
+            }
+          } finally {
+            attackPreempt = false;
+          }
+
+          // 开盾后拉长间隔避免连触发
+          await sleep(30);
+        }
+      })();
+
       // 生产装备材料独立循环（每 2~4 小时随机）
       const produceMaterialLoop = (async () => {
         let first = true;
@@ -1171,7 +1274,7 @@ export function HomePage() {
             }
           }
 
-          const activeHours = Number(f.gemGatherActiveHours) || 2;
+          const activeHours = Number(f.gemGatherActiveHours) || 3;
           const restHours = Number(f.gemGatherRestHours) || 1;
           const mode = f.gemGatherMode;
           const p = Math.min(1, Math.max(0, Number(f.gemGatherMixRatio) || 0));
@@ -1208,7 +1311,8 @@ export function HomePage() {
                 pushLog(`💎 已采集: ${moduleGemCollectedCount} 颗`);
               }
 
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, { teams: f.gemGatherTeams, teamPage: f.gemGatherTeamPage, searchWeights: f.gemSearchWeights });
+              pushLog(`💎 [DEBUG] maxDistance=${f.gemGatherMaxDistance}`);
+              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, { teams: f.gemGatherTeams, teamPage: f.gemGatherTeamPage, searchWeights: f.gemSearchWeights, maxDistance: f.gemGatherMaxDistance });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1601,7 +1705,7 @@ export function HomePage() {
           }
         }
       }
-      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, caveLoop, produceMaterialLoop, offlineLoop]);
+      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, caveLoop, produceMaterialLoop, offlineLoop, attackLoop]);
       loopRunning = false;
       setLoopRunningState(false);
       clearLoopState();
@@ -1849,7 +1953,7 @@ export function HomePage() {
               </div>
               <div className="flex items-center gap-2 mt-2">
                 <span className="text-xs text-slate-400 whitespace-nowrap">采集</span>
-                <input type="number" value={features.gemGatherActiveHours ?? 2}
+                <input type="number" value={features.gemGatherActiveHours ?? 3}
                   onChange={(e) => setFeatures({ ...features, gemGatherActiveHours: Number(e.target.value) })}
                   disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
                   min={1} max={24}
@@ -1861,6 +1965,15 @@ export function HomePage() {
                   min={1} max={24}
                   className="w-12 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
                 <span className="text-xs text-slate-400">小时</span>
+              </div>
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-xs text-slate-400 whitespace-nowrap">最大采集距离</span>
+                <input type="number" value={features.gemGatherMaxDistance ?? 100}
+                  onChange={(e) => setFeatures({ ...features, gemGatherMaxDistance: Number(e.target.value) })}
+                  disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
+                  min={1} max={9999}
+                  className="w-16 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
+                <span className="text-xs text-slate-400">公里</span>
               </div>
               <div className="mt-2">
                 <button type="button"
@@ -2175,7 +2288,6 @@ export function HomePage() {
                   </button>
                 )}
               </div>
-              <p className="text-xs text-slate-400 mt-1.5">请在配置页添加建筑坐标</p>
             </div>
 
             {/* 自动研究科技 */}
@@ -2223,7 +2335,6 @@ export function HomePage() {
                   </button>
                 )}
               </div>
-              <p className="text-xs text-slate-400 mt-1.5">请先在配置页添加学院坐标</p>
             </div>
 
             {/* 自动训练兵种 */}
@@ -2262,7 +2373,6 @@ export function HomePage() {
                   </div>
                 ))}
               </div>
-              <p className="text-xs text-slate-400 mt-1.5">需标记对应建筑坐标</p>
             </div>
 
             {/* 自动喊话 */}
@@ -2333,6 +2443,25 @@ export function HomePage() {
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.helpTeammates ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                   <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.helpTeammates ? 'translate-x-[18px]' : ''}`} />
+                </label>
+              </div>
+              {/* 自动开盾（受攻击时触发） */}
+              <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0"
+                title="受到攻击自动开盾，如果正在执行任务，会等任务结束后开盾">
+                <span className="flex items-center gap-2 text-sm text-slate-700">
+                  <span className="w-6 h-6 bg-red-100 rounded flex items-center justify-center text-xs">🛡️</span>
+                  自动开盾
+                </span>
+                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+                  <input type="checkbox" checked={features.attackDetectEnabled}
+                    onChange={(e) => setFeatures({
+                      ...features,
+                      attackDetectEnabled: e.target.checked,
+                      autoShieldEnabled: e.target.checked,
+                    })}
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.attackDetectEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.attackDetectEnabled ? 'translate-x-[18px]' : ''}`} />
                 </label>
               </div>
               {/* 自动收集资源 */}
@@ -2459,7 +2588,13 @@ export function HomePage() {
                 <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoExplore || features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
                   <input type="checkbox" checked={features.produceMaterialEnabled}
                     disabled={features.autoExplore || features.autoWorldChat}
-                    onChange={(e) => setFeatures({ ...features, produceMaterialEnabled: e.target.checked })}
+                    onChange={(e) => {
+                      if (e.target.checked && !buildingOptions.includes('铁匠铺')) {
+                        alert('请在坐标配置页标记铁匠铺位置');
+                        return;
+                      }
+                      setFeatures({ ...features, produceMaterialEnabled: e.target.checked });
+                    }}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.produceMaterialEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                   <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.produceMaterialEnabled ? 'translate-x-[18px]' : ''}`} />
