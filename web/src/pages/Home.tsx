@@ -688,6 +688,13 @@ export function HomePage() {
     };
     const releaseLock = () => { deviceBusy = false; };
 
+    // 子循环执行完一个 action 后调用；per-round 模式下触发切号 flag
+    const markRoundDone = () => {
+      if (featuresRef.current.autoSwitchAccount && featuresRef.current.switchMode === 'per-round') {
+        pendingAccountSwitch = true;
+      }
+    };
+
     // 攻击检测专用锁：不受 attackPreempt 阻塞（自己就是抢占方）
     const acquireLockForAttack = async (): Promise<boolean> => {
       while (deviceBusy && !loopStopped) { await sleep(0.3); }
@@ -869,6 +876,51 @@ export function HomePage() {
         }
       })();
 
+      // 自动切号独立循环 — 消费 pendingAccountSwitch flag
+      const accountSwitchLoop = (async () => {
+        while (!loopStopped) {
+          await sleep(5);
+          if (loopStopped) break;
+          if (!featuresRef.current.autoSwitchAccount) continue;
+          if (!pendingAccountSwitch) continue;
+          const ids = featuresRef.current.switchProfileIds;
+          const validIds = (ids || []).filter((s: string) => !!s);
+          if (validIds.length < 2) { pendingAccountSwitch = false; continue; }
+
+          pendingAccountSwitch = false;
+          const nextProfile = validIds[switchTargetIdx];
+          pushLog(`🔀 切号 → ${nextProfile}`);
+          if (!await acquireLock()) break;
+          try {
+            const cfgRes = await api.config.getRokConfig(currentAccountId, nextProfile);
+            const targetName = (cfgRes.config as any)?.accountSwitch?.accountName || '';
+            if (!targetName) {
+              pushLog(`⚠️ profile "${nextProfile}" 未填账号编号，跳过`);
+              switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
+            } else {
+              let ok = false;
+              for (let attempt = 1; attempt <= 2 && !loopStopped; attempt++) {
+                const cr = await api.tasks.create(currentAccountId, 'com.rok.automation', 'switch-account', { targetName });
+                if (!cr.success) break;
+                const rr = await api.tasks.run(cr.task.id);
+                const logs = rr.task?.logs ?? [];
+                if (logs.some((l: string) => l.includes('切换账号: success'))) { ok = true; break; }
+                pushLog(`⚠️ 切号第 ${attempt} 次失败`);
+              }
+              if (ok) {
+                await api.config.switchProfile(currentAccountId, nextProfile);
+                resetAllCooldowns();
+                switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
+                pushLog(`✅ 切号完成，已激活 ${nextProfile}`);
+              } else {
+                pushLog(`❌ 切号 ${nextProfile} 失败，跳过`);
+                switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
+              }
+            }
+          } finally { releaseLock(); }
+        }
+      })();
+
       // 攻打城寨独立循环 — 每 10min
       const rallyLoop = (async () => {
         let first = true;
@@ -916,6 +968,7 @@ export function HomePage() {
                 } else {
                   const cdLabel = isStamina ? '75分钟' : isSuccess ? '10分钟' : '2分钟';
                   pushLog(`${isSuccess ? '✅' : isStamina ? '🔋' : '⚠️'} 城寨 Lv.${features.rallyFortLevel} 队伍${features.rallyFortTeam} ${isSuccess ? '集结成功' : isStamina ? '行动力不足' : '未找到城寨'}，CD ${cdLabel}`);
+                  markRoundDone();
                 }
               }
             } catch {} finally { releaseLock(); }
@@ -992,6 +1045,7 @@ export function HomePage() {
                   const cdLabel = isSuccess ? '10分钟' : isNoIdle ? '2分钟' : '3分钟';
                   const targetLabel = (features.joinRallyTargetFort && features.joinRallyTargetLohar) ? '城寨/洛哈' : features.joinRallyTargetFort ? '城寨' : '洛哈';
                   pushLog(`${isSuccess ? '✅' : isNoIdle ? '⏸️' : isDistanceExceed ? '📍' : '⚠️'} 加入${targetLabel}集结 队伍${features.joinRallyTeam} ${isSuccess ? '成功' : isNoIdle ? '无空闲队伍' : isDistanceExceed ? '超出距离' : '无可用集结'}，CD ${cdLabel}`);
+                  markRoundDone();
                 }
                 firstRun = false; // 首次执行完后标记为非首次
               }
@@ -1044,6 +1098,7 @@ export function HomePage() {
                     refreshStatus();
                   } else {
                     pushLog(`🏔️ 山洞探索 完成`);
+                    markRoundDone();
                   }
                 }
               } catch {} finally { releaseLock(); }
@@ -1167,6 +1222,7 @@ export function HomePage() {
                   refreshStatus();
                 } else {
                   pushLog(`⚒️ 生产装备材料 完成`);
+                  markRoundDone();
                 }
               }
             } catch {} finally { releaseLock(); }
@@ -1382,45 +1438,6 @@ export function HomePage() {
         pushLog(`ℹ️ 未启用建筑/科技/训练，主循环跳过`);
       }
       while (!loopStopped && hasMainWork) {
-        // ==== 自动切号 ====
-        if (featuresRef.current.autoSwitchAccount && pendingAccountSwitch) {
-          pendingAccountSwitch = false;
-          const ids = featuresRef.current.switchProfileIds;
-          const validIds = (ids || []).filter((s: string) => !!s);
-          if (validIds.length >= 2) {
-            const nextProfile = validIds[switchTargetIdx];
-            pushLog(`🔀 切号 → ${nextProfile}`);
-            if (await acquireLock()) {
-              try {
-                const cfgRes = await api.config.getRokConfig(currentAccountId, nextProfile);
-                const targetName = (cfgRes.config as any)?.accountSwitch?.accountName || '';
-                if (!targetName) {
-                  pushLog(`⚠️ profile "${nextProfile}" 未填账号编号，跳过`);
-                } else {
-                  let ok = false;
-                  for (let attempt = 1; attempt <= 2 && !loopStopped; attempt++) {
-                    const cr = await api.tasks.create(currentAccountId, 'com.rok.automation', 'switch-account', { targetName });
-                    if (!cr.success) break;
-                    const rr = await api.tasks.run(cr.task.id);
-                    const logs = rr.task?.logs ?? [];
-                    if (logs.some((l: string) => l.includes('切换账号: success'))) { ok = true; break; }
-                    pushLog(`⚠️ 切号第 ${attempt} 次失败`);
-                  }
-                  if (ok) {
-                    await api.config.switchProfile(currentAccountId, nextProfile);
-                    resetAllCooldowns();
-                    switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
-                    pushLog(`✅ 切号完成，已激活 ${nextProfile}`);
-                  } else {
-                    pushLog(`❌ 切号 ${nextProfile} 失败，跳过`);
-                    switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
-                  }
-                }
-              } finally { releaseLock(); }
-            }
-          }
-        }
-
         round++;
         pushLog(`🔄 第${round}轮`);
         saveLoopState(currentAccountId);
@@ -1762,7 +1779,7 @@ export function HomePage() {
           }
         }
       }
-      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, caveLoop, produceMaterialLoop, offlineLoop, attackLoop]);
+      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, caveLoop, produceMaterialLoop, offlineLoop, attackLoop, accountSwitchLoop]);
       loopRunning = false;
       setLoopRunningState(false);
       clearLoopState();
