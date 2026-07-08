@@ -2661,26 +2661,67 @@ export function HomePage() {
             </div>
 
             {/* 自动切号 */}
-            <div className="flex flex-col gap-0 p-4 rounded-lg transition-colors border relative bg-amber-50/60 border-amber-300 border-dashed">
-              <div className="absolute -top-1.5 right-3 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-md shadow-amber-200 flex items-center gap-1 z-20"
-                title="升级到 Pro 解锁">
-                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.957a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.37 2.448a1 1 0 00-.364 1.118l1.287 3.957c.3.921-.755 1.688-1.54 1.118l-3.37-2.448a1 1 0 00-1.176 0l-3.37 2.448c-.784.57-1.838-.197-1.539-1.118l1.287-3.957a1 1 0 00-.364-1.118L2.063 9.384c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.957z" /></svg>
-                PRO
-              </div>
-              <div className="absolute inset-0 bg-white/20 backdrop-blur-[1px] rounded-lg flex items-center justify-center z-10">
-                <span className="bg-white border border-slate-200 px-3 py-1.5 rounded-full text-xs text-slate-500 font-semibold shadow-sm flex items-center gap-1.5">🔒 即将上线</span>
-              </div>
-              <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-0 p-4 rounded-lg transition-colors border border-slate-200 hover:border-slate-300">
+              <div className="flex items-center justify-between mb-2">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800">
-                  <span className="w-8 h-8 rounded-lg flex items-center justify-center text-base bg-amber-100">🔄</span>
+                  <span className="w-8 h-8 rounded-lg flex items-center justify-center text-base bg-amber-100">🔀</span>
                   自动切号
                 </span>
-                <span className="relative w-10 h-[22px] flex-shrink-0 cursor-not-allowed">
-                  <span className="absolute inset-0 rounded-full bg-slate-200" />
-                  <span className="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm" />
-                </span>
+                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+                  <input type="checkbox" checked={features.autoSwitchAccount}
+                    onChange={(e) => setFeatures({ ...features, autoSwitchAccount: e.target.checked })}
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.autoSwitchAccount ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoSwitchAccount ? 'translate-x-[18px]' : ''}`} />
+                </label>
               </div>
-              <p className="text-xs text-slate-400 mt-1.5">多账号自动切换，轮流执行任务</p>
+              {features.autoSwitchAccount && (
+                <>
+                  <div className="mb-2 flex items-center gap-2 flex-wrap">
+                    <label className="text-xs text-slate-600">切号时机:</label>
+                    <select
+                      value={features.switchMode}
+                      onChange={(e) => setFeatures({ ...features, switchMode: e.target.value as 'per-round' | 'per-time' })}
+                      className="px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded"
+                    >
+                      <option value="per-round">按轮次</option>
+                      <option value="per-time">按时间</option>
+                    </select>
+                    {features.switchMode === 'per-time' && (
+                      <>
+                        <input
+                          type="number"
+                          min={1}
+                          value={features.switchIntervalMinutes}
+                          onChange={(e) => setFeatures({ ...features, switchIntervalMinutes: Math.max(1, parseInt(e.target.value) || 30) })}
+                          className="w-16 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded"
+                        />
+                        <span className="text-xs text-slate-500">分钟</span>
+                      </>
+                    )}
+                  </div>
+                  {[0, 1].map(i => (
+                    <div key={i} className="mb-1.5 flex items-center gap-2">
+                      <label className="text-xs text-slate-600 w-12">账号 {i + 1}:</label>
+                      <select
+                        value={features.switchProfileIds[i] || ''}
+                        onChange={(e) => {
+                          const ids: [string, string] = [features.switchProfileIds[0] || '', features.switchProfileIds[1] || ''];
+                          ids[i] = e.target.value;
+                          setFeatures({ ...features, switchProfileIds: ids });
+                        }}
+                        className="flex-1 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded"
+                      >
+                        <option value="">-- 选择配置方案 --</option>
+                        {configNames.map(p => (
+                          <option key={p} value={p}>{p}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                  <p className="mt-1 text-xs text-slate-400">💡 每个配置方案需在 Config 页填写账号编号</p>
+                </>
+              )}
             </div>
           </div>
         </div>
