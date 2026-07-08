@@ -42,6 +42,7 @@ export interface HomeFeatures {
   gemGatherActiveHours: number;
   gemGatherRestHours: number;
   gemGatherMixRatio: number;
+  gemGatherMaxDistance: number;
   gemSearchWeights: { spiral: number; reverseSpiral: number; randomWalk: number; snake: number };
   autoCaveExplore: boolean;
   nightMode: boolean;
@@ -53,6 +54,12 @@ export interface HomeFeatures {
   joinRallyMaxDistance: number;
   produceMaterialEnabled: boolean;
   produceMaterialType: 'leather' | 'iron' | 'ebony' | 'bone';
+  attackDetectEnabled: boolean;
+  autoShieldEnabled: boolean;
+  autoSwitchAccount: boolean;
+  switchMode: 'per-round' | 'per-time';
+  switchIntervalMinutes: number;
+  switchProfileIds: [string, string];  // 恰好 2 个 profile 名称
 }
 
 export const DEFAULT_HOME_FEATURES: HomeFeatures = {
@@ -91,9 +98,10 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   gemGatherMode: 'normal',
   gemGatherTeams: [1],
   gemGatherTeamPage: 'gather',
-  gemGatherActiveHours: 2,
+  gemGatherActiveHours: 3,
   gemGatherRestHours: 1,
   gemGatherMixRatio: 0.5,
+  gemGatherMaxDistance: 100,
   gemSearchWeights: { spiral: 40, reverseSpiral: 40, randomWalk: 10, snake: 10 },
   autoCaveExplore: false,
   nightMode: false,
@@ -105,4 +113,10 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   joinRallyMaxDistance: 50,
   produceMaterialEnabled: false,
   produceMaterialType: 'leather',
+  attackDetectEnabled: false,
+  autoShieldEnabled: false,
+  autoSwitchAccount: false,
+  switchMode: 'per-round',
+  switchIntervalMinutes: 30,
+  switchProfileIds: ['', ''],
 };
