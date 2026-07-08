@@ -7,7 +7,7 @@ import { ROK_PACKAGE } from './checkGameRunning';
 const ROK_ICON_TEMPLATE = path.join(getTemplatesDir(), 'RokIcon.png');
 const DEBUG_DIR = path.join(process.cwd(), 'temp', 'launchGame');
 // 进游戏点击区域（替代固定的屏幕正中心）
-const TAP_REGION = { x1: 324, y1: 256, x2: 1231, y2: 798 };
+export const TAP_REGION = { x1: 324, y1: 256, x2: 1231, y2: 798 };
 
 function randInt(min: number, max: number): number {
   return min + Math.floor(Math.random() * (max - min + 1));
