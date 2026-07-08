@@ -20,6 +20,8 @@ import { sendWorldChat, sendWorldChatFirstRun } from './actions/sendWorldChat';
 import { killGame } from './actions/killGame';
 import { launchGame } from './actions/launchGame';
 import { checkGameRunning } from './actions/checkGameRunning';
+import { checkAttack } from './actions/checkAttack';
+import { autoShield } from './actions/autoShield';
 import { ensureInCity, ensureBottomBarCollapsed } from './utils/location';
 import { TeamPage } from './utils/teamPage';
 import { ocrService } from '../../core/ocr/OcrService';
@@ -162,6 +164,9 @@ export interface RokConfig {
     searchScales: number[];
   };
 
+  accountSwitch: {
+    accountName: string;   // 账号编号，如 "241872258"，空 = 不参与切号
+  };
   homeFeatures?: HomeFeatures;
 }
 
@@ -311,6 +316,9 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
     searchScales: [0.8, 0.9, 1.0],
   },
 
+  accountSwitch: {
+    accountName: '',
+  },
   homeFeatures: DEFAULT_HOME_FEATURES,
 };
 
@@ -772,7 +780,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       id: 'gem-gather',
       name: '智能采集宝石',
       description: '使用图像识别螺旋搜索宝石矿并派出队伍采集',
-      run: async (ctx, params: { teams?: number[]; teamPage?: TeamPage; searchWeights?: any } = {}) => {
+      run: async (ctx, params: { teams?: number[]; teamPage?: TeamPage; searchWeights?: any; maxDistance?: number } = {}) => {
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const teams = params.teams || [1];
 
@@ -801,7 +809,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
           ctx.log('⚠️ 未识别到队伍计数，继续宝石采集');
         }
 
-        const outcome = await gatherGem(ctx, config, teams, { teamPage: params.teamPage ?? 'gather', searchWeights: params.searchWeights });
+        const outcome = await gatherGem(ctx, config, teams, { teamPage: params.teamPage ?? 'gather', searchWeights: params.searchWeights, maxDistance: params.maxDistance });
         ctx.log(`宝石采集: 队伍[${teams.join(', ')}] → ${outcome.result}，派出 ${outcome.dispatched} 队`);
       }
     },
@@ -809,16 +817,33 @@ export const RiseOfKingdomsPlugin: Plugin = {
       id: 'gem-gather-focus',
       name: '宝石采集驻扎模式',
       description: '独占运行，持续采集宝石，暂停城寨/资源/建筑/科技/练兵/社交等所有其他功能',
-      run: async (ctx, params: { teams?: number[]; teamPage?: TeamPage; searchWeights?: any } = {}) => {
+      run: async (ctx, params: { teams?: number[]; teamPage?: TeamPage; searchWeights?: any; maxDistance?: number } = {}) => {
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const teams = params.teams || [1];
-        const outcome = await gatherGemFocus(ctx, config, teams, params.teamPage ?? 'gather', params.searchWeights);
+        const outcome = await gatherGemFocus(ctx, config, teams, params.teamPage ?? 'gather', params.searchWeights, params.maxDistance);
         ctx.log(`宝石采集(驻扎): 队伍[${teams.join(', ')}] → ${outcome.result}，派出 ${outcome.dispatched} 队`);
       }
     },
     killGame,
     launchGame,
     checkGameRunning,
+    {
+      id: 'check-attack',
+      name: '检测被攻击',
+      description: '在屏幕右下角搜索攻击图标，日志输出 [CHECK-ATTACK] attacked=true/false',
+      run: async (ctx) => {
+        await checkAttack(ctx);
+      }
+    },
+    {
+      id: 'auto-shield',
+      name: '自动开盾',
+      description: '展开底部栏 → 道具 → 增益页 → 使用护盾（含已在盾中的取消处理）',
+      run: async (ctx) => {
+        const result = await autoShield(ctx);
+        ctx.log(`自动开盾: ${result}`);
+      }
+    },
   ],
 
   onLoad: async () => {
