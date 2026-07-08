@@ -2,12 +2,12 @@
 
 ## 背景与目标
 
-同一模拟器上登了多个万国觉醒账号（≤ 5 个），希望自动轮流切号，每个账号使用一套独立的坐标配置方案跑首页循环。切一次号 = 一轮任务过完后自动切下一个号。
+同一模拟器上登了 2 个万国觉醒账号，希望自动轮流切号，每个账号使用一套独立的坐标配置方案跑首页循环。切一次号 = 一轮任务过完后自动切下一个号。
 
 ## 范围
 
 - **游戏内切号**（头像 → 用户中心 → 切换账号 → 选择账号 → 登录），不涉及模拟器切换
-- 最多 5 个账号（超过一屏的滑动查找**不做**）
+- **限制 2 个账号**（对应切号下拉里的两个 OCR 区域，无需滑动/翻页）
 - 每个账号复用现有 `RokConfig` 配置方案（Config 页里已有的多方案系统）
 
 ## 数据结构
@@ -26,7 +26,7 @@ accountSwitch: {
 autoSwitchAccount: boolean;             // 总开关
 switchMode: 'per-round' | 'per-time';   // 切号触发方式
 switchIntervalMinutes: number;          // per-time 模式的间隔，默认 30
-switchProfileIds: string[];             // 参与轮换的配置方案 ID，按顺序
+switchProfileIds: string[];             // 参与轮换的配置方案 ID（恰好 2 个）
 ```
 
 ## 切号 action
@@ -133,8 +133,7 @@ if (features.switchMode === 'per-time') {
 - 模式单选：按轮次 / 按时间
   - 按时间：分钟输入框
 - 参与账号列表：
-  - 下拉多选配置方案（复用现有 profile 列表）
-  - 已选项上下箭头调整顺序
+  - 两个下拉：**账号 1 / 账号 2**（各自选一个配置方案）
   - 提示文字："每个配置方案需在 Config 页填写账号编号"
 
 ### Config 页配置方案编辑区新增
@@ -152,7 +151,7 @@ if (features.switchMode === 'per-time') {
 | 目标账号 `accountName` 为空 | 跳过，切下一个 |
 | OCR 两个区域都不匹配 | 返回 `not_found`，上层重试 2 次后跳过 |
 | 加载超过 60s 未回城内 | 返回 `load_timeout`，上层重试 2 次后跳过 |
-| `switchProfileIds` 少于 2 个 | 循环不启用切号，跟单号一样跑 |
+| `switchProfileIds` 不足 2 个或有一项账号编号为空 | 循环不启用切号，跟单号一样跑 |
 | 用户切号过程中点停止 | `checkStop` 在 tap/sleep 前检查，正常中断 |
 | per-time 计时中 flag 未清 | 切号执行完清 flag，下一次 timeout 到再置 true |
 
