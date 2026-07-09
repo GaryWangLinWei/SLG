@@ -361,6 +361,8 @@ export function HomePage() {
   const [showGemSearchWeights, setShowGemSearchWeights] = useState(true);
   const featuresRef = useRef(features);
   featuresRef.current = features;
+  const activeConfigNameRef = useRef(activeConfigName);
+  activeConfigNameRef.current = activeConfigName;
 
   const featuresToPersist = (f: typeof DEFAULT_FEATURES): typeof DEFAULT_HOME_FEATURES => {
     const { completedBuildings, completedTechs, ...rest } = f;
@@ -641,9 +643,10 @@ export function HomePage() {
 
     pendingAccountSwitch = false;
     // 初始化下一个切号目标：当前 active 是 profile[0] → 下次切到 [1]；否则切到 [0]
-    const initialIds = (features.switchProfileIds || []).filter((s: string) => !!s);
-    const activeIdx = initialIds.indexOf(activeConfigName);
+    const initialIds = (featuresRef.current.switchProfileIds || []).filter((s: string) => !!s);
+    const activeIdx = initialIds.indexOf(activeConfigNameRef.current);
     switchTargetIdx = activeIdx === 0 ? 1 : 0;
+    pushLog(`🔀 自动切号目标索引 = ${switchTargetIdx}（当前 active=${activeConfigNameRef.current}, ids=[${initialIds.join(',')}]）`);
     if (switchTimerId) { clearTimeout(switchTimerId); switchTimerId = null; }
     const scheduleSwitchTimer = () => {
       if (switchTimerId) clearTimeout(switchTimerId);
