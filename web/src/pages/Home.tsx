@@ -640,7 +640,10 @@ export function HomePage() {
     setTaskRunning(true);
 
     pendingAccountSwitch = false;
-    switchTargetIdx = 0;
+    // 初始化下一个切号目标：当前 active 是 profile[0] → 下次切到 [1]；否则切到 [0]
+    const initialIds = (features.switchProfileIds || []).filter((s: string) => !!s);
+    const activeIdx = initialIds.indexOf(activeConfigName);
+    switchTargetIdx = activeIdx === 0 ? 1 : 0;
     if (switchTimerId) { clearTimeout(switchTimerId); switchTimerId = null; }
     const scheduleSwitchTimer = () => {
       if (switchTimerId) clearTimeout(switchTimerId);
