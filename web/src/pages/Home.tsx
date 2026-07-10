@@ -43,9 +43,11 @@ let nightStartOffsetMinutes = 0;       // 夜间下线开始抖动（每次开�
 let nightEndOffsetMinutes = 0;         // 夜间下线结束抖动（每次开始运行生成一次）
 let bottomBarChecked = false;          // 主循环是否已确认底部菜单栏（launch-game 后需重置）
 let relaunchRequested = false;         // launch-game 后请求各子循环重置状态、从头开始（等价于重新点开始运行）
+let cooldownResetSeq = 0;               // 切号后各子循环打断 CD 等待用；每次重置 +1，等待循环里对比初值
 let pendingAccountSwitch = false;    // 切号触发 flag：per-round 每轮末尾置 true；per-time setTimeout 到点置 true
 let switchTargetIdx = 0;             // 下一个要切到的 profile 索引（0 或 1）
 let switchTimerId: ReturnType<typeof setTimeout> | null = null;
+let fortModeFallbackTimerId: ReturnType<typeof setTimeout> | null = null;  // 寨子模式兜底：切号后 15 分钟内无成功也触发切号
 
 // 日志聚合：loopLogs 是唯一真源；组件挂载时注册 setter，卸载时置 null。
 // 这样即使 Home 被卸载（切页/后台），日志也不会因 setter 失效而丢失。
@@ -193,6 +195,17 @@ export function HomePage() {
   const PRO_FEATURES = ['gemGather', 'autoSwitch', 'joinRally'];
   const isFeatureLocked = (featureId: string) => !isPro && PRO_FEATURES.includes(featureId);
   const [activeConfigName, setActiveConfigName] = useState('');
+  const [accountScheduleExpanded, setAccountScheduleExpandedState] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('accountScheduleExpanded') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const setAccountScheduleExpanded = (v: boolean) => {
+    setAccountScheduleExpandedState(v);
+    try { localStorage.setItem('accountScheduleExpanded', v ? 'true' : 'false'); } catch {}
+  };
   const [deviceConnected, setDeviceConnected] = useState(false);
   const [deviceLoading, setDeviceLoading] = useState(false);
   const [loopRunningState, setLoopRunningState] = useState(false);
@@ -642,6 +655,16 @@ export function HomePage() {
     setTaskRunning(true);
 
     pendingAccountSwitch = false;
+    // 账号1 固定为当前 active profile，同步到 features（UI 层账号1不可选，兜底修正）
+    {
+      const curIds = featuresRef.current.switchProfileIds || ['', ''];
+      if (curIds[0] !== activeConfigNameRef.current) {
+        const nextIds: [string, string] = [activeConfigNameRef.current, curIds[1] || ''];
+        const merged = { ...featuresRef.current, switchProfileIds: nextIds } as any;
+        featuresRef.current = merged;
+        setFeatures(merged);
+      }
+    }
     // 初始化下一个切号目标：当前 active 是 profile[0] → 下次切到 [1]；否则切到 [0]
     const initialIds = (featuresRef.current.switchProfileIds || []).filter((s: string) => !!s);
     const activeIdx = initialIds.indexOf(activeConfigNameRef.current);
@@ -652,7 +675,15 @@ export function HomePage() {
       if (switchTimerId) clearTimeout(switchTimerId);
       const feat = featuresRef.current;
       if (!feat.autoSwitchAccount || feat.switchMode !== 'per-time') return;
-      const ms = Math.max(1, feat.switchIntervalMinutes) * 60 * 1000;
+      // 按当前 active profile 在 switchProfileIds 中的位置取对应的时长
+      const ids = feat.switchProfileIds || ['', ''];
+      const curIdx = ids.indexOf(activeConfigNameRef.current);
+      const intervals = Array.isArray(feat.switchIntervalMinutes)
+        ? feat.switchIntervalMinutes
+        : [feat.switchIntervalMinutes as any, feat.switchIntervalMinutes as any];
+      const minutes = Math.max(1, intervals[curIdx >= 0 ? curIdx : 0] || 30);
+      const ms = minutes * 60 * 1000;
+      pushLog(`⏲️ 切号定时器: ${minutes} 分钟后切号（当前 ${activeConfigNameRef.current}）`);
       switchTimerId = setTimeout(() => {
         pendingAccountSwitch = true;
         scheduleSwitchTimer();
@@ -688,6 +719,7 @@ export function HomePage() {
       // 切号后新号所有子任务都要从头跑，等价于重启循环：
       bottomBarChecked = false;
       relaunchRequested = true;    // 让宝石 active/rest 循环 break 出去重新开始
+      cooldownResetSeq += 1;       // 让 rally/joinRally/cave/produceMaterial 的 CD 等待打断
       moduleGemInitialCount = null;
       moduleGemCollectedCount = 0;
       moduleGemRestActive = false;
@@ -703,12 +735,35 @@ export function HomePage() {
     };
     const releaseLock = () => { deviceBusy = false; };
 
-    // 子循环执行完一个 action 后调用；per-round 模式下触发切号 flag
-    const markRoundDone = () => {
-      if (featuresRef.current.autoSwitchAccount && featuresRef.current.switchMode === 'per-round') {
+    // 子循环执行完一个 action 后调用；根据 switchMode 触发切号 flag
+    // source: 'rally-fort' | 'join-rally' | 'other'，isSuccess: 该 action 是否成功
+    const markRoundDone = (source: 'rally-fort' | 'join-rally' | 'other' = 'other', isSuccess: boolean = false) => {
+      const feat = featuresRef.current;
+      if (!feat.autoSwitchAccount) return;
+      if (feat.switchMode === 'per-round') {
         pendingAccountSwitch = true;
+      } else if (feat.switchMode === 'fort-mode') {
+        if ((source === 'rally-fort' || source === 'join-rally') && isSuccess) {
+          pendingAccountSwitch = true;
+          // 成功后重排兜底定时器
+          scheduleFortModeFallback();
+        }
       }
     };
+
+    const scheduleFortModeFallback = () => {
+      if (fortModeFallbackTimerId) clearTimeout(fortModeFallbackTimerId);
+      const feat = featuresRef.current;
+      if (!feat.autoSwitchAccount || feat.switchMode !== 'fort-mode') return;
+      fortModeFallbackTimerId = setTimeout(() => {
+        pushLog(`⏰ 寨子模式兜底：20 分钟无成功，强制切号`);
+        pendingAccountSwitch = true;
+        scheduleFortModeFallback();  // 重排下一次
+      }, 20 * 60 * 1000);
+    };
+
+    if (fortModeFallbackTimerId) { clearTimeout(fortModeFallbackTimerId); fortModeFallbackTimerId = null; }
+    scheduleFortModeFallback();
 
     // 攻击检测专用锁：不受 attackPreempt 阻塞（自己就是抢占方）
     const acquireLockForAttack = async (): Promise<boolean> => {
@@ -927,18 +982,32 @@ export function HomePage() {
                 // 载入新 profile 的功能开关（保留全局字段）
                 try {
                   const nextCfg = await api.config.getRokConfig(currentAccountId, nextProfile);
-                  if (nextCfg.success && nextCfg.config?.homeFeatures) {
-                    setActiveConfigName(nextProfile);
-                    setFeatures((prev: typeof DEFAULT_FEATURES) => preserveGlobalFields(prev, padGatherTasks({
-                      ...DEFAULT_HOME_FEATURES,
-                      ...nextCfg.config.homeFeatures,
-                      gemGatherMode: migrateGemMode(nextCfg.config.homeFeatures),
-                      completedBuildings: [false, false, false, false, false],
-                      completedTechs: [false, false, false, false, false],
-                    })));
+                  const hf = nextCfg.success ? (nextCfg.config?.homeFeatures ?? {}) : {};
+                  const hasHF = nextCfg.success && !!nextCfg.config?.homeFeatures;
+                  pushLog(`  🔍 载入 ${nextProfile} homeFeatures: hasHF=${hasHF}, autoRallyFort=${(hf as any).autoRallyFort}, joinRallyEnabled=${(hf as any).joinRallyEnabled}`);
+                  setActiveConfigName(nextProfile);
+                  activeConfigNameRef.current = nextProfile;
+                  const merged = preserveGlobalFields(featuresRef.current, padGatherTasks({
+                    ...DEFAULT_HOME_FEATURES,
+                    ...hf,
+                    gemGatherMode: migrateGemMode(hf),
+                    completedBuildings: [false, false, false, false, false],
+                    completedTechs: [false, false, false, false, false],
+                  }));
+                  // 切号成功后同步账号1为新的 active（保持 UI 显示与循环逻辑一致）
+                  {
+                    const ids = (merged as any).switchProfileIds || ['', ''];
+                    (merged as any).switchProfileIds = [nextProfile, ids.find((x: string) => x && x !== nextProfile) || ''];
                   }
-                } catch {}
+                  featuresRef.current = merged as any;
+                  setFeatures(merged as any);
+                  pushLog(`  🔍 已应用: autoRallyFort=${(merged as any).autoRallyFort}, joinRallyEnabled=${(merged as any).joinRallyEnabled}`);
+                } catch (e: any) {
+                  pushLog(`  ⚠️ 载入 ${nextProfile} features 失败: ${e?.message || e}`);
+                }
                 resetAllCooldowns();
+                scheduleSwitchTimer();  // 按新账号的时长重排定时器
+                scheduleFortModeFallback();  // 重置寨子模式兜底计时
                 switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
                 pushLog(`✅ 切号完成，已激活 ${nextProfile}`);
               } else {
@@ -997,7 +1066,7 @@ export function HomePage() {
                 } else {
                   const cdLabel = isStamina ? '75分钟' : isSuccess ? '10分钟' : '2分钟';
                   pushLog(`${isSuccess ? '✅' : isStamina ? '🔋' : '⚠️'} 城寨 Lv.${featuresRef.current.rallyFortLevel} 队伍${featuresRef.current.rallyFortTeam} ${isSuccess ? '集结成功' : isStamina ? '行动力不足' : '未找到城寨'}，CD ${cdLabel}`);
-                  markRoundDone();
+                  markRoundDone('rally-fort', isSuccess);
                 }
               }
             } catch {} finally { releaseLock(); }
@@ -1005,12 +1074,17 @@ export function HomePage() {
             const cdJitter = cd * (0.85 + Math.random() * 0.3);
             pushLog(`🏰 城寨完成，${cdJitter.toFixed(0)} 秒后下一轮`);
             const startWait = monotonicNow();
-            while (!loopStopped && (monotonicNow() - startWait) < cdJitter * 1000) {
+            const waitSeq = cooldownResetSeq;
+            while (!loopStopped && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < cdJitter * 1000) {
               await sleep(1);
             }
           } else {
-            // 未开启城寨功能，长时间休眠避免空转
-            await sleep(60);
+            // 未开启城寨功能，短周期唤醒便于切号/开关变化后快速响应
+            const waitSeq = cooldownResetSeq;
+            const startIdle = monotonicNow();
+            while (!loopStopped && cooldownResetSeq === waitSeq && (monotonicNow() - startIdle) < 60000) {
+              await sleep(1);
+            }
           }
         }
       })();
@@ -1052,18 +1126,14 @@ export function HomePage() {
 
                 const logs = runResult.task?.logs ?? [];
                 const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
-                // 根据结果确定 CD：成功 10 分钟，无空闲队伍 2 分钟，其他失败 3 分钟
+                // 根据结果确定 CD：成功 10 分钟，其他一律 2 分钟
                 const isSuccess = logs.some((l: string) => l.includes('→ success'));
                 const isNoIdle = logs.some((l: string) => l.includes('→ no_idle_teams'));
                 const isDistanceExceed = logs.some((l: string) => l.includes('→ distance_exceed'));
                 if (isSuccess) {
                   cd = 600; // 10 分钟
-                } else if (isNoIdle) {
-                  cd = 120; // 2 分钟
-                } else if (isDistanceExceed) {
-                  cd = 180; // 3 分钟
                 } else {
-                  cd = 180; // 3 分钟
+                  cd = 120; // 2 分钟
                 }
                 if (hasExpiredLog) {
                   pushLog(`⛔ 许可证已到期，停止运行`);
@@ -1071,10 +1141,10 @@ export function HomePage() {
                   setExpiredMessage('激活码已到期，请重新激活');
                   refreshStatus();
                 } else {
-                  const cdLabel = isSuccess ? '10分钟' : isNoIdle ? '2分钟' : '3分钟';
+                  const cdLabel = isSuccess ? '10分钟' : '2分钟';
                   const targetLabel = (featuresRef.current.joinRallyTargetFort && featuresRef.current.joinRallyTargetLohar) ? '城寨/洛哈' : featuresRef.current.joinRallyTargetFort ? '城寨' : '洛哈';
                   pushLog(`${isSuccess ? '✅' : isNoIdle ? '⏸️' : isDistanceExceed ? '📍' : '⚠️'} 加入${targetLabel}集结 队伍${featuresRef.current.joinRallyTeam} ${isSuccess ? '成功' : isNoIdle ? '无空闲队伍' : isDistanceExceed ? '超出距离' : '无可用集结'}，CD ${cdLabel}`);
-                  markRoundDone();
+                  markRoundDone('join-rally', isSuccess);
                 }
                 firstRun = false; // 首次执行完后标记为非首次
               }
@@ -1083,11 +1153,17 @@ export function HomePage() {
             const cdJitter = cd * (0.85 + Math.random() * 0.3);
             pushLog(`🤝 加入集结完成，${cdJitter.toFixed(0)} 秒后下一轮`);
             const startWait = monotonicNow();
-            while (!loopStopped && (monotonicNow() - startWait) < cdJitter * 1000) {
+            const waitSeq = cooldownResetSeq;
+            while (!loopStopped && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < cdJitter * 1000) {
               await sleep(1);
             }
           } else {
-            await sleep(60);
+            // 短周期唤醒，便于切号/开关变化后快速响应
+            const waitSeq = cooldownResetSeq;
+            const startIdle = monotonicNow();
+            while (!loopStopped && cooldownResetSeq === waitSeq && (monotonicNow() - startIdle) < 60000) {
+              await sleep(1);
+            }
           }
         }
       })();
@@ -1135,7 +1211,8 @@ export function HomePage() {
           }
           const caveInterval = 120 * (0.85 + Math.random() * 0.3);
           const startWait = monotonicNow();
-          while (!loopStopped && (monotonicNow() - startWait) < caveInterval * 1000) {
+          const waitSeq = cooldownResetSeq;
+          while (!loopStopped && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < caveInterval * 1000) {
             await sleep(1);
           }
         }
@@ -1259,7 +1336,8 @@ export function HomePage() {
           // 已尝试执行本轮，等 2~4 小时随机再触发下一次
           const intervalSec = (2 + Math.random() * 2) * 3600;
           const startWait = monotonicNow();
-          while (!loopStopped && (monotonicNow() - startWait) < intervalSec * 1000) {
+          const waitSeq = cooldownResetSeq;
+          while (!loopStopped && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < intervalSec * 1000) {
             await sleep(1);
           }
         }
@@ -1825,6 +1903,7 @@ export function HomePage() {
     setLoopRunningState(false);
     clearLoopState();
     if (switchTimerId) { clearTimeout(switchTimerId); switchTimerId = null; }
+    if (fortModeFallbackTimerId) { clearTimeout(fortModeFallbackTimerId); fortModeFallbackTimerId = null; }
     if (runningTaskIdsRef.current.length > 0) {
       await Promise.all(runningTaskIdsRef.current.map(id => api.tasks.stop(id).catch(() => {})));
     }
@@ -1960,6 +2039,156 @@ export function HomePage() {
               </button>
             )}
           </div>
+        </div>
+
+        {/* 账号调度独立层 */}
+        <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-xl mb-4 overflow-hidden">
+          {!accountScheduleExpanded ? (
+            <button
+              type="button"
+              onClick={() => setAccountScheduleExpanded(true)}
+              className="w-full px-4 py-3 flex items-center gap-2 text-left hover:bg-amber-100/40 transition-colors"
+            >
+              <span className="w-7 h-7 bg-amber-400 rounded-lg flex items-center justify-center text-white text-sm shadow">🔀</span>
+              <span className="font-semibold text-sm text-slate-800">账号调度：{features.autoSwitchAccount ? '开启' : '关闭'}</span>
+              <span className="ml-auto text-amber-600">▸</span>
+            </button>
+          ) : (
+            <div className="p-4">
+              {/* 头部 */}
+              <div className="flex items-center gap-3 mb-3">
+                <span className="w-8 h-8 bg-amber-400 rounded-lg flex items-center justify-center text-white text-base shadow">🔀</span>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-800">账号调度</h3>
+                  <p className="text-xs text-amber-700">控制何时切换到哪个配置方案 · 共 2 个账号</p>
+                </div>
+                <div className="flex-1"></div>
+                <select
+                  value={features.switchMode}
+                  onChange={(e) => setFeatures({ ...features, switchMode: e.target.value as 'per-round' | 'per-time' | 'fort-mode' })}
+                  className="text-xs bg-white border border-amber-300 rounded px-2 py-1 text-amber-700 font-medium"
+                >
+                  <option value="per-time">按时间轮换</option>
+                  <option value="per-round">按轮次轮换</option>
+                  <option value="fort-mode">寨子模式</option>
+                </select>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500">调度</span>
+                  <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+                    <input type="checkbox" checked={features.autoSwitchAccount}
+                      onChange={(e) => setFeatures({ ...features, autoSwitchAccount: e.target.checked })}
+                      className="sr-only" />
+                    <span className={`absolute inset-0 rounded-full transition-colors ${features.autoSwitchAccount ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                    <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoSwitchAccount ? 'translate-x-[18px]' : ''}`} />
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAccountScheduleExpanded(false)}
+                  className="text-amber-600 hover:text-amber-700 px-1"
+                  title="收起"
+                >▾</button>
+              </div>
+
+              {/* Profile 横向队列 */}
+              <div className="bg-white/70 rounded-lg p-3">
+                <div className="flex items-center gap-2">
+                  {/* 账号 1: 当前 active，只读 */}
+                  <div className="w-44 px-3 py-2.5 bg-emerald-50 border-2 border-emerald-500 rounded-lg shadow -translate-y-0.5">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
+                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> 当前
+                      </span>
+                      <span className="text-[10px] text-slate-300">#1</span>
+                    </div>
+                    <p className="text-sm font-bold text-slate-800 truncate" title={activeConfigName || '(当前)'}>
+                      {activeConfigName || '(当前)'}
+                    </p>
+                    {features.switchMode === 'per-time' && (
+                      <div className="flex items-center gap-1 mt-1">
+                        <input
+                          type="number"
+                          min={1}
+                          value={(Array.isArray(features.switchIntervalMinutes) ? features.switchIntervalMinutes[0] : features.switchIntervalMinutes) || 30}
+                          onChange={(e) => {
+                            const cur = Array.isArray(features.switchIntervalMinutes)
+                              ? features.switchIntervalMinutes
+                              : [features.switchIntervalMinutes as any, features.switchIntervalMinutes as any];
+                            const next: [number, number] = [cur[0] || 30, cur[1] || 30];
+                            next[0] = Math.max(1, parseInt(e.target.value) || 30);
+                            setFeatures({ ...features, switchIntervalMinutes: next });
+                          }}
+                          className="w-12 px-1 py-0.5 text-xs bg-white border border-slate-200 rounded text-center"
+                        />
+                        <span className="text-xs text-slate-400">分钟</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <span className="text-amber-500 text-sm flex-shrink-0 select-none">→</span>
+
+                  {/* 账号 2: 下拉 */}
+                  <div className="w-44 px-3 py-2.5 bg-white border-2 border-slate-200 rounded-lg hover:border-amber-300">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-500">
+                        <span className="w-1.5 h-1.5 bg-slate-400 rounded-full"></span> 待切换
+                      </span>
+                      <span className="text-[10px] text-slate-300">#2</span>
+                    </div>
+                    <select
+                      value={features.switchProfileIds[1] || ''}
+                      onChange={(e) => {
+                        const ids: [string, string] = [features.switchProfileIds[0] || '', features.switchProfileIds[1] || ''];
+                        ids[1] = e.target.value;
+                        setFeatures({ ...features, switchProfileIds: ids });
+                      }}
+                      className="text-sm font-bold text-slate-800 bg-transparent w-full focus:outline-none"
+                    >
+                      <option value="">-- 选择 --</option>
+                      {configNames.filter(p => p !== activeConfigName).map(p => (
+                        <option key={p} value={p}>{p}</option>
+                      ))}
+                    </select>
+                    {features.switchMode === 'per-time' && (
+                      <div className="flex items-center gap-1 mt-1">
+                        <input
+                          type="number"
+                          min={1}
+                          value={(Array.isArray(features.switchIntervalMinutes) ? features.switchIntervalMinutes[1] : features.switchIntervalMinutes) || 30}
+                          onChange={(e) => {
+                            const cur = Array.isArray(features.switchIntervalMinutes)
+                              ? features.switchIntervalMinutes
+                              : [features.switchIntervalMinutes as any, features.switchIntervalMinutes as any];
+                            const next: [number, number] = [cur[0] || 30, cur[1] || 30];
+                            next[1] = Math.max(1, parseInt(e.target.value) || 30);
+                            setFeatures({ ...features, switchIntervalMinutes: next });
+                          }}
+                          className="w-12 px-1 py-0.5 text-xs bg-white border border-slate-200 rounded text-center"
+                        />
+                        <span className="text-xs text-slate-400">分钟</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <span className="text-amber-500 text-sm flex-shrink-0 select-none">↩</span>
+                  <span className="text-xs text-amber-500/70">循环</span>
+
+                  <div className="flex-1"></div>
+
+                  <button
+                    type="button"
+                    disabled
+                    title="暂不支持超过 2 个账号"
+                    className="flex items-center gap-1 text-xs text-amber-500 px-3 py-1.5 border border-dashed border-amber-300 rounded-lg opacity-50 cursor-not-allowed"
+                  >
+                    <span className="text-base">+</span> 添加账号
+                  </button>
+                </div>
+              </div>
+
+              <p className="mt-2 text-xs text-amber-600/70">💡 切号后自动加载对应方案的全部功能设置 · 共 2 个账号参与轮换</p>
+            </div>
+          )}
         </div>
 
         {/* Feature settings card */}
@@ -2704,70 +2933,6 @@ export function HomePage() {
                   <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.produceMaterialEnabled ? 'translate-x-[18px]' : ''}`} />
                 </label>
               </div>
-            </div>
-
-            {/* 自动切号 */}
-            <div className="flex flex-col gap-0 p-4 rounded-lg transition-colors border border-slate-200 hover:border-slate-300">
-              <div className="flex items-center justify-between mb-2">
-                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800">
-                  <span className="w-8 h-8 rounded-lg flex items-center justify-center text-base bg-amber-100">🔀</span>
-                  自动切号
-                </span>
-                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.autoSwitchAccount}
-                    onChange={(e) => setFeatures({ ...features, autoSwitchAccount: e.target.checked })}
-                    className="sr-only" />
-                  <span className={`absolute inset-0 rounded-full transition-colors ${features.autoSwitchAccount ? 'bg-emerald-500' : 'bg-slate-200'}`} />
-                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoSwitchAccount ? 'translate-x-[18px]' : ''}`} />
-                </label>
-              </div>
-              {features.autoSwitchAccount && (
-                <>
-                  <div className="mb-2 flex items-center gap-2 flex-wrap">
-                    <label className="text-xs text-slate-600">切号时机:</label>
-                    <select
-                      value={features.switchMode}
-                      onChange={(e) => setFeatures({ ...features, switchMode: e.target.value as 'per-round' | 'per-time' })}
-                      className="px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded"
-                    >
-                      <option value="per-round">按轮次</option>
-                      <option value="per-time">按时间</option>
-                    </select>
-                    {features.switchMode === 'per-time' && (
-                      <>
-                        <input
-                          type="number"
-                          min={1}
-                          value={features.switchIntervalMinutes}
-                          onChange={(e) => setFeatures({ ...features, switchIntervalMinutes: Math.max(1, parseInt(e.target.value) || 30) })}
-                          className="w-16 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded"
-                        />
-                        <span className="text-xs text-slate-500">分钟</span>
-                      </>
-                    )}
-                  </div>
-                  {[0, 1].map(i => (
-                    <div key={i} className="mb-1.5 flex items-center gap-2">
-                      <label className="text-xs text-slate-600 w-12">账号 {i + 1}:</label>
-                      <select
-                        value={features.switchProfileIds[i] || ''}
-                        onChange={(e) => {
-                          const ids: [string, string] = [features.switchProfileIds[0] || '', features.switchProfileIds[1] || ''];
-                          ids[i] = e.target.value;
-                          setFeatures({ ...features, switchProfileIds: ids });
-                        }}
-                        className="flex-1 px-1.5 py-0.5 text-xs bg-white border border-slate-200 rounded"
-                      >
-                        <option value="">-- 选择配置方案 --</option>
-                        {configNames.map(p => (
-                          <option key={p} value={p}>{p}</option>
-                        ))}
-                      </select>
-                    </div>
-                  ))}
-                  <p className="mt-1 text-xs text-slate-400">💡 每个配置方案需在 Config 页填写账号编号</p>
-                </>
-              )}
             </div>
           </div>
         </div>
