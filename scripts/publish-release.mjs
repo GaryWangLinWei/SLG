@@ -6,6 +6,7 @@ import 'dotenv/config';
 
 const RELEASE_DIR = 'release';
 const VERSION = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
+const OSS_ONLY = process.argv.includes('--oss-only');
 
 const files = [
   'latest.yml',
@@ -38,15 +39,19 @@ for (const f of files) {
 console.log('✓ OSS 上传完成');
 
 // ─── 2. 上传 VPS（过渡期，兼容 <=1.1.2）──────
-const scpTargets = files.map(f => `"${path.join(RELEASE_DIR, f)}"`).join(' ');
-console.log(`↑ VPS: ${files.join(', ')}`);
-execSync(
-  `scp ${scpTargets} root@106.15.11.158:/root/server-auth/updates/`,
-  { stdio: 'inherit' }
-);
-console.log('✓ VPS 上传完成');
+if (OSS_ONLY) {
+  console.log('⏭ 跳过 VPS 上传 (--oss-only)');
+} else {
+  const scpTargets = files.map(f => `"${path.join(RELEASE_DIR, f)}"`).join(' ');
+  console.log(`↑ VPS: ${files.join(', ')}`);
+  execSync(
+    `scp ${scpTargets} root@106.15.11.158:/root/server-auth/updates/`,
+    { stdio: 'inherit' }
+  );
+  console.log('✓ VPS 上传完成');
+}
 
-console.log(`\n发布完成: v${VERSION}`);
+console.log(`\n发布完成: v${VERSION}${OSS_ONLY ? ' (仅 OSS)' : ''}`);
 console.log('验证:');
 console.log(`  OSS:  https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/latest.yml`);
-console.log(`  VPS:  http://106.15.11.158:3456/updates/latest.yml`);
+if (!OSS_ONLY) console.log(`  VPS:  http://106.15.11.158:3456/updates/latest.yml`);
