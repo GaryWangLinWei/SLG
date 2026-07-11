@@ -355,12 +355,12 @@ if (!gotTheLock) {
       mainWindow?.webContents.send('update-status', { status: 'idle' });
     });
 
-    // 启动时检查 + 每 4 小时定时检查（仅生产环境）
+    // 启动时检查 + 每 2 小时定时检查（仅生产环境）
     if (!isDev) {
       autoUpdater.checkForUpdatesAndNotify();
       setInterval(() => {
         autoUpdater.checkForUpdatesAndNotify();
-      }, 4 * 3600 * 1000);
+      }, 2 * 3600 * 1000);
     }
 
     // 启动远程控制客户端（异步，不阻塞窗口）
