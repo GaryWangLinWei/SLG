@@ -23,7 +23,7 @@ import { checkGameRunning } from './actions/checkGameRunning';
 import { checkAttack } from './actions/checkAttack';
 import { autoShield } from './actions/autoShield';
 import { switchAccount } from './actions/switchAccount';
-import { ensureInCity, ensureBottomBarCollapsed } from './utils/location';
+import { ensureInCity, ensureBottomBarCollapsed, ensureNoPopupBlocking } from './utils/location';
 import { TeamPage } from './utils/teamPage';
 import { ocrService } from '../../core/ocr/OcrService';
 import * as fs from 'fs/promises';
@@ -357,6 +357,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       name: '收集所有资源',
       description: '遍历所有资源建筑并收集产出',
       run: async (ctx) => {
+        if (await ensureNoPopupBlocking(ctx, 'collect-resources')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         await collectResources(ctx, config);
       }
@@ -366,6 +367,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       name: '升级建筑',
       description: '按顺序升级多个建筑，成功的会从队列移除',
       run: async (ctx, params: { targetBuildings: string[] }) => {
+        if (await ensureNoPopupBlocking(ctx, 'upgrade-buildings')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const buildings = params.targetBuildings.filter(b => b);
 
@@ -395,6 +397,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       name: '采集城外资源',
       description: '按队列采集城外资源，5个队伍按顺序派出',
       run: async (ctx, params: { gatherTasks: GatherTask[]; teamPage?: TeamPage }) => {
+        if (await ensureNoPopupBlocking(ctx, 'gather-resources')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         let hasPaging: boolean | null = null;
         const teamPage = params.teamPage ?? 'gather';
@@ -426,20 +429,16 @@ export const RiseOfKingdomsPlugin: Plugin = {
           ctx.log('⚠️ 未识别到队伍计数，继续采集');
         }
 
-        // 二次验证：检测采集状态图标，若已派出队伍数 ≥ 配置任务数则跳过
-        // 检测前先拖动并保持，展开采集状态面板
-        ctx.log('[预备] 拖动展开采集状态面板...');
-        await ctx.swipeAndHold(1485, 271, 1486, 234);
-        const CAIJI_STATE_TEMPLATE = path.join(getTemplatesDir(), 'CaiJiState_result.png');
+        // 二次验证：用 state.onnx 全屏检测采集状态数量（不再拖动展开面板）
+        // 类别索引 1 = caiji（采集）；只保留右侧面板区域 (1476,206,114×472) 内的检测框
         const activeTaskCount = params.gatherTasks.filter(t => t.type).length;
-        const caiJiResults = await ctx.findAllImages(CAIJI_STATE_TEMPLATE, 0.75, {
-          x: 1476, y: 206, width: 114, height: 472
-        }, [0.7, 0.8, 0.9, 1.0, 1.1]);
-        await ctx.releaseHold();
-        ctx.log('[预备] 采集状态面板检测完成，已松手');
-        ctx.log(`[预备] 检测到 ${caiJiResults.length} 个采集状态图标（配置任务数: ${activeTaskCount}）`);
-        if (caiJiResults.length >= activeTaskCount && activeTaskCount > 0) {
-          ctx.log(`⏭️ 已派出队伍数 (${caiJiResults.length}) ≥ 配置任务数 (${activeTaskCount})，认为无空闲采集队伍，跳过本轮采集`);
+        ctx.log('[预备] state.onnx 全屏检测采集状态（面板区域）...');
+        const allCaiji = await ctx.detectStateWithScreenshot(0.35, [1]);
+        const PANEL = { x1: 1476, y1: 206, x2: 1476 + 114, y2: 206 + 472 };
+        const caijiInPanel = allCaiji.filter((d: { x: number; y: number }) => d.x >= PANEL.x1 && d.x <= PANEL.x2 && d.y >= PANEL.y1 && d.y <= PANEL.y2);
+        ctx.log(`[预备] 检测到 ${caijiInPanel.length} 个采集状态（面板内 / 全屏 ${allCaiji.length}，配置任务数: ${activeTaskCount}）`);
+        if (caijiInPanel.length >= activeTaskCount && activeTaskCount > 0) {
+          ctx.log(`⏭️ 已派出队伍数 (${caijiInPanel.length}) ≥ 配置任务数 (${activeTaskCount})，认为无空闲采集队伍，跳过本轮采集`);
           return;
         }
 
@@ -526,6 +525,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       name: '自动研究科技',
       description: '自动滑动寻找并研究科技',
       run: async (ctx, params: { targetTech?: string; researchBuilding?: string } = {}) => {
+        if (await ensureNoPopupBlocking(ctx, 'research-tech')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const targetTech = params.targetTech || config.techResearch.availableTechs[0];
         await researchTech(ctx, config, targetTech, params.researchBuilding);
@@ -536,6 +536,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       name: '研究科技队列',
       description: '按队列顺序研究科技，成功自动移除',
       run: async (ctx, params: { targetTechs: string[]; researchBuilding?: string }) => {
+        if (await ensureNoPopupBlocking(ctx, 'research-tech-queue')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const queue = params.targetTechs.filter(t => t);
 
@@ -562,6 +563,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       name: '训练兵种',
       description: '按队列训练兵种，busy 时停止',
       run: async (ctx, params: { trainQueue: { building: string; tier: number }[] }) => {
+        if (await ensureNoPopupBlocking(ctx, 'train-troops')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const queue = params.trainQueue.filter(t => t.building && t.tier);
 
@@ -595,6 +597,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       name: '帮助盟友',
       description: '检测帮助图标并点击帮助盟友',
       run: async (ctx) => {
+        if (await ensureNoPopupBlocking(ctx, 'help-teammates')) return;
         await helpTeammates(ctx);
       }
     },
@@ -603,6 +606,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       name: '迷雾探索',
       description: '派出斥候探索迷雾',
       run: async (ctx, params: { scoutBuilding?: string; maxScouts?: number } = {}) => {
+        if (await ensureNoPopupBlocking(ctx, 'explore')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const outcome = await explore(ctx, config, params.scoutBuilding, params.maxScouts);
         ctx.log(`派出斥候: ${outcome.dispatched} 个 (${outcome.result})`);
@@ -613,6 +617,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       name: '山洞探索',
       description: '派出闲置斥候探索山洞',
       run: async (ctx) => {
+        if (await ensureNoPopupBlocking(ctx, 'cave-explore')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const result = await caveExplore(ctx, config);
         ctx.log(`山洞探索: ${result}`);
@@ -623,6 +628,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       name: '生产装备材料',
       description: '在铁匠铺生产指定装备材料',
       run: async (ctx, params: { material?: MaterialType } = {}) => {
+        if (await ensureNoPopupBlocking(ctx, 'produce-equip-material')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const material = params.material || 'leather';
         const result = await produceEquipMaterial(ctx, config, material);
@@ -668,6 +674,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
           resetQueueFilters();
           return;
         }
+        if (await ensureNoPopupBlocking(ctx, 'read-queue-overview')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         await readQueueOverview(ctx, config);
       }
@@ -677,6 +684,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       name: '攻打城寨',
       description: '使用游戏内置搜索查找野蛮人城寨并发起集结',
       run: async (ctx, params: { level?: number; team?: number; downgrade?: boolean; teamPage?: TeamPage } = {}) => {
+        if (await ensureNoPopupBlocking(ctx, 'rally-fort')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const level = params.level || 5;
         const team = params.team || 1;
@@ -718,6 +726,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       name: '攻打城寨（螺旋搜索）',
       description: '使用图像识别螺旋搜索城寨图标并发起集结',
       run: async (ctx, params: { level?: number; team?: number } = {}) => {
+        if (await ensureNoPopupBlocking(ctx, 'rally-fort-spiral')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const level = params.level || 5;
         const team = params.team || 1;
@@ -763,6 +772,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
         maxDistance?: number;
         firstRun?: boolean;
       } = {}) => {
+        if (await ensureNoPopupBlocking(ctx, 'join-rally')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const team = params.team || 1;
 
@@ -782,6 +792,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       name: '智能采集宝石',
       description: '使用图像识别螺旋搜索宝石矿并派出队伍采集',
       run: async (ctx, params: { teams?: number[]; teamPage?: TeamPage; searchWeights?: any; maxDistance?: number } = {}) => {
+        if (await ensureNoPopupBlocking(ctx, 'gem-gather')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const teams = params.teams || [1];
 
@@ -819,6 +830,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       name: '宝石采集驻扎模式',
       description: '独占运行，持续采集宝石，暂停城寨/资源/建筑/科技/练兵/社交等所有其他功能',
       run: async (ctx, params: { teams?: number[]; teamPage?: TeamPage; searchWeights?: any; maxDistance?: number } = {}) => {
+        if (await ensureNoPopupBlocking(ctx, 'gem-gather-focus')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const teams = params.teams || [1];
         const outcome = await gatherGemFocus(ctx, config, teams, params.teamPage ?? 'gather', params.searchWeights, params.maxDistance);

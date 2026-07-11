@@ -2,6 +2,7 @@ import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import * as path from 'path';
+import * as fs from 'fs';
 import sharp from 'sharp';
 
 const TEMPLATE_DIR = getTemplatesDir();
@@ -92,6 +93,9 @@ const LOCATION_TEMPLATES = {
   city: path.join(TEMPLATE_DIR, 'switch_in_city.png'),
   world: path.join(TEMPLATE_DIR, 'switch_in_world.png'),
 };
+
+// 弹窗检测容错计数（模块级：跨 action 共享，同一 Node 进程内累计）
+let popupMissCount = 0;
 
 // 底部栏展开状态检测：检测弹出的菜单项来判断是否展开
 const BOTTOM_BAR_TEMPLATE = path.join(TEMPLATE_DIR, 'pop_mailBtn.png');
@@ -229,4 +233,118 @@ export async function ensureBottomBarCollapsed(ctx: PluginContext): Promise<void
 
   // @ts-ignore
   ctx.bottomBarChecked = true;
+}
+
+/**
+ * 独立底部栏状态检测（不使用 bottomBarChecked 缓存）。
+ * 判断当前底部栏与 target 是否一致；不一致点一次切换按钮再检查。
+ * 仍不一致 → 记日志返回 false（不重试）。
+ */
+export async function ensureBottomBarState(
+  ctx: PluginContext,
+  target: 'expanded' | 'collapsed'
+): Promise<boolean> {
+  const detect = async (): Promise<'expanded' | 'collapsed' | 'unknown'> => {
+    try {
+      const { width: tplW, height: tplH } = await sharp(BOTTOM_BAR_TEMPLATE).metadata();
+      const left = BOTTOM_BAR_CHECK.x - Math.floor(tplW! / 2);
+      const top = BOTTOM_BAR_CHECK.y - Math.floor(tplH! / 2);
+      const regionPath = await ctx.captureRegion(left, top, tplW!, tplH!);
+      const diff = await ctx.compareImages(regionPath, BOTTOM_BAR_TEMPLATE);
+      ctx.log(`  [底部栏-独立] 匹配度: ${(diff * 100).toFixed(1)}%`);
+      return diff < 0.3 ? 'expanded' : 'collapsed';
+    } catch (e: any) {
+      ctx.log(`  [底部栏-独立] 检测出错: ${e.message || e}`);
+      return 'unknown';
+    }
+  };
+
+  const first = await detect();
+  if (first === target) return true;
+  if (first === 'unknown') return false;
+
+  ctx.log(`  [底部栏-独立] 当前=${first}，目标=${target}，点击切换 (${BOTTOM_BAR_COLLAPSE.x}, ${BOTTOM_BAR_COLLAPSE.y})`);
+  await ctx.tap(BOTTOM_BAR_COLLAPSE.x, BOTTOM_BAR_COLLAPSE.y);
+  await ctx.sleep(0.5);
+
+  const second = await detect();
+  if (second === target) return true;
+  ctx.log(`  [底部栏-独立] 切换后仍不匹配（${second}），放弃`);
+  return false;
+}
+
+// ============================================
+// 弹窗遮挡检测：若城内/城外切换按钮均不可见 → 认为被弹窗遮挡
+// 处理：保存截图 → force-stop → launch-game
+// ============================================
+
+const ROK_PACKAGE = 'com.lilithgames.rok.offical.cn';
+const POPUP_DEBUG_DIR = path.join(process.cwd(), 'temp', 'popup_blocked');
+
+/**
+ * 检测是否有弹窗遮挡（通过城内/城外切换按钮是否可见判断）。
+ * 容错：连续检测不到 >1 次才强杀重启，避免偶发误判导致游戏重启。
+ *   - 检测不到 +1，检测到 -1（不减到 <0）
+ *   - 计数 <=1 时仅记录并返回 false（照常执行任务）
+ *   - 计数 >1 时保存截图 → force-stop → launch-game 重新上线，重置计数，返回 true
+ */
+export async function ensureNoPopupBlocking(ctx: PluginContext, tag: string = 'popup-check'): Promise<boolean> {
+  const cityTpl = path.join(TEMPLATE_DIR, 'switch_in_city.png');
+  const worldTpl = path.join(TEMPLATE_DIR, 'switch_in_world.png');
+  const city = await ctx.findImageWithLocation(cityTpl, 0.7);
+  const world = await ctx.findImageWithLocation(worldTpl, 0.7);
+
+  if (city.found || world.found) {
+    const prev = popupMissCount;
+    popupMissCount = Math.max(0, popupMissCount - 1);
+    ctx.log(`  [${tag}] 切换按钮可见 (city=${city.confidence.toFixed(2)} world=${world.confidence.toFixed(2)})，无弹窗遮挡 (missCount ${prev}→${popupMissCount})`);
+    return false;
+  }
+
+  popupMissCount += 1;
+  ctx.log(`  ⚠️ [${tag}] 切换按钮均不可见 (city=${city.confidence.toFixed(2)} world=${world.confidence.toFixed(2)})，累计 missCount=${popupMissCount}`);
+
+  if (popupMissCount <= 1) {
+    ctx.log(`  [${tag}] 容错内（missCount ${popupMissCount} ≤ 1），暂不强杀，跳过本次 action`);
+    return true;
+  }
+
+  ctx.log(`  [${tag}] missCount=${popupMissCount} > 1，判定弹窗遮挡，走强杀重启`);
+
+  // 保存截图便于排查
+  try {
+    if (!fs.existsSync(POPUP_DEBUG_DIR)) fs.mkdirSync(POPUP_DEBUG_DIR, { recursive: true });
+    const shotBuf = await ctx.getScreenshot();
+    const dumpPath = path.join(POPUP_DEBUG_DIR, `${tag}_${Date.now()}.png`);
+    await sharp(shotBuf).toFile(dumpPath);
+    ctx.log(`  [${tag}] 已保存遮挡截图: ${dumpPath}`);
+  } catch (e: any) {
+    ctx.log(`  [${tag}] 保存截图失败: ${e?.message || e}`);
+  }
+
+  // force-stop 游戏
+  try {
+    await ctx.execShell(`"am force-stop ${ROK_PACKAGE}"`);
+    ctx.log(`  [${tag}] 已 force-stop ${ROK_PACKAGE}`);
+  } catch (e: any) {
+    ctx.log(`  [${tag}] force-stop 失败: ${e?.message || e}`);
+  }
+  await ctx.sleep(2);
+
+  // 重新拉起（复用 launch-game action，内部含图标匹配、进游戏点击、进城轮询）
+  try {
+    ctx.log(`  [${tag}] 调用 launch-game 重新上线`);
+    // 延迟 require 规避循环依赖（launchGame 内部不引 location）
+    const { launchGame } = require('../actions/launchGame');
+    await launchGame.run(ctx);
+  } catch (e: any) {
+    ctx.log(`  [${tag}] launch-game 调用失败: ${e?.message || e}`);
+  }
+
+  // 重置底部栏检测标记 + 弹窗计数
+  // @ts-ignore
+  ctx.bottomBarChecked = false;
+  popupMissCount = 0;
+
+  return true;
 }
