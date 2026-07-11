@@ -133,32 +133,39 @@ ssh root@106.15.11.158 "pm2 restart slg-auth"
 
 ## Electron 客户端发布
 
-### 1. 修改版本号
+### 1. 修改版本号 + 发行说明
 
-编辑 `package.json`（项目根），改 `version` 字段。
+编辑 `package.json`（项目根）：
+- `version` 字段递增（如 `1.1.2` → `1.1.3`）
+- `build.releaseInfo.releaseNotes` 更新为本版更新内容
 
-### 2. 构建
+### 2. 一键构建 + 发布
 
 ```bash
-npm run electron:build:win
+npm run electron:publish:win
 ```
 
-产物在 `release/` 目录。
+脚本会：
+1. 构建 exe（产物在 `release/`）
+2. 上传 `latest.yml / exe / exe.blockmap` 到阿里云 OSS
+3. 同步上传一份到 VPS `/root/server-auth/updates/`（过渡期兼容 ≤1.1.2 老客户端）
 
-### 3. 上传到 VPS
+### 3. 验证
 
-```powershell
-scp "D:\SLG\release\latest.yml" "D:\SLG\release\ROK助手 Setup 1.0.2.exe" "D:\SLG\release\ROK助手 Setup 1.0.2.exe.blockmap" root@106.15.11.158:/root/server-auth/updates/
 ```
-
-> **重要：不要删除 VPS 上旧版本的 .exe 和 .blockmap 文件。** `electron-updater` 会用旧版本的 blockmap 做**差量更新**，只下载差异部分（通常几 MB 而非 169 MB）。如果删了旧文件，每次都得全量下载。
-
-### 4. 验证
-
-浏览器打开：
-```
+https://slg-updates.oss-cn-hangzhou.aliyuncs.com/updates/latest.yml
 http://106.15.11.158:3456/updates/latest.yml
 ```
+
+两处 `latest.yml` 内容应一致，`version` 字段为新版。
+
+### 4. 何时停 VPS 上传
+
+`pm2 logs slg-auth` 观察 VPS `/updates/latest.yml` 的 GET 请求：连续 2 周没有 ≤1.1.2 客户端拉取时，可从 `scripts/publish-release.mjs` 删掉 VPS scp 段，VPS `/updates` 目录清空。
+
+### 关于差量更新
+
+electron-updater 用旧版 `.blockmap` 计算 diff，只下载改动的块（几十 MB，不是 300 MB）。**OSS 和 VPS 上的旧版 exe + blockmap 都不要删**，否则新用户升级会变全量。
 
 ## 文件结构（VPS 上）
 
