@@ -1,6 +1,6 @@
 {
   "name": "rok-automation",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "description": "万国觉醒自动化助手",
   "main": "dist/electron/main.js",
   "scripts": {
@@ -20,7 +20,7 @@
     "appId": "com.rok.automation",
     "productName": "ROK助手",
     "releaseInfo": {
-      "releaseNotes": "1.1.2更新内容\n1. 新功能：顶号重连\n2. 宝石优化\n  1) 增加混合模式，可以自己调节普通模式和驻扎模式的比例。\n  2) 多样化搜索策略池（螺旋/反向螺旋/随机游走/蛇形），降低群体标记的风险。\n  3) 增加采集队伍至 7 队（有 7 队的可以测下，我没有 7 队的号，所以测不了）。"
+      "releaseNotes": "1.1.3更新内容\n1. 更新分发切换到阿里云 OSS，下载速度大幅提升"
     },
     "directories": {
       "output": "release"
@@ -80,7 +80,7 @@
     },
     "publish": {
       "provider": "generic",
-      "url": "https://slg-updates.oss-cn-hangzhou.aliyuncs.com/updates"
+      "url": "https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates"
     }
   },
   "keywords": [

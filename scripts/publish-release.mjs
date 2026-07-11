@@ -20,7 +20,7 @@ if (!process.env.OSS_KEY_ID || !process.env.OSS_KEY_SECRET) {
 
 // ─── 1. 上传 OSS ─────────────────────────────
 const client = new OSS({
-  region: 'oss-cn-hangzhou',
+  region: 'oss-cn-shanghai',
   accessKeyId: process.env.OSS_KEY_ID,
   accessKeySecret: process.env.OSS_KEY_SECRET,
   bucket: 'slg-updates',
@@ -48,5 +48,5 @@ console.log('✓ VPS 上传完成');
 
 console.log(`\n发布完成: v${VERSION}`);
 console.log('验证:');
-console.log(`  OSS:  https://slg-updates.oss-cn-hangzhou.aliyuncs.com/updates/latest.yml`);
+console.log(`  OSS:  https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/latest.yml`);
 console.log(`  VPS:  http://106.15.11.158:3456/updates/latest.yml`);
