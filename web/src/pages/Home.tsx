@@ -2110,7 +2110,6 @@ export function HomePage() {
                   <option value="fort-mode">寨子模式</option>
                 </select>
                 <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-500">调度</span>
                   <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
                     <input type="checkbox" checked={features.autoSwitchAccount}
                       onChange={(e) => setFeatures({ ...features, autoSwitchAccount: e.target.checked })}
