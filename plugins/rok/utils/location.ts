@@ -94,9 +94,6 @@ const LOCATION_TEMPLATES = {
   world: path.join(TEMPLATE_DIR, 'switch_in_world.png'),
 };
 
-// 弹窗检测容错计数（模块级：跨 action 共享，同一 Node 进程内累计）
-let popupMissCount = 0;
-
 // 底部栏展开状态检测：检测弹出的菜单项来判断是否展开
 const BOTTOM_BAR_TEMPLATE = path.join(TEMPLATE_DIR, 'pop_mailBtn.png');
 const BOTTOM_BAR_CHECK = { x: 1410, y: 837 };
@@ -283,33 +280,20 @@ const POPUP_DEBUG_DIR = path.join(process.cwd(), 'temp', 'popup_blocked');
 
 /**
  * 检测是否有弹窗遮挡（通过城内/城外切换按钮是否可见判断）。
- * 容错：连续检测不到 >1 次才强杀重启，避免偶发误判导致游戏重启。
- *   - 检测不到 +1，检测到 -1（不减到 <0）
- *   - 计数 <=1 时仅记录并返回 false（照常执行任务）
- *   - 计数 >1 时保存截图 → force-stop → launch-game 重新上线，重置计数，返回 true
+ * 若被遮挡：保存截图 → force-stop → 用 launch-game action 重新上线，返回 true。
+ * 未被遮挡返回 false，可继续执行任务。
  */
 export async function ensureNoPopupBlocking(ctx: PluginContext, tag: string = 'popup-check'): Promise<boolean> {
   const cityTpl = path.join(TEMPLATE_DIR, 'switch_in_city.png');
   const worldTpl = path.join(TEMPLATE_DIR, 'switch_in_world.png');
   const city = await ctx.findImageWithLocation(cityTpl, 0.7);
   const world = await ctx.findImageWithLocation(worldTpl, 0.7);
-
   if (city.found || world.found) {
-    const prev = popupMissCount;
-    popupMissCount = Math.max(0, popupMissCount - 1);
-    ctx.log(`  [${tag}] 切换按钮可见 (city=${city.confidence.toFixed(2)} world=${world.confidence.toFixed(2)})，无弹窗遮挡 (missCount ${prev}→${popupMissCount})`);
+    ctx.log(`  [${tag}] 切换按钮可见 (city=${city.confidence.toFixed(2)} world=${world.confidence.toFixed(2)})，无弹窗遮挡`);
     return false;
   }
 
-  popupMissCount += 1;
-  ctx.log(`  ⚠️ [${tag}] 切换按钮均不可见 (city=${city.confidence.toFixed(2)} world=${world.confidence.toFixed(2)})，累计 missCount=${popupMissCount}`);
-
-  if (popupMissCount <= 1) {
-    ctx.log(`  [${tag}] 容错内（missCount ${popupMissCount} ≤ 1），暂不强杀，跳过本次 action`);
-    return true;
-  }
-
-  ctx.log(`  [${tag}] missCount=${popupMissCount} > 1，判定弹窗遮挡，走强杀重启`);
+  ctx.log(`  ⚠️ [${tag}] 切换按钮均不可见 (city=${city.confidence.toFixed(2)} world=${world.confidence.toFixed(2)})，判定弹窗遮挡`);
 
   // 保存截图便于排查
   try {
@@ -341,10 +325,9 @@ export async function ensureNoPopupBlocking(ctx: PluginContext, tag: string = 'p
     ctx.log(`  [${tag}] launch-game 调用失败: ${e?.message || e}`);
   }
 
-  // 重置底部栏检测标记 + 弹窗计数
+  // 重置底部栏检测标记，防止旧状态误用
   // @ts-ignore
   ctx.bottomBarChecked = false;
-  popupMissCount = 0;
 
   return true;
 }
