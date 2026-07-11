@@ -2131,7 +2131,7 @@ export function HomePage() {
                 <div className="flex items-center gap-2">
                   {[0, 1].map((i) => {
                     const profileName = features.switchProfileIds[i] || '';
-                    const isActive = !!profileName && profileName === activeConfigName;
+                    const isActive = !!profileName && profileName === activeConfigName && features.autoSwitchAccount;
                     const other = features.switchProfileIds[1 - i] || '';
                     const isPer = features.switchMode === 'per-time';
                     return (
