@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, Fragment } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAccount } from '../contexts/AccountContext';
 import { useLicense } from '../contexts/LicenseContext';
@@ -194,6 +194,7 @@ function TechSelect({ value, onChange, excludeValues, economicTechs, militaryTec
 
 export function HomePage() {
   const { currentAccountId } = useAccount();
+  const location = useLocation();
   const { status: licenseStatus, refreshStatus, setExpiredMessage } = useLicense();
   const isPro = licenseStatus?.tier === 'pro';
   const PRO_FEATURES = ['gemGather', 'autoSwitch', 'joinRally'];
@@ -520,6 +521,36 @@ export function HomePage() {
       } catch {}
     })();
   }, [currentAccountId]);
+
+  // 窗口重新获得焦点、或从其它页面切回 Home 时，重拉 profile 的 accountName 缓存，
+  // 使账号调度下拉里"未填编号"的禁用状态跟着更新。
+  useEffect(() => {
+    if (!currentAccountId) return;
+    const refresh = async () => {
+      try {
+        const pRes = await api.config.getProfiles(currentAccountId);
+        if (!pRes.success) return;
+        setConfigNames(pRes.profiles);
+        const map: Record<string, string> = {};
+        await Promise.all(pRes.profiles.map(async (p: string) => {
+          try {
+            const cfg = await api.config.getRokConfig(currentAccountId, p);
+            map[p] = ((cfg.config as any)?.accountSwitch?.accountName || '').trim();
+          } catch { map[p] = ''; }
+        }));
+        setProfileAccountNames(map);
+      } catch {}
+    };
+    // 路由回到 Home 时立即刷一次
+    refresh();
+    const onVis = () => { if (document.visibilityState === 'visible') refresh(); };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', onVis);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', onVis);
+    };
+  }, [currentAccountId, location.pathname]);
 
   const handleConfigSwitch = async (newName: string) => {
     if (!currentAccountId || newName === activeConfigName) return;
