@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAccount } from '../contexts/AccountContext';
@@ -13,6 +13,10 @@ const LOCAL_API_BASE = IS_ELECTRON ? 'http://localhost:3000' : '';
 // Module-level loop state — survives component unmount/remount during SPA navigation
 let loopStopped = false;
 let loopRunning = false;
+// generation counter：每次 handleStop 递增，用于让旧的 loop 感知到"我这一代已经作废"
+// 修复 bug：连点停止→开始，前一次 loop 卡在 `await api.tasks.run` 上，等 stop 让它 resolve 时
+// 新的 loopStopped 已被下一次 handleStartAll 置回 false，旧 loop 继续跑，导致点停止无效。
+let loopGen = 0;
 let loopLogs: string[] = [];
 let loopCompletedBuildings: boolean[] = [false, false, false, false, false];
 let loopCompletedTechs: boolean[] = [false, false, false, false, false];
@@ -520,13 +524,26 @@ export function HomePage() {
       setActiveConfigName(newName);
       const res = await api.config.getRokConfig(currentAccountId);
       if (res.success && res.config?.homeFeatures) {
-        setFeatures((prev: typeof DEFAULT_FEATURES) => preserveGlobalFields(prev, padGatherTasks({
-          ...DEFAULT_HOME_FEATURES,
-          ...res.config.homeFeatures,
-          gemGatherMode: migrateGemMode(res.config.homeFeatures),
-          completedBuildings: [false, false, false, false, false],
-          completedTechs: [false, false, false, false, false],
-        })));
+        setFeatures((prev: typeof DEFAULT_FEATURES) => {
+          const merged = preserveGlobalFields(prev, padGatherTasks({
+            ...DEFAULT_HOME_FEATURES,
+            ...res.config.homeFeatures,
+            gemGatherMode: migrateGemMode(res.config.homeFeatures),
+            completedBuildings: [false, false, false, false, false],
+            completedTechs: [false, false, false, false, false],
+          })) as any;
+          // 若开启自动切号且新 active 不在 switchProfileIds → 覆盖 [0]
+          if (merged.autoSwitchAccount) {
+            const cur = merged.switchProfileIds || ['', ''];
+            if (cur[0] !== newName && cur[1] !== newName) {
+              const nextIds: [string, string] = !cur[0] ? [newName, cur[1] || '']
+                : !cur[1] ? [cur[0], newName]
+                : [newName, cur[1] || ''];
+              merged.switchProfileIds = nextIds;
+            }
+          }
+          return merged;
+        });
       } else {
         setFeatures((prev: typeof DEFAULT_FEATURES) => preserveGlobalFields(prev, { ...DEFAULT_FEATURES }));
       }
@@ -648,27 +665,42 @@ export function HomePage() {
 
     if (loopRunning) return;
 
+    // 递增 generation：本次启动属于新的一代
+    // 修 bug：连点停止→开始，前次 loop 若卡在 await api.tasks.run 上，等 stop 让它 resolve 时
+    // 若这里把 isStopped() 直接重置成 false，旧 loop 的 while (!isStopped()) 会以为可以继续跑，
+    // 结果同时存在两套 loop，之后再点停止只 stop 到一套 → 停不下来。
+    loopGen += 1;
+    const myGen = loopGen;
+
     loopRunning = true;
     setLoopRunningState(true);
     loopStopped = false;
     saveLoopState(currentAccountId);
     setTaskRunning(true);
 
+    // 本代 loop 是否被抢占/停止：所有子循环用这个 helper 替代裸 isStopped()
+    const isStopped = () => loopStopped || myGen !== loopGen;
+
     pendingAccountSwitch = false;
-    // 账号1 固定为当前 active profile，同步到 features（UI 层账号1不可选，兜底修正）
-    {
-      const curIds = featuresRef.current.switchProfileIds || ['', ''];
-      if (curIds[0] !== activeConfigNameRef.current) {
-        const nextIds: [string, string] = [activeConfigNameRef.current, curIds[1] || ''];
+    // 若当前 active 不在 switchProfileIds 中，自动填入空位（优先 [0]，其次 [1]）
+    if (featuresRef.current.autoSwitchAccount) {
+      const cur = featuresRef.current.switchProfileIds || ['', ''];
+      const active = activeConfigNameRef.current;
+      if (active && cur[0] !== active && cur[1] !== active) {
+        let nextIds: [string, string];
+        if (!cur[0]) nextIds = [active, cur[1] || ''];
+        else if (!cur[1]) nextIds = [cur[0], active];
+        else nextIds = [active, cur[1] || ''];  // 两个都非空：覆盖 [0]
         const merged = { ...featuresRef.current, switchProfileIds: nextIds } as any;
         featuresRef.current = merged;
         setFeatures(merged);
+        pushLog(`🔀 当前账号 ${active} 不在切号列表，自动填入 → [${nextIds.join(', ')}]`);
       }
     }
-    // 初始化下一个切号目标：当前 active 是 profile[0] → 下次切到 [1]；否则切到 [0]
+    // 初始化下一个切号目标：找 validIds 中不等于当前 active 的位置
     const initialIds = (featuresRef.current.switchProfileIds || []).filter((s: string) => !!s);
-    const activeIdx = initialIds.indexOf(activeConfigNameRef.current);
-    switchTargetIdx = activeIdx === 0 ? 1 : 0;
+    switchTargetIdx = initialIds.findIndex((x: string) => x !== activeConfigNameRef.current);
+    if (switchTargetIdx < 0) switchTargetIdx = 0;
     pushLog(`🔀 自动切号目标索引 = ${switchTargetIdx}（当前 active=${activeConfigNameRef.current}, ids=[${initialIds.join(',')}]）`);
     if (switchTimerId) { clearTimeout(switchTimerId); switchTimerId = null; }
     const scheduleSwitchTimer = () => {
@@ -728,8 +760,8 @@ export function HomePage() {
     const sleep = async (s: number) => new Promise(r => setTimeout(r, s * 1000));
 
     const acquireLock = async (): Promise<boolean> => {
-      while ((deviceBusy || attackPreempt) && !loopStopped) { await sleep(0.3); }
-      if (loopStopped) return false;
+      while ((deviceBusy || attackPreempt) && !isStopped()) { await sleep(0.3); }
+      if (isStopped()) return false;
       deviceBusy = true;
       return true;
     };
@@ -767,8 +799,8 @@ export function HomePage() {
 
     // 攻击检测专用锁：不受 attackPreempt 阻塞（自己就是抢占方）
     const acquireLockForAttack = async (): Promise<boolean> => {
-      while (deviceBusy && !loopStopped) { await sleep(0.3); }
-      if (loopStopped) return false;
+      while (deviceBusy && !isStopped()) { await sleep(0.3); }
+      if (isStopped()) return false;
       deviceBusy = true;
       return true;
     };
@@ -795,10 +827,10 @@ export function HomePage() {
         console.log(`[ensureGameRunning] ${msg1}`);
         pushLog(`${msg1}`);
         const startWait = monotonicNow();
-        while (!loopStopped && (monotonicNow() - startWait) < waitMs) {
+        while (!isStopped() && (monotonicNow() - startWait) < waitMs) {
           await sleep(1);
         }
-        if (loopStopped) return;
+        if (isStopped()) return;
 
         const msg2 = `🎮 尝试拉起游戏`;
         console.log(`[ensureGameRunning] ${msg2}`);
@@ -827,7 +859,7 @@ export function HomePage() {
       // 城外采集独立循环 — 按固定间隔执行，不受 OCR 调度影响
       const gatherLoop = (async () => {
         let first = true;
-        while (!loopStopped) {
+        while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (featuresRef.current.gatherResources && !featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
@@ -862,7 +894,7 @@ export function HomePage() {
           }
           const jitteredInterval = GATHER_LOOP_INTERVAL * (0.85 + Math.random() * 0.3);
           const startWait = monotonicNow();
-          while (!loopStopped && (monotonicNow() - startWait) < jitteredInterval * 1000) {
+          while (!isStopped() && (monotonicNow() - startWait) < jitteredInterval * 1000) {
             await sleep(1);
           }
         }
@@ -871,7 +903,7 @@ export function HomePage() {
       // 帮助盟友独立循环 — 每 60s
       const helpLoop = (async () => {
         let first = true;
-        while (!loopStopped) {
+        while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (featuresRef.current.helpTeammates && !featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
@@ -901,7 +933,7 @@ export function HomePage() {
           }
           const helpInterval = 60 * (0.85 + Math.random() * 0.3); // 51-69s
           const startWait = monotonicNow();
-          while (!loopStopped && (monotonicNow() - startWait) < helpInterval * 1000) {
+          while (!isStopped() && (monotonicNow() - startWait) < helpInterval * 1000) {
             await sleep(1);
           }
         }
@@ -910,7 +942,7 @@ export function HomePage() {
       // 收集资源独立循环 — 按用户设置间隔执行，并叠加随机抖动
       const collectLoop = (async () => {
         let first = true;
-        while (!loopStopped) {
+        while (!isStopped()) {
           if (first) { first = false; continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (featuresRef.current.collectResources && !featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
@@ -940,7 +972,7 @@ export function HomePage() {
           }
           const collectInterval = getCollectResourcesIntervalSeconds(featuresRef.current.collectResourcesIntervalMinutes);
           const startWait = monotonicNow();
-          while (!loopStopped && (monotonicNow() - startWait) < collectInterval * 1000) {
+          while (!isStopped() && (monotonicNow() - startWait) < collectInterval * 1000) {
             await sleep(1);
           }
         }
@@ -948,9 +980,9 @@ export function HomePage() {
 
       // 自动切号独立循环 — 消费 pendingAccountSwitch flag
       const accountSwitchLoop = (async () => {
-        while (!loopStopped) {
+        while (!isStopped()) {
           await sleep(5);
-          if (loopStopped) break;
+          if (isStopped()) break;
           if (!featuresRef.current.autoSwitchAccount) continue;
           if (!pendingAccountSwitch) continue;
           const ids = featuresRef.current.switchProfileIds;
@@ -969,14 +1001,20 @@ export function HomePage() {
               switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
             } else {
               let ok = false;
-              for (let attempt = 1; attempt <= 2 && !loopStopped; attempt++) {
+              for (let attempt = 1; attempt <= 2 && !isStopped(); attempt++) {
                 const cr = await api.tasks.create(currentAccountId, 'com.rok.automation', 'switch-account', { targetName });
                 if (!cr.success) break;
+                runningTaskIdsRef.current = [...runningTaskIdsRef.current, cr.task.id];
+                setRunningTaskIds([...runningTaskIdsRef.current]);
                 const rr = await api.tasks.run(cr.task.id);
+                runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== cr.task.id);
+                setRunningTaskIds([...runningTaskIdsRef.current]);
+                if (isStopped()) break;
                 const logs = rr.task?.logs ?? [];
                 if (logs.some((l: string) => l.includes('切换账号: success'))) { ok = true; break; }
                 pushLog(`⚠️ 切号第 ${attempt} 次失败`);
               }
+              if (isStopped()) { pushLog(`⏹️ 切号被中止`); break; }
               if (ok) {
                 await api.config.switchProfile(currentAccountId, nextProfile);
                 // 载入新 profile 的功能开关（保留全局字段）
@@ -994,11 +1032,7 @@ export function HomePage() {
                     completedBuildings: [false, false, false, false, false],
                     completedTechs: [false, false, false, false, false],
                   }));
-                  // 切号成功后同步账号1为新的 active（保持 UI 显示与循环逻辑一致）
-                  {
-                    const ids = (merged as any).switchProfileIds || ['', ''];
-                    (merged as any).switchProfileIds = [nextProfile, ids.find((x: string) => x && x !== nextProfile) || ''];
-                  }
+                  // switchProfileIds 顺序保持不变；UI 通过对比 activeConfigName 判定激活态
                   featuresRef.current = merged as any;
                   setFeatures(merged as any);
                   pushLog(`  🔍 已应用: autoRallyFort=${(merged as any).autoRallyFort}, joinRallyEnabled=${(merged as any).joinRallyEnabled}`);
@@ -1008,11 +1042,13 @@ export function HomePage() {
                 resetAllCooldowns();
                 scheduleSwitchTimer();  // 按新账号的时长重排定时器
                 scheduleFortModeFallback();  // 重置寨子模式兜底计时
-                switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
+                // 顺序不变，下次切换目标 = validIds 中不等于新 active 的位置
+                switchTargetIdx = validIds.findIndex((x: string) => x !== nextProfile);
+                if (switchTargetIdx < 0) switchTargetIdx = 0;
                 pushLog(`✅ 切号完成，已激活 ${nextProfile}`);
               } else {
                 pushLog(`❌ 切号 ${nextProfile} 失败，跳过`);
-                switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
+                // 失败不改状态，下次仍尝试同一 target
               }
             }
           } finally { releaseLock(); }
@@ -1022,11 +1058,11 @@ export function HomePage() {
       // 攻打城寨独立循环 — 每 10min
       const rallyLoop = (async () => {
         let first = true;
-        while (!loopStopped) {
+        while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (featuresRef.current.autoRallyFort && featuresRef.current.rallyFortLevel > 0 && !featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
-            if (loopStopped) break;
+            if (isStopped()) break;
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
@@ -1070,19 +1106,19 @@ export function HomePage() {
                 }
               }
             } catch {} finally { releaseLock(); }
-            if (loopStopped) break;
+            if (isStopped()) break;
             const cdJitter = cd * (0.85 + Math.random() * 0.3);
             pushLog(`🏰 城寨完成，${cdJitter.toFixed(0)} 秒后下一轮`);
             const startWait = monotonicNow();
             const waitSeq = cooldownResetSeq;
-            while (!loopStopped && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < cdJitter * 1000) {
+            while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < cdJitter * 1000) {
               await sleep(1);
             }
           } else {
             // 未开启城寨功能，短周期唤醒便于切号/开关变化后快速响应
             const waitSeq = cooldownResetSeq;
             const startIdle = monotonicNow();
-            while (!loopStopped && cooldownResetSeq === waitSeq && (monotonicNow() - startIdle) < 60000) {
+            while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startIdle) < 60000) {
               await sleep(1);
             }
           }
@@ -1093,11 +1129,11 @@ export function HomePage() {
       (async () => {
         let first = true;
         let firstRun = true;
-        while (!loopStopped) {
+        while (!isStopped()) {
           if (first) { first = false; await sleep(15); continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (featuresRef.current.joinRallyEnabled && !featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
-            if (loopStopped) break;
+            if (isStopped()) break;
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
@@ -1149,19 +1185,19 @@ export function HomePage() {
                 firstRun = false; // 首次执行完后标记为非首次
               }
             } catch {} finally { releaseLock(); }
-            if (loopStopped) break;
+            if (isStopped()) break;
             const cdJitter = cd * (0.85 + Math.random() * 0.3);
             pushLog(`🤝 加入集结完成，${cdJitter.toFixed(0)} 秒后下一轮`);
             const startWait = monotonicNow();
             const waitSeq = cooldownResetSeq;
-            while (!loopStopped && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < cdJitter * 1000) {
+            while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < cdJitter * 1000) {
               await sleep(1);
             }
           } else {
             // 短周期唤醒，便于切号/开关变化后快速响应
             const waitSeq = cooldownResetSeq;
             const startIdle = monotonicNow();
-            while (!loopStopped && cooldownResetSeq === waitSeq && (monotonicNow() - startIdle) < 60000) {
+            while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startIdle) < 60000) {
               await sleep(1);
             }
           }
@@ -1176,7 +1212,7 @@ export function HomePage() {
           await api.tasks.create(currentAccountId, 'com.rok.automation', 'reset-cave-explore')
             .then(r => { if (r.success) return api.tasks.run(r.task.id); });
         } catch {}
-        while (!loopStopped) {
+        while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (featuresRef.current.autoCaveExplore && !featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
@@ -1212,7 +1248,7 @@ export function HomePage() {
           const caveInterval = 120 * (0.85 + Math.random() * 0.3);
           const startWait = monotonicNow();
           const waitSeq = cooldownResetSeq;
-          while (!loopStopped && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < caveInterval * 1000) {
+          while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < caveInterval * 1000) {
             await sleep(1);
           }
         }
@@ -1221,7 +1257,7 @@ export function HomePage() {
       // 攻击检测独立循环 — 5s 一次，不抢锁；命中后抬旗抢占其它循环，再执行开盾
       const attackLoop = (async () => {
         let first = true;
-        while (!loopStopped) {
+        while (!isStopped()) {
           if (first) { first = false; await sleep(5); continue; }
           if (offlineActive) { await sleep(30); continue; }
           const f = featuresRef.current;
@@ -1298,7 +1334,7 @@ export function HomePage() {
       // 生产装备材料独立循环（每 2~4 小时随机）
       const produceMaterialLoop = (async () => {
         let first = true;
-        while (!loopStopped) {
+        while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (!featuresRef.current.produceMaterialEnabled || featuresRef.current.autoExplore || featuresRef.current.autoWorldChat) {
@@ -1337,7 +1373,7 @@ export function HomePage() {
           const intervalSec = (2 + Math.random() * 2) * 3600;
           const startWait = monotonicNow();
           const waitSeq = cooldownResetSeq;
-          while (!loopStopped && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < intervalSec * 1000) {
+          while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < intervalSec * 1000) {
             await sleep(1);
           }
         }
@@ -1345,7 +1381,7 @@ export function HomePage() {
 
       // 下线监控独立循环 — 每 30s 检查一次，边沿触发 kill / launch
       const offlineLoop = (async () => {
-        while (!loopStopped) {
+        while (!isStopped()) {
           const f = featuresRef.current;
           const now = new Date();
           const minuteOfDay = now.getHours() * 60 + now.getMinutes();
@@ -1395,7 +1431,7 @@ export function HomePage() {
 
           // 等 30s 再检查（中途循环停止可立即退出）
           const startWait = monotonicNow();
-          while (!loopStopped && (monotonicNow() - startWait) < 30000) {
+          while (!isStopped() && (monotonicNow() - startWait) < 30000) {
             await sleep(1);
           }
         }
@@ -1419,7 +1455,7 @@ export function HomePage() {
           } catch (e) { console.error('[readCount] error:', e); return null; }
         };
 
-        while (!loopStopped) {
+        while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
 
@@ -1465,7 +1501,7 @@ export function HomePage() {
             : `${mode === 'focus' ? '驻扎' : '普通'}采集开始`;
           pushLog(`💎 ${startLabel}，持续 ${activeHours}h`);
 
-          while (!loopStopped && !relaunchRequested && monotonicNow() < activeEnd) {
+          while (!isStopped() && !relaunchRequested && monotonicNow() < activeEnd) {
             if (offlineActive) { await sleep(30); continue; }
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
@@ -1508,15 +1544,15 @@ export function HomePage() {
               }
             } catch {} finally { releaseLock(); }
 
-            if (loopStopped) break;
+            if (isStopped()) break;
             if (monotonicNow() >= activeEnd) break;
             const wait = intervalSec * (0.85 + Math.random() * 0.3);
             const startWait = monotonicNow();
-            while (!loopStopped && (monotonicNow() - startWait) < wait * 1000 && monotonicNow() < activeEnd) {
+            while (!isStopped() && (monotonicNow() - startWait) < wait * 1000 && monotonicNow() < activeEnd) {
               await sleep(1);
             }
           }
-          if (loopStopped) break;
+          if (isStopped()) break;
           // 上线重置请求：跳过 rest，回到外层 while 顶部重置状态、重新开始采集
           if (relaunchRequested) continue;
 
@@ -1526,7 +1562,7 @@ export function HomePage() {
           const restEndWall = Date.now() + restDurationMs;
           moduleGemRestActive = true;
           pushLog(`💤 宝石采集休息 ${restHours}h，${new Date(restEndWall).toLocaleTimeString()} 恢复`);
-          while (!loopStopped && !relaunchRequested && monotonicNow() < restEnd) {
+          while (!isStopped() && !relaunchRequested && monotonicNow() < restEnd) {
             const remaining = Math.max(0, restEnd - monotonicNow());
             const h = Math.floor(remaining / 3600000);
             const m = Math.floor((remaining % 3600000) / 60000);
@@ -1544,7 +1580,7 @@ export function HomePage() {
       if (!hasMainWork) {
         pushLog(`ℹ️ 未启用建筑/科技/训练，主循环跳过`);
       }
-      while (!loopStopped && hasMainWork) {
+      while (!isStopped() && hasMainWork) {
         round++;
         pushLog(`🔄 第${round}轮`);
         saveLoopState(currentAccountId);
@@ -1558,7 +1594,7 @@ export function HomePage() {
         };
 
         const runTask = async (actionId: string, config?: Record<string, any>): Promise<string[]> => {
-          if (loopStopped) return [];
+          if (isStopped()) return [];
           try {
             const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, config);
             if (createResult.success) {
@@ -1633,7 +1669,7 @@ export function HomePage() {
               finally { releaseLock(); }
             }
           }
-          if (loopStopped) break;
+          if (isStopped()) break;
           // 探索模式下固定 1 分钟后检查
           const exploreNextWake = 30 + Math.random() * 15;
           pushLog(`🔍 探索模式，下次检查 ${exploreNextWake.toFixed(0)} 秒后`);
@@ -1642,21 +1678,21 @@ export function HomePage() {
           if (exploreDragWindow > 20 && Math.random() < 0.05) {
             const dragDelay = 5 + Math.random() * (exploreDragWindow * 0.7);
             const exploreStartWait = monotonicNow();
-            while (!loopStopped && (monotonicNow() - exploreStartWait) < dragDelay * 1000) {
+            while (!isStopped() && (monotonicNow() - exploreStartWait) < dragDelay * 1000) {
               await sleep(1);
             }
-            if (!loopStopped) {
+            if (!isStopped()) {
               if (await acquireLock()) {
                 try { if (!offlineActive) await runTask('idle-drag'); } catch {} finally { releaseLock(); }
               }
             }
-            while (!loopStopped && (monotonicNow() - exploreStartWait) < exploreNextWake * 1000) {
+            while (!isStopped() && (monotonicNow() - exploreStartWait) < exploreNextWake * 1000) {
               await sleep(1);
             }
           } else {
             await sleep(exploreNextWake);
           }
-          if (loopStopped) break;
+          if (isStopped()) break;
           continue;
         }
 
@@ -1669,16 +1705,16 @@ export function HomePage() {
             break;
           }
 
-          while (!loopStopped && features.autoWorldChat) {
+          while (!isStopped() && features.autoWorldChat) {
             // 一轮：依次发送所有消息，每条间隔 15s
-            for (let i = 0; i < messages.length && !loopStopped; i++) {
+            for (let i = 0; i < messages.length && !isStopped(); i++) {
               // 第一条不等，后续等 15s
               if (i > 0) {
                 pushLog(`📢 下一条消息 15 秒后`);
                 await sleep(15);
               }
 
-              if (loopStopped) break;
+              if (isStopped()) break;
 
               if (await acquireLock()) {
                 try { if (!offlineActive) await runTask('send-world-chat', { message: messages[i], isFirst: i === 0 && true }); }
@@ -1686,7 +1722,7 @@ export function HomePage() {
               }
             }
 
-            if (loopStopped) break;
+            if (isStopped()) break;
 
             // 一轮结束，等 CD
             const cd = features.worldChatInterval || 300;
@@ -1698,22 +1734,22 @@ export function HomePage() {
             const dragWindow = cdJitter - dragSafety;
             if (dragWindow > 20 && Math.random() < 0.05) {
               const dragDelay = 5 + Math.random() * (dragWindow * 0.7);
-              while (!loopStopped && (monotonicNow() - cdStartWait) < dragDelay * 1000) {
+              while (!isStopped() && (monotonicNow() - cdStartWait) < dragDelay * 1000) {
                 await sleep(1);
               }
-              if (!loopStopped) {
+              if (!isStopped()) {
                 if (await acquireLock()) {
                   try { if (!offlineActive) await runTask('idle-drag'); } catch {} finally { releaseLock(); }
                 }
               }
-              while (!loopStopped && (monotonicNow() - cdStartWait) < cdJitter * 1000) {
+              while (!isStopped() && (monotonicNow() - cdStartWait) < cdJitter * 1000) {
                 await sleep(1);
               }
             } else {
               await sleep(cdJitter);
             }
           }
-          if (loopStopped) break;
+          if (isStopped()) break;
           continue;
         }
 
@@ -1721,9 +1757,9 @@ export function HomePage() {
         let dispatchedAny = false;
 
         // 获取设备锁，执行 OCR + 派发
-        if (loopStopped) break;
+        if (isStopped()) break;
         if (!await acquireLock()) {
-          if (loopStopped) break;
+          if (isStopped()) break;
           continue;
         }
         if (offlineActive) { releaseLock(); await sleep(30); continue; }
@@ -1732,7 +1768,7 @@ export function HomePage() {
         const ocrLogs = await runTask('read-queue-overview');
         const timers = parseOcrResult(ocrLogs);
 
-        if (loopStopped) break;
+        if (isStopped()) break;
 
         // Step 2: 执行到期/就绪的 action
         const hasUpgrade = features.upgradeBuildings &&
@@ -1765,7 +1801,7 @@ export function HomePage() {
           }
         }
 
-        if (loopStopped) break;
+        if (isStopped()) break;
 
         if (hasResearch && (timers.research === null || timers.research! <= 0)) {
           if (!buildingOptions.includes('学院')) {
@@ -1795,7 +1831,7 @@ export function HomePage() {
           }
         }
 
-        if (loopStopped) break;
+        if (isStopped()) break;
 
         if (hasTrain) {
           const trainTimerMap: Record<string, number | null> = {
@@ -1820,7 +1856,7 @@ export function HomePage() {
           if (trainQueue.length > 0) { await runTask('train-troops', { trainQueue }); dispatchedAny = true; }
         }
 
-        if (loopStopped) break;
+        if (isStopped()) break;
 
         // Step 3: 有派发任务时才重新 OCR，获取最新倒计时
         if (dispatchedAny) {
@@ -1832,7 +1868,7 @@ export function HomePage() {
 
         } finally { releaseLock(); }
 
-        if (loopStopped) break;
+        if (isStopped()) break;
 
         // Step 4: 计算下次唤醒时间（基于最新 OCR 结果）
         // 建筑/科技队列提前唤醒 (*0.6)，训练队列用原始值
@@ -1868,20 +1904,20 @@ export function HomePage() {
         if (dragWindow > 120 && Math.random() < 0.4) {
           const dragDelay = 5 + Math.random() * (dragWindow * 0.7);
           const startWait = monotonicNow();
-          while (!loopStopped && (monotonicNow() - startWait) < dragDelay * 1000) {
+          while (!isStopped() && (monotonicNow() - startWait) < dragDelay * 1000) {
             await sleep(1);
           }
-          if (!loopStopped) {
+          if (!isStopped()) {
             if (await acquireLock()) {
               try { if (!offlineActive) await runTask('idle-drag'); } catch {} finally { releaseLock(); }
             }
           }
-          while (!loopStopped && (monotonicNow() - startWait) < nextWake * 1000) {
+          while (!isStopped() && (monotonicNow() - startWait) < nextWake * 1000) {
             await sleep(1);
           }
         } else {
           const startWait = monotonicNow();
-          while (!loopStopped && (monotonicNow() - startWait) < nextWake * 1000) {
+          while (!isStopped() && (monotonicNow() - startWait) < nextWake * 1000) {
             await sleep(1);
           }
         }
@@ -1899,6 +1935,7 @@ export function HomePage() {
 
   const handleStop = async (source: 'local' | 'remote' = 'local') => {
     loopStopped = true;
+    loopGen += 1;  // 让所有旧代 sub-loop 的 isStopped() 立刻为 true，即使随后有 startAll 把 loopStopped 置回 false 也阻挡不住
     loopRunning = false;
     setLoopRunningState(false);
     clearLoopState();
@@ -2042,7 +2079,7 @@ export function HomePage() {
         </div>
 
         {/* 账号调度独立层 */}
-        <div className="bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-xl mb-4 overflow-hidden">
+        <div className={`rounded-xl mb-4 overflow-hidden ${features.autoSwitchAccount ? 'bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300' : 'bg-white border border-slate-200'}`}>
           {!accountScheduleExpanded ? (
             <button
               type="button"
@@ -2051,7 +2088,7 @@ export function HomePage() {
             >
               <span className="w-7 h-7 bg-amber-400 rounded-lg flex items-center justify-center text-white text-sm shadow">🔀</span>
               <span className="font-semibold text-sm text-slate-800">账号调度：{features.autoSwitchAccount ? '开启' : '关闭'}</span>
-              <span className="ml-auto text-amber-600">▸</span>
+              <span className="ml-auto text-amber-600 text-2xl leading-none">▸</span>
             </button>
           ) : (
             <div className="p-4">
@@ -2066,7 +2103,7 @@ export function HomePage() {
                 <select
                   value={features.switchMode}
                   onChange={(e) => setFeatures({ ...features, switchMode: e.target.value as 'per-round' | 'per-time' | 'fort-mode' })}
-                  className="text-xs bg-white border border-amber-300 rounded px-2 py-1 text-amber-700 font-medium"
+                  className="text-xs bg-white border border-amber-300 rounded px-2 py-1 text-amber-700 font-medium focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-300"
                 >
                   <option value="per-time">按时间轮换</option>
                   <option value="per-round">按轮次轮换</option>
@@ -2085,7 +2122,7 @@ export function HomePage() {
                 <button
                   type="button"
                   onClick={() => setAccountScheduleExpanded(false)}
-                  className="text-amber-600 hover:text-amber-700 px-1"
+                  className="text-amber-600 hover:text-amber-700 px-1 text-2xl leading-none"
                   title="收起"
                 >▾</button>
               </div>
@@ -2093,82 +2130,61 @@ export function HomePage() {
               {/* Profile 横向队列 */}
               <div className="bg-white/70 rounded-lg p-3">
                 <div className="flex items-center gap-2">
-                  {/* 账号 1: 当前 active，只读 */}
-                  <div className="w-44 px-3 py-2.5 bg-emerald-50 border-2 border-emerald-500 rounded-lg shadow -translate-y-0.5">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-700">
-                        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> 当前
-                      </span>
-                      <span className="text-[10px] text-slate-300">#1</span>
-                    </div>
-                    <p className="text-sm font-bold text-slate-800 truncate" title={activeConfigName || '(当前)'}>
-                      {activeConfigName || '(当前)'}
-                    </p>
-                    {features.switchMode === 'per-time' && (
-                      <div className="flex items-center gap-1 mt-1">
-                        <input
-                          type="number"
-                          min={1}
-                          value={(Array.isArray(features.switchIntervalMinutes) ? features.switchIntervalMinutes[0] : features.switchIntervalMinutes) || 30}
-                          onChange={(e) => {
-                            const cur = Array.isArray(features.switchIntervalMinutes)
-                              ? features.switchIntervalMinutes
-                              : [features.switchIntervalMinutes as any, features.switchIntervalMinutes as any];
-                            const next: [number, number] = [cur[0] || 30, cur[1] || 30];
-                            next[0] = Math.max(1, parseInt(e.target.value) || 30);
-                            setFeatures({ ...features, switchIntervalMinutes: next });
-                          }}
-                          className="w-12 px-1 py-0.5 text-xs bg-white border border-slate-200 rounded text-center"
-                        />
-                        <span className="text-xs text-slate-400">分钟</span>
-                      </div>
-                    )}
-                  </div>
-
-                  <span className="text-amber-500 text-sm flex-shrink-0 select-none">→</span>
-
-                  {/* 账号 2: 下拉 */}
-                  <div className="w-44 px-3 py-2.5 bg-white border-2 border-slate-200 rounded-lg hover:border-amber-300">
-                    <div className="flex items-center justify-between mb-1">
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-500">
-                        <span className="w-1.5 h-1.5 bg-slate-400 rounded-full"></span> 待切换
-                      </span>
-                      <span className="text-[10px] text-slate-300">#2</span>
-                    </div>
-                    <select
-                      value={features.switchProfileIds[1] || ''}
-                      onChange={(e) => {
-                        const ids: [string, string] = [features.switchProfileIds[0] || '', features.switchProfileIds[1] || ''];
-                        ids[1] = e.target.value;
-                        setFeatures({ ...features, switchProfileIds: ids });
-                      }}
-                      className="text-sm font-bold text-slate-800 bg-transparent w-full focus:outline-none"
-                    >
-                      <option value="">-- 选择 --</option>
-                      {configNames.filter(p => p !== activeConfigName).map(p => (
-                        <option key={p} value={p}>{p}</option>
-                      ))}
-                    </select>
-                    {features.switchMode === 'per-time' && (
-                      <div className="flex items-center gap-1 mt-1">
-                        <input
-                          type="number"
-                          min={1}
-                          value={(Array.isArray(features.switchIntervalMinutes) ? features.switchIntervalMinutes[1] : features.switchIntervalMinutes) || 30}
-                          onChange={(e) => {
-                            const cur = Array.isArray(features.switchIntervalMinutes)
-                              ? features.switchIntervalMinutes
-                              : [features.switchIntervalMinutes as any, features.switchIntervalMinutes as any];
-                            const next: [number, number] = [cur[0] || 30, cur[1] || 30];
-                            next[1] = Math.max(1, parseInt(e.target.value) || 30);
-                            setFeatures({ ...features, switchIntervalMinutes: next });
-                          }}
-                          className="w-12 px-1 py-0.5 text-xs bg-white border border-slate-200 rounded text-center"
-                        />
-                        <span className="text-xs text-slate-400">分钟</span>
-                      </div>
-                    )}
-                  </div>
+                  {[0, 1].map((i) => {
+                    const profileName = features.switchProfileIds[i] || '';
+                    const isActive = !!profileName && profileName === activeConfigName;
+                    const other = features.switchProfileIds[1 - i] || '';
+                    const isPer = features.switchMode === 'per-time';
+                    return (
+                      <Fragment key={i}>
+                        <div className={`w-44 px-3 py-2.5 rounded-lg ${isActive ? 'bg-emerald-50 border-2 border-emerald-500 shadow -translate-y-0.5' : 'bg-white border-2 border-slate-200 hover:border-amber-300'}`}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-400'}`}></span> {isActive ? '当前' : '待切换'}
+                            </span>
+                            <span className="text-[10px] text-slate-300">#{i + 1}</span>
+                          </div>
+                          <select
+                            value={profileName}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              const ids: [string, string] = [features.switchProfileIds[0] || '', features.switchProfileIds[1] || ''];
+                              ids[i] = v;
+                              setFeatures({ ...features, switchProfileIds: ids });
+                              // 若选中的是当前非 active 的 profile，同时切换 active（等同顶部下拉）
+                              if (v && v !== activeConfigName) handleConfigSwitch(v);
+                            }}
+                            className="text-sm font-bold text-slate-800 bg-transparent w-full h-[26px] focus:outline-none"
+                          >
+                            {!profileName && <option value="">-- 选择 --</option>}
+                            {configNames.filter(p => p !== other).map(p => (
+                              <option key={p} value={p}>{p}</option>
+                            ))}
+                          </select>
+                          {isPer && (
+                            <div className="flex items-center gap-1 mt-1">
+                              <input
+                                type="number"
+                                min={1}
+                                value={(Array.isArray(features.switchIntervalMinutes) ? features.switchIntervalMinutes[i] : features.switchIntervalMinutes) || 30}
+                                onChange={(e) => {
+                                  const cur = Array.isArray(features.switchIntervalMinutes)
+                                    ? features.switchIntervalMinutes
+                                    : [features.switchIntervalMinutes as any, features.switchIntervalMinutes as any];
+                                  const next: [number, number] = [cur[0] || 30, cur[1] || 30];
+                                  next[i] = Math.max(1, parseInt(e.target.value) || 30);
+                                  setFeatures({ ...features, switchIntervalMinutes: next });
+                                }}
+                                className="w-12 px-1 py-0.5 text-xs bg-white border border-slate-200 rounded text-center"
+                              />
+                              <span className="text-xs text-slate-400">分钟</span>
+                            </div>
+                          )}
+                        </div>
+                        {i === 0 && <span className="text-amber-500 text-sm flex-shrink-0 select-none">→</span>}
+                      </Fragment>
+                    );
+                  })}
 
                   <span className="text-amber-500 text-sm flex-shrink-0 select-none">↩</span>
                   <span className="text-xs text-amber-500/70">循环</span>
