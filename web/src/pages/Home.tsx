@@ -387,6 +387,8 @@ export function HomePage() {
   };
 
   const [configNames, setConfigNames] = useState<string[]>([]);
+  // 每个 profile 的账号编号，用于账号调度下拉禁用"未填编号"的选项
+  const [profileAccountNames, setProfileAccountNames] = useState<Record<string, string>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -505,6 +507,15 @@ export function HomePage() {
         if (pRes.success) {
           setConfigNames(pRes.profiles);
           if (!activeConfigName) setActiveConfigName(pRes.active);
+          // 拉每个 profile 的 accountSwitch.accountName 缓存到 UI
+          const map: Record<string, string> = {};
+          await Promise.all(pRes.profiles.map(async (p: string) => {
+            try {
+              const cfg = await api.config.getRokConfig(currentAccountId, p);
+              map[p] = ((cfg.config as any)?.accountSwitch?.accountName || '').trim();
+            } catch { map[p] = ''; }
+          }));
+          setProfileAccountNames(map);
         }
       } catch {}
     })();
@@ -2156,9 +2167,14 @@ export function HomePage() {
                             className="text-sm font-bold text-slate-800 bg-transparent w-full h-[26px] focus:outline-none"
                           >
                             {!profileName && <option value="">-- 选择 --</option>}
-                            {configNames.filter(p => p !== other).map(p => (
-                              <option key={p} value={p}>{p}</option>
-                            ))}
+                            {configNames.filter(p => p !== other).map(p => {
+                              const hasAccount = !!(profileAccountNames[p] || '').trim();
+                              return (
+                                <option key={p} value={p} disabled={!hasAccount}>
+                                  {p}{hasAccount ? '' : '（未填编号）'}
+                                </option>
+                              );
+                            })}
                           </select>
                           {isPer && (
                             <div className="flex items-center gap-1 mt-1">
