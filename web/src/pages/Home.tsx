@@ -809,13 +809,40 @@ export function HomePage() {
     };
     const releaseLock = () => { deviceBusy = false; };
 
+    // per-round 切号：本轮已完成一次的 source 集合；集齐所有勾选的 source 才触发切号
+    const roundActionsDone = new Set<string>();
+    const computeExpectedActions = (): Set<string> => {
+      const f = featuresRef.current;
+      const exp = new Set<string>();
+      if (f.autoExplore || f.autoWorldChat) return exp; // 迷雾/喊话模式独占，不参与 per-round
+      if (f.helpTeammates) exp.add('help');
+      if (f.collectResources) exp.add('collect');
+      if (f.gatherResources && f.gatherTasks.some((t: any) => t.type)) exp.add('gather');
+      if (f.autoRallyFort && f.rallyFortLevel > 0) exp.add('rally-fort');
+      if (f.joinRallyEnabled) exp.add('join-rally');
+      if (f.autoCaveExplore) exp.add('cave');
+      if (f.produceMaterialEnabled) exp.add('produce-material');
+      if (f.gemGatherEnabled && f.gemGatherTeams.length > 0) exp.add('gem');
+      if (f.upgradeBuildings || f.autoResearch || f.trainTroops) exp.add('main');
+      return exp;
+    };
+
     // 子循环执行完一个 action 后调用；根据 switchMode 触发切号 flag
-    // source: 'rally-fort' | 'join-rally' | 'other'，isSuccess: 该 action 是否成功
-    const markRoundDone = (source: 'rally-fort' | 'join-rally' | 'other' = 'other', isSuccess: boolean = false) => {
+    // source: 参与 per-round 的动作标识；isSuccess 仅 fort-mode 用
+    const markRoundDone = (source: string = 'other', isSuccess: boolean = false) => {
       const feat = featuresRef.current;
       if (!feat.autoSwitchAccount) return;
       if (feat.switchMode === 'per-round') {
-        pendingAccountSwitch = true;
+        roundActionsDone.add(source);
+        const expected = computeExpectedActions();
+        const missing = [...expected].filter(s => !roundActionsDone.has(s));
+        if (expected.size > 0 && missing.length === 0) {
+          pushLog(`🔁 本轮已完成 [${[...expected].join(',')}]，触发切号`);
+          roundActionsDone.clear();
+          pendingAccountSwitch = true;
+        } else if (expected.size > 0) {
+          pushLog(`⏳ 轮次进度 ${expected.size - missing.length}/${expected.size}，等待 [${missing.join(',')}]`);
+        }
       } else if (feat.switchMode === 'fort-mode') {
         if ((source === 'rally-fort' || source === 'join-rally') && isSuccess) {
           pendingAccountSwitch = true;
@@ -929,6 +956,7 @@ export function HomePage() {
                     refreshStatus();
                   } else {
                     pushLog(`✅ 城外采集 完成`);
+                    markRoundDone('gather');
                   }
                 }
               } catch {} finally { releaseLock(); }
@@ -936,7 +964,8 @@ export function HomePage() {
           }
           const jitteredInterval = GATHER_LOOP_INTERVAL * (0.85 + Math.random() * 0.3);
           const startWait = monotonicNow();
-          while (!isStopped() && (monotonicNow() - startWait) < jitteredInterval * 1000) {
+          const waitSeq = cooldownResetSeq;
+          while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < jitteredInterval * 1000) {
             await sleep(1);
           }
         }
@@ -969,6 +998,7 @@ export function HomePage() {
                   refreshStatus();
                 } else {
                   pushLog(`✅ 帮助盟友 完成`);
+                  markRoundDone('help');
                 }
               }
             } catch {} finally { releaseLock(); }
@@ -1008,13 +1038,15 @@ export function HomePage() {
                   refreshStatus();
                 } else {
                   pushLog(`✅ 收集资源 完成`);
+                  markRoundDone('collect');
                 }
               }
             } catch {} finally { releaseLock(); }
           }
           const collectInterval = getCollectResourcesIntervalSeconds(featuresRef.current.collectResourcesIntervalMinutes);
           const startWait = monotonicNow();
-          while (!isStopped() && (monotonicNow() - startWait) < collectInterval * 1000) {
+          const waitSeq = cooldownResetSeq;
+          while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < collectInterval * 1000) {
             await sleep(1);
           }
         }
@@ -1033,8 +1065,8 @@ export function HomePage() {
 
           pendingAccountSwitch = false;
           const nextProfile = validIds[switchTargetIdx];
-          pushLog(`🔀 切号 → ${nextProfile}`);
-          if (!await acquireLock()) break;
+          pushLog(`🔀 切号 → ${nextProfile} (targetIdx=${switchTargetIdx}, validIds=[${validIds.join(',')}])`);
+          if (!await acquireLock()) { pushLog(`⏹️ 切号 acquireLock 中止（isStopped=${isStopped()}）`); break; }
           try {
             const cfgRes = await api.config.getRokConfig(currentAccountId, nextProfile);
             const targetName = (cfgRes.config as any)?.accountSwitch?.accountName || '';
@@ -1082,6 +1114,7 @@ export function HomePage() {
                   pushLog(`  ⚠️ 载入 ${nextProfile} features 失败: ${e?.message || e}`);
                 }
                 resetAllCooldowns();
+                roundActionsDone.clear();  // 新账号从零开始累计
                 scheduleSwitchTimer();  // 按新账号的时长重排定时器
                 scheduleFortModeFallback();  // 重置寨子模式兜底计时
                 // 顺序不变，下次切换目标 = validIds 中不等于新 active 的位置
@@ -1093,6 +1126,8 @@ export function HomePage() {
                 // 失败不改状态，下次仍尝试同一 target
               }
             }
+          } catch (e: any) {
+            pushLog(`❌ 切号异常: ${e?.message || e}`);
           } finally { releaseLock(); }
         }
       })();
@@ -1582,6 +1617,7 @@ export function HomePage() {
                   refreshStatus();
                 } else {
                   pushLog(`💎 宝石采集(${isFocus ? '驻扎' : '普通'})完成`);
+                  markRoundDone('gem');
                 }
               }
             } catch {} finally { releaseLock(); }
@@ -1935,9 +1971,9 @@ export function HomePage() {
 
         pushLog(`⏳ 下次检查 ${nextWake.toFixed(0)} 秒后 (build1=${latestTimers.build1}s build2=${latestTimers.build2}s train=${latestTimers.train_bingying}/${latestTimers.train_majiu}/${latestTimers.train_bachang}/${latestTimers.train_gongcheng}s research=${latestTimers.research}s)`);
 
-        // ==== 一轮结束，per-round 模式触发切号 ====
+        // ==== 一轮结束，per-round 模式记账 ====
         if (featuresRef.current.autoSwitchAccount && featuresRef.current.switchMode === 'per-round') {
-          pendingAccountSwitch = true;
+          markRoundDone('main');
         }
 
         // 等待期间随机拖拽
@@ -1983,8 +2019,11 @@ export function HomePage() {
     clearLoopState();
     if (switchTimerId) { clearTimeout(switchTimerId); switchTimerId = null; }
     if (fortModeFallbackTimerId) { clearTimeout(fortModeFallbackTimerId); fortModeFallbackTimerId = null; }
-    if (runningTaskIdsRef.current.length > 0) {
-      await Promise.all(runningTaskIdsRef.current.map(id => api.tasks.stop(id).catch(() => {})));
+    if (currentAccountId) {
+      try {
+        const r = await api.tasks.stopByAccount(currentAccountId);
+        if (r.success && r.stopped.length > 0) pushLog(`⏹️ 后端停止 ${r.stopped.length} 个任务`);
+      } catch {}
     }
     runningTaskIdsRef.current = [];
     setTaskRunning(false);

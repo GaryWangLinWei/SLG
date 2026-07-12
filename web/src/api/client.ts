@@ -144,7 +144,9 @@ export const api = {
     run: (id: string) =>
       request<{ success: boolean; task: Task }>(`/tasks/${id}/run`, { method: 'POST' }),
     stop: (id: string) =>
-      request<{ success: boolean; message: string }>(`/tasks/${id}/stop`, { method: 'POST' })
+      request<{ success: boolean; message: string }>(`/tasks/${id}/stop`, { method: 'POST' }),
+    stopByAccount: (accountId: string) =>
+      request<{ success: boolean; stopped: string[] }>(`/tasks/stop-by-account/${encodeURIComponent(accountId)}`, { method: 'POST' })
   },
 
   config: {

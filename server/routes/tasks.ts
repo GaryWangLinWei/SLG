@@ -81,6 +81,18 @@ router.post('/:id/stop', async (ctx) => {
   ctx.body = { success: result.success, message: result.message };
 });
 
+router.post('/stop-by-account/:accountId', async (ctx) => {
+  const accountId = ctx.params.accountId;
+  const all = taskService.listTasks();
+  const targets = all.filter(t => t.accountId === accountId && (t.status === 'running' || t.status === 'pending'));
+  const stopped: string[] = [];
+  for (const t of targets) {
+    const r = taskService.stopTask(t.id);
+    if (r.success) stopped.push(t.id);
+  }
+  ctx.body = { success: true, stopped };
+});
+
 // GET /api/tasks/logs/list?accountId=xxx — list available log files for an account
 router.get('/logs/list', async (ctx) => {
   const accountId = ctx.query.accountId as string;
