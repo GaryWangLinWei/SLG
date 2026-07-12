@@ -1,6 +1,6 @@
 {
   "name": "rok-automation",
-  "version": "1.1.4",
+  "version": "1.1.5",
   "description": "万国觉醒自动化助手",
   "main": "dist/electron/main.js",
   "scripts": {
@@ -20,7 +20,7 @@
     "appId": "com.rok.automation",
     "productName": "ROK助手",
     "releaseInfo": {
-      "releaseNotes": "1.1.4更新内容\n1. 测试 OSS 下载"
+      "releaseNotes": "1.1.4更新内容\n账号调度bug修改。"
     },
     "directories": {
       "output": "release"
