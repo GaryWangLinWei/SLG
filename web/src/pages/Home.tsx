@@ -23,6 +23,36 @@ let loopCompletedTechs: boolean[] = [false, false, false, false, false];
 let deviceBusy = false;
 let attackPreempt = false;   // 攻击检测抢占旗：其它子循环 acquireLock 时让路
 const GATHER_LOOP_INTERVAL = 300; // 城外采集独立循环间隔（秒）
+// 宝石已采集坐标跨轮次记忆：按 accountId 隔离，1 小时 TTL 自动过期
+const GEM_COORD_TTL_MS = 60 * 60 * 1000;
+const gemCoordMemory: Map<string, { coord: string; ts: number }[]> = new Map();
+function getFreshGemCoords(accountId: string): string[] {
+  const now = Date.now();
+  const arr = gemCoordMemory.get(accountId) ?? [];
+  const fresh = arr.filter(e => now - e.ts < GEM_COORD_TTL_MS);
+  if (fresh.length !== arr.length) gemCoordMemory.set(accountId, fresh);
+  return fresh.map(e => e.coord);
+}
+function recordGemCoordsFromLogs(accountId: string, logs: string[]): number {
+  const now = Date.now();
+  const arr = gemCoordMemory.get(accountId) ?? [];
+  const known = new Set(arr.map(e => e.coord));
+  let added = 0;
+  for (const line of logs) {
+    const m = line.match(/\[坐标\]\s*记录已采集:\s*(\S+)/);
+    if (m) {
+      // 复用 action 内的规则：只保留数字字符
+      const coord = m[1].replace(/[^0-9]/g, '');
+      if (coord && !known.has(coord)) {
+        arr.push({ coord, ts: now });
+        known.add(coord);
+        added++;
+      }
+    }
+  }
+  if (added > 0) gemCoordMemory.set(accountId, arr);
+  return added;
+}
 // 旧字段 gemGatherFocusMode -> 新字段 gemGatherMode 迁移
 function migrateGemMode(raw: any): 'normal' | 'focus' | 'mixed' {
   if (raw?.gemGatherMode === 'focus' || raw?.gemGatherMode === 'mixed' || raw?.gemGatherMode === 'normal') {
@@ -197,7 +227,7 @@ export function HomePage() {
   const location = useLocation();
   const { status: licenseStatus, refreshStatus, setExpiredMessage } = useLicense();
   const isPro = licenseStatus?.tier === 'pro';
-  const PRO_FEATURES = ['gemGather', 'autoSwitch', 'joinRally'];
+  const PRO_FEATURES = ['gemGather', 'autoSwitchAccount', 'joinRally'];
   const isFeatureLocked = (featureId: string) => !isPro && PRO_FEATURES.includes(featureId);
   const [activeConfigName, setActiveConfigName] = useState('');
   const [accountScheduleExpanded, setAccountScheduleExpandedState] = useState<boolean>(() => {
@@ -697,7 +727,7 @@ export function HomePage() {
       features.autoCaveExplore ||
       features.helpTeammates ||
       features.collectResources ||
-      features.joinRallyEnabled ||
+      (features.joinRallyEnabled && !isFeatureLocked('joinRally')) ||
       features.produceMaterialEnabled ||
       features.attackDetectEnabled;
     if (!hasAnyFeature) {
@@ -725,7 +755,7 @@ export function HomePage() {
 
     pendingAccountSwitch = false;
     // 若当前 active 不在 switchProfileIds 中，自动填入空位（优先 [0]，其次 [1]）
-    if (featuresRef.current.autoSwitchAccount) {
+    if (featuresRef.current.autoSwitchAccount && !isFeatureLocked('autoSwitchAccount')) {
       const cur = featuresRef.current.switchProfileIds || ['', ''];
       const active = activeConfigNameRef.current;
       if (active && cur[0] !== active && cur[1] !== active) {
@@ -748,7 +778,7 @@ export function HomePage() {
     const scheduleSwitchTimer = () => {
       if (switchTimerId) clearTimeout(switchTimerId);
       const feat = featuresRef.current;
-      if (!feat.autoSwitchAccount || feat.switchMode !== 'per-time') return;
+      if (!feat.autoSwitchAccount || isFeatureLocked('autoSwitchAccount') || feat.switchMode !== 'per-time') return;
       // 按当前 active profile 在 switchProfileIds 中的位置取对应的时长
       const ids = feat.switchProfileIds || ['', ''];
       const curIdx = ids.indexOf(activeConfigNameRef.current);
@@ -765,13 +795,12 @@ export function HomePage() {
     };
     scheduleSwitchTimer();
 
-    const isExploreMode = features.autoExplore;
     const isWorldChatMode = features.autoWorldChat;
-    const interval = isExploreMode ? 60 : isWorldChatMode ? features.worldChatInterval : GATHER_LOOP_INTERVAL;
+    const interval = isWorldChatMode ? features.worldChatInterval : GATHER_LOOP_INTERVAL;
     clearLoopState();
     nightStartOffsetMinutes = randomBiasedOffset(NIGHT_START_JITTER_MIN, NIGHT_START_JITTER_MAX);
     nightEndOffsetMinutes = randomBiasedOffset(NIGHT_END_JITTER_MIN, NIGHT_END_JITTER_MAX);
-    const modeLabel = isExploreMode ? '迷雾探索' : isWorldChatMode ? '自动喊话' : '自动循环';
+    const modeLabel = isWorldChatMode ? '自动喊话' : '自动循环';
     const initialLogs = [`[${new Date().toLocaleTimeString()}] 🚀 开始${modeLabel} (间隔${interval}秒)`];
     if (features.nightMode) {
       initialLogs.push(`[${new Date().toLocaleTimeString()}] 🌙 夜间下线窗口：${formatMinuteOfDay(NIGHT_START_MINUTE + nightStartOffsetMinutes)} - ${formatMinuteOfDay(NIGHT_END_MINUTE + nightEndOffsetMinutes)}`);
@@ -814,15 +843,16 @@ export function HomePage() {
     const computeExpectedActions = (): Set<string> => {
       const f = featuresRef.current;
       const exp = new Set<string>();
-      if (f.autoExplore || f.autoWorldChat) return exp; // 迷雾/喊话模式独占，不参与 per-round
+      if (f.autoWorldChat) return exp; // 喊话模式独占，不参与 per-round
+      if (f.autoExplore) exp.add('explore');
       if (f.helpTeammates) exp.add('help');
       if (f.collectResources) exp.add('collect');
       if (f.gatherResources && f.gatherTasks.some((t: any) => t.type)) exp.add('gather');
       if (f.autoRallyFort && f.rallyFortLevel > 0) exp.add('rally-fort');
-      if (f.joinRallyEnabled) exp.add('join-rally');
+      if (f.joinRallyEnabled && !isFeatureLocked('joinRally')) exp.add('join-rally');
       if (f.autoCaveExplore) exp.add('cave');
       if (f.produceMaterialEnabled) exp.add('produce-material');
-      if (f.gemGatherEnabled && f.gemGatherTeams.length > 0) exp.add('gem');
+      if (f.gemGatherEnabled && !isFeatureLocked('gemGather') && f.gemGatherTeams.length > 0) exp.add('gem');
       if (f.upgradeBuildings || f.autoResearch || f.trainTroops) exp.add('main');
       return exp;
     };
@@ -831,7 +861,7 @@ export function HomePage() {
     // source: 参与 per-round 的动作标识；isSuccess 仅 fort-mode 用
     const markRoundDone = (source: string = 'other', isSuccess: boolean = false) => {
       const feat = featuresRef.current;
-      if (!feat.autoSwitchAccount) return;
+      if (!feat.autoSwitchAccount || isFeatureLocked('autoSwitchAccount')) return;
       if (feat.switchMode === 'per-round') {
         roundActionsDone.add(source);
         const expected = computeExpectedActions();
@@ -855,7 +885,7 @@ export function HomePage() {
     const scheduleFortModeFallback = () => {
       if (fortModeFallbackTimerId) clearTimeout(fortModeFallbackTimerId);
       const feat = featuresRef.current;
-      if (!feat.autoSwitchAccount || feat.switchMode !== 'fort-mode') return;
+      if (!feat.autoSwitchAccount || isFeatureLocked('autoSwitchAccount') || feat.switchMode !== 'fort-mode') return;
       fortModeFallbackTimerId = setTimeout(() => {
         pushLog(`⏰ 寨子模式兜底：20 分钟无成功，强制切号`);
         pendingAccountSwitch = true;
@@ -931,7 +961,7 @@ export function HomePage() {
         while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (featuresRef.current.gatherResources && !featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
+          if (featuresRef.current.gatherResources && !featuresRef.current.autoWorldChat) {
             const gatherTasks = featuresRef.current.gatherTasks
               .map((t: { type: string; level: number }, i: number) => ({ ...t, team: i + 1 }))
               .filter((t: { type: string; level: number; team: number }) => t.type);
@@ -977,7 +1007,7 @@ export function HomePage() {
         while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (featuresRef.current.helpTeammates && !featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
+          if (featuresRef.current.helpTeammates && !featuresRef.current.autoWorldChat) {
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
@@ -1017,7 +1047,7 @@ export function HomePage() {
         while (!isStopped()) {
           if (first) { first = false; continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (featuresRef.current.collectResources && !featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
+          if (featuresRef.current.collectResources && !featuresRef.current.autoWorldChat) {
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
@@ -1057,7 +1087,7 @@ export function HomePage() {
         while (!isStopped()) {
           await sleep(5);
           if (isStopped()) break;
-          if (!featuresRef.current.autoSwitchAccount) continue;
+          if (!featuresRef.current.autoSwitchAccount || isFeatureLocked('autoSwitchAccount')) continue;
           if (!pendingAccountSwitch) continue;
           const ids = featuresRef.current.switchProfileIds;
           const validIds = (ids || []).filter((s: string) => !!s);
@@ -1138,7 +1168,7 @@ export function HomePage() {
         while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (featuresRef.current.autoRallyFort && featuresRef.current.rallyFortLevel > 0 && !featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
+          if (featuresRef.current.autoRallyFort && featuresRef.current.rallyFortLevel > 0 && !featuresRef.current.autoWorldChat) {
             if (isStopped()) break;
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
@@ -1209,7 +1239,7 @@ export function HomePage() {
         while (!isStopped()) {
           if (first) { first = false; await sleep(15); continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (featuresRef.current.joinRallyEnabled && !featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
+          if (featuresRef.current.joinRallyEnabled && !isFeatureLocked('joinRally') && !featuresRef.current.autoWorldChat) {
             if (isStopped()) break;
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
@@ -1281,6 +1311,51 @@ export function HomePage() {
         }
       })();
 
+      // 迷雾探索独立循环
+      const exploreLoop = (async () => {
+        let first = true;
+        while (!isStopped()) {
+          if (first) { first = false; await sleep(8); continue; }
+          if (offlineActive) { await sleep(30); continue; }
+          if (featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
+            if (!buildingOptions.includes('斥候营地')) {
+              pushLog(`⚠️ 未标记斥候营地位置，跳过迷雾探索`);
+            } else {
+              if (!await acquireLock()) break;
+              if (offlineActive) { releaseLock(); await sleep(30); continue; }
+              await ensureGameRunning();
+              try {
+                const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'explore', { maxScouts: featuresRef.current.exploreCount });
+                if (createResult.success) {
+                  runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
+                  setRunningTaskIds([...runningTaskIdsRef.current]);
+                  const runResult = await api.tasks.run(createResult.task.id);
+                  runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
+                  setRunningTaskIds([...runningTaskIdsRef.current]);
+                  const logs = runResult.task?.logs ?? [];
+                  const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
+                  if (hasExpiredLog) {
+                    pushLog(`⛔ 许可证已到期，停止运行`);
+                    loopStopped = true;
+                    setExpiredMessage('激活码已到期，请重新激活');
+                    refreshStatus();
+                  } else {
+                    pushLog(`🗺️ 迷雾探索 完成`);
+                    markRoundDone('explore');
+                  }
+                }
+              } catch {} finally { releaseLock(); }
+            }
+          }
+          const exploreInterval = 45 + Math.random() * 15;
+          const startWait = monotonicNow();
+          const waitSeq = cooldownResetSeq;
+          while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < exploreInterval * 1000) {
+            await sleep(1);
+          }
+        }
+      })();
+
       // 山洞探索独立循环
       const caveLoop = (async () => {
         let first = true;
@@ -1292,7 +1367,7 @@ export function HomePage() {
         while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (featuresRef.current.autoCaveExplore && !featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
+          if (featuresRef.current.autoCaveExplore && !featuresRef.current.autoWorldChat) {
             if (!buildingOptions.includes('斥候营地')) {
               pushLog(`⚠️ 未标记斥候营地位置，跳过山洞探索`);
             } else {
@@ -1414,7 +1489,7 @@ export function HomePage() {
         while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
-          if (!featuresRef.current.produceMaterialEnabled || featuresRef.current.autoExplore || featuresRef.current.autoWorldChat) {
+          if (!featuresRef.current.produceMaterialEnabled || featuresRef.current.autoWorldChat) {
             await sleep(30);
             continue;
           }
@@ -1547,7 +1622,7 @@ export function HomePage() {
           }
 
           const f = featuresRef.current;
-          if (!f.gemGatherEnabled || f.gemGatherTeams.length === 0 || f.autoExplore || f.autoWorldChat) {
+          if (!f.gemGatherEnabled || isFeatureLocked('gemGather') || f.gemGatherTeams.length === 0 || f.autoWorldChat) {
             await sleep(30); continue;
           }
 
@@ -1601,7 +1676,9 @@ export function HomePage() {
               }
 
               pushLog(`💎 [DEBUG] maxDistance=${f.gemGatherMaxDistance}`);
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, { teams: f.gemGatherTeams, teamPage: f.gemGatherTeamPage, searchWeights: f.gemSearchWeights, maxDistance: f.gemGatherMaxDistance });
+              const memCoords = getFreshGemCoords(currentAccountId);
+              if (memCoords.length > 0) pushLog(`💎 携带跨轮记忆坐标 ${memCoords.length} 个`);
+              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, { teams: f.gemGatherTeams, teamPage: f.gemGatherTeamPage, searchWeights: f.gemSearchWeights, maxDistance: f.gemGatherMaxDistance, collectedCoords: memCoords });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1609,6 +1686,8 @@ export function HomePage() {
                 runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
                 setRunningTaskIds([...runningTaskIdsRef.current]);
                 const logs = runResult.task?.logs ?? [];
+                const added = recordGemCoordsFromLogs(currentAccountId, logs);
+                if (added > 0) pushLog(`💎 记忆新增 ${added} 个坐标（共 ${getFreshGemCoords(currentAccountId).length}）`);
                 const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
                 if (hasExpiredLog) {
                   pushLog(`⛔ 许可证已到期，停止运行`);
@@ -1654,7 +1733,7 @@ export function HomePage() {
       })();
 
       // 山洞探索 — 独立模式，与其他 action 互斥
-      const hasMainWork = features.autoExplore || features.autoWorldChat || features.upgradeBuildings || features.autoResearch || features.trainTroops;
+      const hasMainWork = features.autoWorldChat || features.upgradeBuildings || features.autoResearch || features.trainTroops;
       if (!hasMainWork) {
         pushLog(`ℹ️ 未启用建筑/科技/训练，主循环跳过`);
       }
@@ -1735,43 +1814,6 @@ export function HomePage() {
             try { await runTask('ensure-bottom-bar'); bottomBarChecked = true; }
             finally { releaseLock(); }
           }
-        }
-
-        // 探索模式：与其他任务互斥，只执行探索
-        if (features.autoExplore) {
-          if (!buildingOptions.includes('斥候营地')) {
-            pushLog(`⚠️ 未标记斥候营地位置，跳过迷雾探索`);
-          } else {
-            if (await acquireLock()) {
-              try { if (!offlineActive) await runTask('explore', { maxScouts: features.exploreCount }); }
-              finally { releaseLock(); }
-            }
-          }
-          if (isStopped()) break;
-          // 探索模式下固定 1 分钟后检查
-          const exploreNextWake = 30 + Math.random() * 15;
-          pushLog(`🔍 探索模式，下次检查 ${exploreNextWake.toFixed(0)} 秒后`);
-          const exploreDragSafety = 5;
-          const exploreDragWindow = exploreNextWake - exploreDragSafety;
-          if (exploreDragWindow > 20 && Math.random() < 0.05) {
-            const dragDelay = 5 + Math.random() * (exploreDragWindow * 0.7);
-            const exploreStartWait = monotonicNow();
-            while (!isStopped() && (monotonicNow() - exploreStartWait) < dragDelay * 1000) {
-              await sleep(1);
-            }
-            if (!isStopped()) {
-              if (await acquireLock()) {
-                try { if (!offlineActive) await runTask('idle-drag'); } catch {} finally { releaseLock(); }
-              }
-            }
-            while (!isStopped() && (monotonicNow() - exploreStartWait) < exploreNextWake * 1000) {
-              await sleep(1);
-            }
-          } else {
-            await sleep(exploreNextWake);
-          }
-          if (isStopped()) break;
-          continue;
         }
 
         // 喊话模式：与其他任务互斥，只执行世界喊话
@@ -1972,7 +2014,7 @@ export function HomePage() {
         pushLog(`⏳ 下次检查 ${nextWake.toFixed(0)} 秒后 (build1=${latestTimers.build1}s build2=${latestTimers.build2}s train=${latestTimers.train_bingying}/${latestTimers.train_majiu}/${latestTimers.train_bachang}/${latestTimers.train_gongcheng}s research=${latestTimers.research}s)`);
 
         // ==== 一轮结束，per-round 模式记账 ====
-        if (featuresRef.current.autoSwitchAccount && featuresRef.current.switchMode === 'per-round') {
+        if (featuresRef.current.autoSwitchAccount && !isFeatureLocked('autoSwitchAccount') && featuresRef.current.switchMode === 'per-round') {
           markRoundDone('main');
         }
 
@@ -2000,7 +2042,7 @@ export function HomePage() {
           }
         }
       }
-      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, caveLoop, produceMaterialLoop, offlineLoop, attackLoop, accountSwitchLoop]);
+      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, exploreLoop, caveLoop, produceMaterialLoop, offlineLoop, attackLoop, accountSwitchLoop]);
       loopRunning = false;
       setLoopRunningState(false);
       clearLoopState();
@@ -2160,37 +2202,51 @@ export function HomePage() {
         </div>
 
         {/* 账号调度独立层 */}
-        <div className={`rounded-xl mb-4 overflow-hidden ${features.autoSwitchAccount ? 'bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300' : 'bg-white border border-slate-200'}`}>
+        <div className={`rounded-xl mb-4 relative ${isFeatureLocked('autoSwitchAccount') ? 'bg-amber-50/60 border-2 border-amber-300 border-dashed' : features.autoSwitchAccount ? 'bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300' : 'bg-white border border-slate-200'}`}>
+          {isFeatureLocked('autoSwitchAccount') && (
+            <div className="absolute -top-1.5 right-3 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-md shadow-amber-200 flex items-center gap-1 z-10"
+              title="升级到 Pro 解锁">
+              <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.957a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.37 2.448a1 1 0 00-.364 1.118l1.287 3.957c.3.921-.755 1.688-1.54 1.118l-3.37-2.448a1 1 0 00-1.176 0l-3.37 2.448c-.784.57-1.838-.197-1.539-1.118l1.287-3.957a1 1 0 00-.364-1.118L2.063 9.384c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.957z" /></svg>
+              PRO
+            </div>
+          )}
           {!accountScheduleExpanded ? (
             <button
               type="button"
               onClick={() => setAccountScheduleExpanded(true)}
-              className="w-full px-4 py-3 flex items-center gap-2 text-left hover:bg-amber-100/40 transition-colors"
+              className="w-full px-4 py-3 flex items-center gap-2 text-left hover:bg-amber-100/40 transition-colors rounded-xl"
             >
-              <span className="w-7 h-7 bg-amber-400 rounded-lg flex items-center justify-center text-white text-sm shadow">🔀</span>
-              <span className="font-semibold text-sm text-slate-800">账号调度：{features.autoSwitchAccount ? '开启' : '关闭'}</span>
+              <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-white text-sm shadow ${isFeatureLocked('autoSwitchAccount') ? 'bg-amber-300' : 'bg-amber-400'}`}>🔀</span>
+              <span className="font-semibold text-sm text-slate-800">账号调度：{features.autoSwitchAccount && !isFeatureLocked('autoSwitchAccount') ? '开启' : '关闭'}</span>
               <span className="ml-auto text-amber-600 text-2xl leading-none">▸</span>
             </button>
           ) : (
             <div className="p-4">
               {/* 头部 */}
               <div className="flex items-center gap-3 mb-3">
-                <span className="w-8 h-8 bg-amber-400 rounded-lg flex items-center justify-center text-white text-base shadow">🔀</span>
+                <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-white text-base shadow ${isFeatureLocked('autoSwitchAccount') ? 'bg-amber-300' : 'bg-amber-400'}`}>🔀</span>
                 <div>
                   <h3 className="font-bold text-sm text-slate-800">账号调度</h3>
-                  <p className="text-xs text-amber-700">控制何时切换到哪个配置方案 · 共 2 个账号</p>
+                  <p className="text-xs text-amber-700">请先在坐标配置页中添加账号，填入账号编号</p>
                 </div>
                 <div className="flex-1"></div>
                 <select
                   value={features.switchMode}
                   onChange={(e) => setFeatures({ ...features, switchMode: e.target.value as 'per-round' | 'per-time' | 'fort-mode' })}
-                  className="text-xs bg-white border border-amber-300 rounded px-2 py-1 text-amber-700 font-medium focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-300"
+                  disabled={isFeatureLocked('autoSwitchAccount')}
+                  className="text-xs bg-white border border-amber-300 rounded px-2 py-1 text-amber-700 font-medium focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-300 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <option value="per-time">按时间轮换</option>
                   <option value="per-round">按轮次轮换</option>
                   <option value="fort-mode">寨子模式</option>
                 </select>
                 <div className="flex items-center gap-2">
+                  {isFeatureLocked('autoSwitchAccount') ? (
+                    <span className="relative w-10 h-[22px] flex-shrink-0 cursor-not-allowed" title="升级到 Pro 解锁">
+                      <span className="absolute inset-0 rounded-full bg-slate-200" />
+                      <span className="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm" />
+                    </span>
+                  ) : (
                   <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
                     <input type="checkbox" checked={features.autoSwitchAccount}
                       onChange={(e) => setFeatures({ ...features, autoSwitchAccount: e.target.checked })}
@@ -2198,6 +2254,7 @@ export function HomePage() {
                     <span className={`absolute inset-0 rounded-full transition-colors ${features.autoSwitchAccount ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                     <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoSwitchAccount ? 'translate-x-[18px]' : ''}`} />
                   </label>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -2310,7 +2367,7 @@ export function HomePage() {
           <div className="grid grid-cols-2 gap-4">
 
             {/* 智能采集宝石 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : isFeatureLocked('gemGather') ? 'bg-amber-50/60 border-amber-300 border-dashed' : features.gemGatherEnabled ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : isFeatureLocked('gemGather') ? 'bg-amber-50/60 border-amber-300 border-dashed' : features.gemGatherEnabled ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               {isFeatureLocked('gemGather') && (
                 <div className="absolute -top-1.5 right-3 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-md shadow-amber-200 flex items-center gap-1"
                   title="升级到 Pro 解锁">
@@ -2330,7 +2387,7 @@ export function HomePage() {
                   </span>
                 ) : (
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.gemGatherEnabled} disabled={features.autoExplore || features.autoWorldChat}
+                  <input type="checkbox" checked={features.gemGatherEnabled} disabled={features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, gemGatherEnabled: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.gemGatherEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
@@ -2344,7 +2401,7 @@ export function HomePage() {
                   <label key={teamNum} className="flex items-center gap-1 cursor-pointer">
                     <input type="checkbox"
                       checked={features.gemGatherTeams.includes(teamNum)}
-                      disabled={features.autoExplore || features.autoWorldChat || !features.gemGatherEnabled || isFeatureLocked('gemGather')}
+                      disabled={features.autoWorldChat || !features.gemGatherEnabled || isFeatureLocked('gemGather')}
                       onChange={(e) => {
                         const next = e.target.checked
                           ? [...features.gemGatherTeams, teamNum].sort((a, b) => a - b)
@@ -2364,7 +2421,7 @@ export function HomePage() {
                 <span className="text-xs text-slate-500 whitespace-nowrap">普通</span>
                 {(() => {
                   const ratio = features.gemGatherMixRatio ?? 0.5;
-                  const disabled = !features.gemGatherEnabled || isFeatureLocked('gemGather') || features.autoExplore || features.autoWorldChat;
+                  const disabled = !features.gemGatherEnabled || isFeatureLocked('gemGather') || features.autoWorldChat;
                   return (
                     <div className={`slider-capsule flex-1 max-w-[160px] ${disabled ? 'is-disabled opacity-60' : ''}`}>
                       <div className="track" />
@@ -2383,7 +2440,7 @@ export function HomePage() {
                 <span className="text-xs text-slate-500 whitespace-nowrap">驻扎</span>
                 <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full w-12 text-center tabular-nums">{Math.round((features.gemGatherMixRatio ?? 0.5) * 100)}%</span>
                 <span className="text-xs text-slate-400 whitespace-nowrap ml-auto">队伍页</span>
-                {renderTeamPageSelect(features.gemGatherTeamPage, (v) => setFeatures({ ...features, gemGatherTeamPage: v }), features.autoExplore || features.autoWorldChat || !features.gemGatherEnabled || isFeatureLocked('gemGather'))}
+                {renderTeamPageSelect(features.gemGatherTeamPage, (v) => setFeatures({ ...features, gemGatherTeamPage: v }), features.autoWorldChat || !features.gemGatherEnabled || isFeatureLocked('gemGather'))}
               </div>
               <div className="flex items-center gap-2 mt-2">
                 <span className="text-xs text-slate-400 whitespace-nowrap">采集</span>
@@ -2465,11 +2522,11 @@ export function HomePage() {
             </div>
 
             {/* 城外资源采集 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.gatherResources ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.gatherResources ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center text-base">🌾</span>城外资源采集</span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.gatherResources} disabled={features.autoExplore || features.autoWorldChat}
+                  <input type="checkbox" checked={features.gatherResources} disabled={features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, gatherResources: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.gatherResources ? 'bg-emerald-500' : 'bg-slate-200'}`} />
@@ -2479,7 +2536,7 @@ export function HomePage() {
               <div className="grid grid-cols-5 gap-1 mt-2">
                 {features.gatherTasks.slice(0, 5).map((task: { type: string; level: number }, i: number) => (
                   <div key={i} className="flex flex-col gap-1">
-                    <select value={task.type} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
+                    <select value={task.type} disabled={features.autoWorldChat} onChange={(e) => {
                       const next = [...features.gatherTasks]; next[i] = { ...next[i], type: e.target.value };
                       setFeatures({ ...features, gatherTasks: next });
                     }}
@@ -2487,7 +2544,7 @@ export function HomePage() {
                       <option value="">-</option>
                       {RESOURCE_TYPES.map(t => (<option key={t} value={t}>{t}</option>))}
                     </select>
-                    <select value={task.level} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
+                    <select value={task.level} disabled={features.autoWorldChat} onChange={(e) => {
                       const next = [...features.gatherTasks]; next[i] = { ...next[i], level: Number(e.target.value) };
                       setFeatures({ ...features, gatherTasks: next });
                     }}
@@ -2519,7 +2576,7 @@ export function HomePage() {
                           const i = idx + 5;
                           return (
                             <div key={i} className="flex flex-col gap-1">
-                              <select value={task.type} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
+                              <select value={task.type} disabled={features.autoWorldChat} onChange={(e) => {
                                 const next = [...features.gatherTasks]; next[i] = { ...next[i], type: e.target.value };
                                 setFeatures({ ...features, gatherTasks: next });
                               }}
@@ -2527,7 +2584,7 @@ export function HomePage() {
                                 <option value="">-</option>
                                 {RESOURCE_TYPES.map(t => (<option key={t} value={t}>{t}</option>))}
                               </select>
-                              <select value={task.level} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
+                              <select value={task.level} disabled={features.autoWorldChat} onChange={(e) => {
                                 const next = [...features.gatherTasks]; next[i] = { ...next[i], level: Number(e.target.value) };
                                 setFeatures({ ...features, gatherTasks: next });
                               }}
@@ -2544,17 +2601,17 @@ export function HomePage() {
               })()}
               <div className="flex items-center gap-2 mt-1.5">
                 <span className="text-xs text-slate-400 whitespace-nowrap">队伍页</span>
-                {renderTeamPageSelect(features.resourceGatherTeamPage, (v) => setFeatures({ ...features, resourceGatherTeamPage: v }), features.autoExplore || features.autoWorldChat)}
+                {renderTeamPageSelect(features.resourceGatherTeamPage, (v) => setFeatures({ ...features, resourceGatherTeamPage: v }), features.autoWorldChat)}
               </div>
             </div>
 
             {/* 自动攻打城寨 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : features.autoRallyFort ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : features.autoRallyFort ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center text-base">🏰</span>自动攻打城寨</span>
-                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoExplore || features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
                   <input type="checkbox" checked={features.autoRallyFort}
-                    disabled={features.autoExplore || features.autoWorldChat}
+                    disabled={features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, autoRallyFort: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.autoRallyFort ? 'bg-emerald-500' : 'bg-slate-200'}`} />
@@ -2565,7 +2622,7 @@ export function HomePage() {
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-400 whitespace-nowrap">目标等级</span>
                   <select value={features.rallyFortLevel}
-                    disabled={features.autoExplore || features.autoWorldChat}
+                    disabled={features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, rallyFortLevel: Number(e.target.value) })}
                     className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-20">
                     <option value={0}>—</option>
@@ -2573,7 +2630,7 @@ export function HomePage() {
                   </select>
                   <span className="text-xs text-slate-400 whitespace-nowrap ml-2">派遣第</span>
                   <select value={features.rallyFortTeam}
-                    disabled={features.autoExplore || features.autoWorldChat}
+                    disabled={features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, rallyFortTeam: Number(e.target.value) })}
                     className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-16">
                     {[1,2,3,4,5].map(t => (<option key={t} value={t}>{t}</option>))}
@@ -2582,10 +2639,10 @@ export function HomePage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-500 w-16" title="当搜索不到对应等级的城寨后，降级搜索。">降级搜索</span>
-                  <label className={`relative inline-flex items-center ${(features.autoExplore || features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
+                  <label className={`relative inline-flex items-center ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
                     title="当搜索不到对应等级的城寨后，降级搜索。">
                     <input type="checkbox" checked={features.rallyFortDowngrade}
-                      disabled={features.autoExplore || features.autoWorldChat}
+                      disabled={features.autoWorldChat}
                       onChange={(e) => setFeatures({ ...features, rallyFortDowngrade: e.target.checked })}
                       className="sr-only peer" />
                     <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${features.rallyFortDowngrade ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
@@ -2599,7 +2656,7 @@ export function HomePage() {
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-400 whitespace-nowrap">队伍页</span>
-                  {renderTeamPageSelect(features.rallyFortTeamPage, (v) => setFeatures({ ...features, rallyFortTeamPage: v }), features.autoExplore || features.autoWorldChat)}
+                  {renderTeamPageSelect(features.rallyFortTeamPage, (v) => setFeatures({ ...features, rallyFortTeamPage: v }), features.autoWorldChat)}
                 </div>
               </div>
 
@@ -2607,26 +2664,41 @@ export function HomePage() {
 
             {/* 加入集结 */}
             <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${
-              (features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :
+              (features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :
+              isFeatureLocked('joinRally') ? 'bg-amber-50/60 border-amber-300 border-dashed' :
               features.joinRallyEnabled ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'
             }`}>
+              {isFeatureLocked('joinRally') && (
+                <div className="absolute -top-1.5 right-3 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-md shadow-amber-200 flex items-center gap-1"
+                  title="升级到 Pro 解锁">
+                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.957a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.37 2.448a1 1 0 00-.364 1.118l1.287 3.957c.3.921-.755 1.688-1.54 1.118l-3.37-2.448a1 1 0 00-1.176 0l-3.37 2.448c-.784.57-1.838-.197-1.539-1.118l1.287-3.957a1 1 0 00-.364-1.118L2.063 9.384c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.957z" /></svg>
+                  PRO
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800">
-                  <span className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center text-base">🤝</span>
+                  <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-base ${isFeatureLocked('joinRally') ? 'bg-amber-100' : 'bg-orange-100'}`}>🤝</span>
                   加入集结
                 </span>
+                {isFeatureLocked('joinRally') ? (
+                  <span className="relative w-10 h-[22px] flex-shrink-0 cursor-not-allowed" title="升级到 Pro 解锁">
+                    <span className="absolute inset-0 rounded-full bg-slate-200" />
+                    <span className="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm" />
+                  </span>
+                ) : (
                 <label className={`relative w-10 h-[22px] flex-shrink-0 ${
-                  (features.autoExplore || features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'
+                  (features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'
                 }`}>
                   <input type="checkbox" checked={features.joinRallyEnabled}
-                    disabled={features.autoExplore || features.autoWorldChat}
+                    disabled={features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, joinRallyEnabled: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.joinRallyEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                   <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.joinRallyEnabled ? 'translate-x-[18px]' : ''}`} />
                 </label>
+                )}
               </div>
-              <div className={`mt-3 space-y-2 ${features.joinRallyEnabled ? '' : 'opacity-50 pointer-events-none'}`}>
+              <div className={`mt-3 space-y-2 ${features.joinRallyEnabled && !isFeatureLocked('joinRally') ? '' : 'opacity-50 pointer-events-none'}`}>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-500 w-12">派遣第</span>
                   <select
@@ -2683,11 +2755,11 @@ export function HomePage() {
             </div>
 
             {/* 自动升级建筑 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.upgradeBuildings ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.upgradeBuildings ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center text-base">🏗️</span>自动升级建筑</span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.upgradeBuildings} disabled={features.autoExplore || features.autoWorldChat}
+                  <input type="checkbox" checked={features.upgradeBuildings} disabled={features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, upgradeBuildings: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.upgradeBuildings ? 'bg-emerald-500' : 'bg-slate-200'}`} />
@@ -2696,7 +2768,7 @@ export function HomePage() {
               </div>
               <div className="flex items-center gap-2 flex-wrap mt-2">
                 {features.selectedBuildings.map((val: string, i: number) => (
-                  <select key={i} value={val} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
+                  <select key={i} value={val} disabled={features.autoWorldChat} onChange={(e) => {
                     const next = [...features.selectedBuildings]; next[i] = e.target.value;
                     const nextCompleted = [...features.completedBuildings]; nextCompleted[i] = false;
                     setFeatures({ ...features, selectedBuildings: next, completedBuildings: nextCompleted });
@@ -2725,11 +2797,11 @@ export function HomePage() {
             </div>
 
             {/* 自动研究科技 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.autoResearch ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.autoResearch ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center text-base">🔬</span>自动研究科技</span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.autoResearch} disabled={features.autoExplore || features.autoWorldChat}
+                  <input type="checkbox" checked={features.autoResearch} disabled={features.autoWorldChat}
                     onChange={(e) => {
                       if (e.target.checked && !buildingOptions.includes('学院')) {
                         alert('请在坐标配置页标记学院位置');
@@ -2772,11 +2844,11 @@ export function HomePage() {
             </div>
 
             {/* 自动训练兵种 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoExplore || features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.trainTroops ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.trainTroops ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center text-base">⚔️</span>自动训练兵种</span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.trainTroops} disabled={features.autoExplore || features.autoWorldChat}
+                  <input type="checkbox" checked={features.trainTroops} disabled={features.autoWorldChat}
                     onChange={(e) => {
                       if (e.target.checked) {
                         const missing = ['兵营', '马厩', '靶场', '攻城武器厂'].filter(b => !buildingOptions.includes(b));
@@ -2796,7 +2868,7 @@ export function HomePage() {
                 {(['兵营', '马厩', '靶场', '攻城武器厂'] as const).map(building => (
                   <div key={building} className="flex items-center gap-2">
                     <span className="text-xs text-slate-500 w-16">{({ 兵营: '⚔️', 马厩: '🐴', 靶场: '🎯', 攻城武器厂: '⚙️' } as Record<string, string>)[building]} {building}</span>
-                    <select value={(features.trainTasks as Record<string, number>)[building] ?? 0} disabled={features.autoExplore || features.autoWorldChat} onChange={(e) => {
+                    <select value={(features.trainTasks as Record<string, number>)[building] ?? 0} disabled={features.autoWorldChat} onChange={(e) => {
                       const next = { ...features.trainTasks as Record<string, number>, [building]: Number(e.target.value) };
                       setFeatures({ ...features, trainTasks: next });
                     }}
@@ -2813,9 +2885,8 @@ export function HomePage() {
             <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${features.autoWorldChat ? 'border-purple-500 bg-purple-50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center text-base">📢</span>自动喊话</span>
-                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoExplore) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                <label className={`relative w-10 h-[22px] flex-shrink-0 cursor-pointer`}>
                   <input type="checkbox" checked={features.autoWorldChat}
-                    disabled={features.autoExplore}
                     onChange={(e) => setFeatures({ ...features, autoWorldChat: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.autoWorldChat ? 'bg-purple-500' : 'bg-slate-200'}`} />
@@ -2872,7 +2943,7 @@ export function HomePage() {
                   自动帮助盟友
                 </span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.helpTeammates} disabled={features.autoExplore || features.autoWorldChat}
+                  <input type="checkbox" checked={features.helpTeammates} disabled={features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, helpTeammates: e.target.checked })}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.helpTeammates ? 'bg-emerald-500' : 'bg-slate-200'}`} />
@@ -2910,7 +2981,7 @@ export function HomePage() {
                     min={MIN_COLLECT_RESOURCES_INTERVAL_MINUTES}
                     step={1}
                     value={features.collectResourcesIntervalMinutes}
-                    disabled={features.autoExplore || features.autoWorldChat}
+                    disabled={features.autoWorldChat}
                     onChange={(e) => setFeatures({
                       ...features,
                       collectResourcesIntervalMinutes: Math.max(MIN_COLLECT_RESOURCES_INTERVAL_MINUTES, Number(e.target.value) || MIN_COLLECT_RESOURCES_INTERVAL_MINUTES),
@@ -2919,7 +2990,7 @@ export function HomePage() {
                   />
                   <span className="text-xs text-slate-400">分钟</span>
                   <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                    <input type="checkbox" checked={features.collectResources} disabled={features.autoExplore || features.autoWorldChat}
+                    <input type="checkbox" checked={features.collectResources} disabled={features.autoWorldChat}
                       onChange={(e) => setFeatures({ ...features, collectResources: e.target.checked })}
                       className="sr-only" />
                     <span className={`absolute inset-0 rounded-full transition-colors ${features.collectResources ? 'bg-emerald-500' : 'bg-slate-200'}`} />
@@ -2937,7 +3008,7 @@ export function HomePage() {
                     min={0}
                     step={1}
                     value={features.autoReconnectIntervalMinutes}
-                    disabled={features.autoExplore || features.autoWorldChat}
+                    disabled={features.autoWorldChat}
                     onChange={(e) => setFeatures({
                       ...features,
                       autoReconnectIntervalMinutes: Math.max(0, Number(e.target.value) || 0),
@@ -2954,7 +3025,6 @@ export function HomePage() {
                   <span className="flex items-center gap-2 text-sm text-slate-700">
                     <span className="w-6 h-6 bg-cyan-100 rounded flex items-center justify-center text-xs">🗺️</span>
                     迷雾探索
-                    {features.autoExplore && <span className="text-xs px-1.5 py-0.5 bg-purple-500 text-white rounded-full font-medium">独立模式</span>}
                   </span>
                   <div className="flex items-center gap-2 ml-8">
                     <span className="text-xs text-slate-400">派出</span>
@@ -2979,13 +3049,10 @@ export function HomePage() {
                       setFeatures({ ...features, autoExplore: e.target.checked });
                     }}
                     className="sr-only" />
-                  <span className={`absolute inset-0 rounded-full transition-colors ${features.autoExplore ? 'bg-purple-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.autoExplore ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                   <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoExplore ? 'translate-x-[18px]' : ''}`} />
                 </label>
               </div>
-              {features.autoExplore && (
-                <p className="text-xs text-slate-400 mt-1 ml-8">⚠ 迷雾探索模式已开启，其他功能已暂停</p>
-              )}
               {/* 山洞探索 */}
               <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0">
                 <span className="flex items-center gap-2 text-sm text-slate-700">
@@ -2993,10 +3060,16 @@ export function HomePage() {
                   山洞探索
                   <span className="text-xs text-slate-400">· 每2分钟</span>
                 </span>
-                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoExplore || features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
                   <input type="checkbox" checked={features.autoCaveExplore}
-                    disabled={features.autoExplore || features.autoWorldChat}
-                    onChange={(e) => setFeatures({ ...features, autoCaveExplore: e.target.checked })}
+                    disabled={features.autoWorldChat}
+                    onChange={(e) => {
+                      if (e.target.checked && !buildingOptions.includes('斥候营地')) {
+                        alert('请在坐标配置页标记斥候营地位置');
+                        return;
+                      }
+                      setFeatures({ ...features, autoCaveExplore: e.target.checked });
+                    }}
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.autoCaveExplore ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                   <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoCaveExplore ? 'translate-x-[18px]' : ''}`} />
@@ -3009,7 +3082,7 @@ export function HomePage() {
                   生产装备材料
                   <select
                     value={features.produceMaterialType}
-                    disabled={features.autoExplore || features.autoWorldChat || !features.produceMaterialEnabled}
+                    disabled={features.autoWorldChat || !features.produceMaterialEnabled}
                     onChange={(e) => setFeatures({ ...features, produceMaterialType: e.target.value as 'leather' | 'iron' | 'ebony' | 'bone' })}
                     className="px-1.5 py-0.5 bg-white border border-slate-200 rounded text-xs disabled:opacity-50"
                   >
@@ -3019,9 +3092,9 @@ export function HomePage() {
                     <option value="bone">兽骨</option>
                   </select>
                 </span>
-                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoExplore || features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
                   <input type="checkbox" checked={features.produceMaterialEnabled}
-                    disabled={features.autoExplore || features.autoWorldChat}
+                    disabled={features.autoWorldChat}
                     onChange={(e) => {
                       if (e.target.checked && !buildingOptions.includes('铁匠铺')) {
                         alert('请在坐标配置页标记铁匠铺位置');
