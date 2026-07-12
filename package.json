@@ -20,7 +20,7 @@
     "appId": "com.rok.automation",
     "productName": "ROK助手",
     "releaseInfo": {
-      "releaseNotes": "1.1.4更新内容\n账号调度bug修改。"
+      "releaseNotes": "1.1.5更新内容\n1.重复采矿bug修复\n2.账号调度、加入集结权限修改（改回pro权限）\n3.迷雾探索取消独立模式"
     },
     "directories": {
       "output": "release"
