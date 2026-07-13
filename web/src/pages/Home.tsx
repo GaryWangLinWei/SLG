@@ -728,6 +728,7 @@ export function HomePage() {
       features.helpTeammates ||
       features.collectResources ||
       (features.joinRallyEnabled && !isFeatureLocked('joinRally')) ||
+      (features.shareGemEnabled && !isFeatureLocked('shareGem')) ||
       features.produceMaterialEnabled ||
       features.attackDetectEnabled;
     if (!hasAnyFeature) {
