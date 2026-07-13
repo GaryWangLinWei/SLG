@@ -13,6 +13,7 @@ import { rallyFortSpiral } from './actions/rallyFortSpiral';
 import { joinRally } from './actions/joinRally';
 import { gatherGem } from './actions/gatherGem';
 import { gatherGemFocus } from './actions/gatherGemFocus';
+import { shareGem } from './actions/shareGem';
 import { caveExplore, resetCaveExploreState } from './actions/caveExplore';
 import { produceEquipMaterial, MaterialType } from './actions/produceEquipMaterial';
 import { readGemCount } from './actions/readGemCount';
@@ -835,6 +836,22 @@ export const RiseOfKingdomsPlugin: Plugin = {
         const teams = params.teams || [1];
         const outcome = await gatherGemFocus(ctx, config, teams, params.teamPage ?? 'gather', params.searchWeights, params.maxDistance);
         ctx.log(`宝石采集(驻扎): 队伍[${teams.join(', ')}] → ${outcome.result}，派出 ${outcome.dispatched} 队`);
+      }
+    },
+    {
+      id: 'share-gem',
+      name: '分享宝石矿',
+      description: '从指定起点缩地螺旋搜宝石矿，自动分享给同盟主号',
+      run: async (ctx, params: { startX?: number; startY?: number; searchWeights?: any; maxDistance?: number } = {}) => {
+        if (await ensureNoPopupBlocking(ctx, 'share-gem')) return;
+        const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
+        const outcome = await shareGem(ctx, config, {
+          startX: params.startX ?? 0,
+          startY: params.startY ?? 0,
+          searchWeights: params.searchWeights,
+          maxDistance: params.maxDistance,
+        });
+        ctx.log(`分享宝石矿: → ${outcome.result}，分享 ${outcome.shared} 个`);
       }
     },
     killGame,
