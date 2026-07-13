@@ -2566,42 +2566,6 @@ export function HomePage() {
               )}
             </div>
 
-            {/* 分享宝石矿 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : features.shareGemEnabled ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800">
-                  <span className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center text-base">💎</span>
-                  分享宝石矿
-                </span>
-                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.shareGemEnabled} disabled={features.autoWorldChat}
-                    onChange={(e) => setFeatures({ ...features, shareGemEnabled: e.target.checked })}
-                    className="sr-only" />
-                  <span className={`absolute inset-0 rounded-full transition-colors ${features.shareGemEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
-                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.shareGemEnabled ? 'translate-x-[18px]' : ''}`} />
-                </label>
-              </div>
-              <div className="flex items-center gap-3 mt-2 text-xs">
-                <label className="flex items-center gap-1.5 text-slate-600">
-                  起点 X
-                  <input type="number"
-                    value={features.shareGemStartX}
-                    disabled={features.autoWorldChat || !features.shareGemEnabled}
-                    onChange={(e) => setFeatures({ ...features, shareGemStartX: Number(e.target.value) || 0 })}
-                    className="w-20 px-2 py-1 bg-white border border-slate-200 rounded disabled:opacity-50" />
-                </label>
-                <label className="flex items-center gap-1.5 text-slate-600">
-                  起点 Y
-                  <input type="number"
-                    value={features.shareGemStartY}
-                    disabled={features.autoWorldChat || !features.shareGemEnabled}
-                    onChange={(e) => setFeatures({ ...features, shareGemStartY: Number(e.target.value) || 0 })}
-                    className="w-20 px-2 py-1 bg-white border border-slate-200 rounded disabled:opacity-50" />
-                </label>
-                <span className="text-slate-400">(0,0 = 原地开始)</span>
-              </div>
-            </div>
-
             {/* 城外资源采集 */}
             <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :features.gatherResources ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center justify-between">
@@ -2684,6 +2648,60 @@ export function HomePage() {
                 <span className="text-xs text-slate-400 whitespace-nowrap">队伍页</span>
                 {renderTeamPageSelect(features.resourceGatherTeamPage, (v) => setFeatures({ ...features, resourceGatherTeamPage: v }), features.autoWorldChat)}
               </div>
+            </div>
+
+            {/* 分享宝石矿 */}
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : features.shareGemEnabled ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800">
+                  <span className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center text-base">💎</span>
+                  分享宝石矿
+                </span>
+                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+                  <input type="checkbox" checked={features.shareGemEnabled} disabled={features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, shareGemEnabled: e.target.checked })}
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.shareGemEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.shareGemEnabled ? 'translate-x-[18px]' : ''}`} />
+                </label>
+              </div>
+              <div className="flex items-center gap-3 mt-2 text-xs">
+                <label className="flex items-center gap-1.5 text-slate-600">
+                  起点 X
+                  <input type="number"
+                    value={features.shareGemStartX}
+                    disabled={features.autoWorldChat || !features.shareGemEnabled}
+                    onChange={(e) => setFeatures({ ...features, shareGemStartX: Number(e.target.value) || 0 })}
+                    className="w-20 px-2 py-1 bg-white border border-slate-200 rounded disabled:opacity-50" />
+                </label>
+                <label className="flex items-center gap-1.5 text-slate-600">
+                  起点 Y
+                  <input type="number"
+                    value={features.shareGemStartY}
+                    disabled={features.autoWorldChat || !features.shareGemEnabled}
+                    onChange={(e) => setFeatures({ ...features, shareGemStartY: Number(e.target.value) || 0 })}
+                    className="w-20 px-2 py-1 bg-white border border-slate-200 rounded disabled:opacity-50" />
+                </label>
+                <span className="text-slate-400">(0,0 = 原地开始)</span>
+              </div>
+            </div>
+
+            {/* 采集分享的宝石矿 — 敬请期待 */}
+            <div className="flex flex-col gap-0 p-4 rounded-lg border border-dashed border-slate-200 bg-slate-100 relative overflow-hidden">
+              <div className="absolute inset-0 bg-slate-100/60 backdrop-blur-[1px] rounded-lg flex items-center justify-center z-10">
+                <span className="bg-white border border-slate-200 px-3 py-1.5 rounded-full text-xs text-slate-500 font-semibold shadow-sm flex items-center gap-1.5">🔒 敬请期待</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 font-semibold text-sm text-slate-400">
+                  <span className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center text-base opacity-50">💎</span>
+                  采集分享的宝石矿
+                </span>
+                <label className="relative w-10 h-[22px] flex-shrink-0">
+                  <span className="absolute inset-0 rounded-full bg-slate-200" />
+                  <span className="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm" />
+                </label>
+              </div>
+              <p className="text-xs text-slate-400 mt-1.5">自动采集主号分享给你的宝石矿</p>
             </div>
 
             {/* 自动攻打城寨 */}
