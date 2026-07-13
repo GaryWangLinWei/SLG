@@ -851,6 +851,7 @@ export function HomePage() {
       if (f.autoRallyFort && f.rallyFortLevel > 0) exp.add('rally-fort');
       if (f.joinRallyEnabled && !isFeatureLocked('joinRally')) exp.add('join-rally');
       if (f.autoCaveExplore) exp.add('cave');
+      if (f.shareGemEnabled) exp.add('share-gem');
       if (f.produceMaterialEnabled) exp.add('produce-material');
       if (f.gemGatherEnabled && !isFeatureLocked('gemGather') && f.gemGatherTeams.length > 0) exp.add('gem');
       if (f.upgradeBuildings || f.autoResearch || f.trainTroops) exp.add('main');
@@ -1401,6 +1402,50 @@ export function HomePage() {
           const startWait = monotonicNow();
           const waitSeq = cooldownResetSeq;
           while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < caveInterval * 1000) {
+            await sleep(1);
+          }
+        }
+      })();
+
+      const shareGemLoop = (async () => {
+        let first = true;
+        while (!isStopped()) {
+          if (first) { first = false; await sleep(10); continue; }
+          if (offlineActive) { await sleep(30); continue; }
+
+          if (featuresRef.current.shareGemEnabled && !featuresRef.current.autoWorldChat) {
+            if (!await acquireLock()) break;
+            if (offlineActive) { releaseLock(); await sleep(30); continue; }
+            await ensureGameRunning();
+            try {
+              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'share-gem', {
+                startX: featuresRef.current.shareGemStartX,
+                startY: featuresRef.current.shareGemStartY,
+              });
+              if (createResult.success) {
+                runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
+                setRunningTaskIds([...runningTaskIdsRef.current]);
+                const runResult = await api.tasks.run(createResult.task.id);
+                runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
+                setRunningTaskIds([...runningTaskIdsRef.current]);
+                const logs = runResult.task?.logs ?? [];
+                const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
+                if (hasExpiredLog) {
+                  pushLog(`⛔ 许可证已到期，停止运行`);
+                  loopStopped = true;
+                  setExpiredMessage('激活码已到期，请重新激活');
+                  refreshStatus();
+                } else {
+                  pushLog(`💎 分享宝石矿 完成`);
+                  markRoundDone('share-gem');
+                }
+              }
+            } catch {} finally { releaseLock(); }
+          }
+
+          const startWait = monotonicNow();
+          const waitSeq = cooldownResetSeq;
+          while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < 60_000) {
             await sleep(1);
           }
         }
@@ -2042,7 +2087,7 @@ export function HomePage() {
           }
         }
       }
-      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, exploreLoop, caveLoop, produceMaterialLoop, offlineLoop, attackLoop, accountSwitchLoop]);
+      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, exploreLoop, caveLoop, produceMaterialLoop, offlineLoop, attackLoop, accountSwitchLoop, shareGemLoop]);
       loopRunning = false;
       setLoopRunningState(false);
       clearLoopState();
