@@ -35,6 +35,9 @@ export interface HomeFeatures {
   rallyFortTeam: number;
   rallyFortTeamPage: TeamPageChoice;
   rallyFortDowngrade: boolean;
+  shareGemEnabled: boolean;
+  shareGemStartX: number;
+  shareGemStartY: number;
   gemGatherEnabled: boolean;
   gemGatherMode: 'normal' | 'focus' | 'mixed';
   gemGatherTeams: number[];
@@ -94,6 +97,9 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   rallyFortTeam: 1,
   rallyFortTeamPage: 'attack',
   rallyFortDowngrade: true,
+  shareGemEnabled: false,
+  shareGemStartX: 0,
+  shareGemStartY: 0,
   gemGatherEnabled: false,
   gemGatherMode: 'normal',
   gemGatherTeams: [1],
