@@ -11,16 +11,14 @@ import {
   searchAndClickGem,
   parseCoord,
 } from './gatherGem';
+import { ensureInWorld } from '../utils/location';
+import { locateByCoord } from '../utils/locateCoord';
 
 const TEMPLATE_DIR = getTemplatesDir();
 const BTN_SHARE = path.join(TEMPLATE_DIR, 'share_gem', 'btn_share.png');
 const MAINROLE_HEAD = path.join(TEMPLATE_DIR, 'share_gem', 'mainrolehead.png');
 
 // UI 坐标（1600x900）
-const COORD_ENTRY_BUTTON = { x: 552, y: 26 };
-const X_INPUT_BOX        = { x: 799, y: 176 };
-const Y_INPUT_BOX        = { x: 987, y: 178 };
-const COORD_SEARCH_BTN   = { x: 1108, y: 180 };
 const CONFIRM_SHARE_BTN  = { x: 893, y: 551 };
 const DISMISS_SHARE_BOX  = { x: 782, y: 447 };
 const CLOSE_SHARE_LIST   = { x: 1110, y: 102 };
@@ -40,22 +38,6 @@ export interface ShareGemOutcome {
 }
 
 type ShareResult = 'ok' | 'no_share_btn' | 'no_mainrole';
-
-async function locateByCoord(ctx: PluginContext, x: number, y: number): Promise<void> {
-  ctx.log(`[step 2] 定位坐标 (${x},${y})`);
-  await ctx.tap(COORD_ENTRY_BUTTON.x, COORD_ENTRY_BUTTON.y);
-  await ctx.sleep(1);
-  await ctx.tap(X_INPUT_BOX.x, X_INPUT_BOX.y);
-  await ctx.sleep(0.5);
-  await ctx.inputText(String(x));
-  await ctx.sleep(0.3);
-  await ctx.tap(Y_INPUT_BOX.x, Y_INPUT_BOX.y);
-  await ctx.sleep(0.5);
-  await ctx.inputText(String(y));
-  await ctx.sleep(0.3);
-  await ctx.tap(COORD_SEARCH_BTN.x, COORD_SEARCH_BTN.y);
-  await ctx.sleep(1.5);
-}
 
 async function shareCurrentGem(ctx: PluginContext): Promise<ShareResult> {
   const shareBtn = await ctx.findImageWithLocation(BTN_SHARE, 0.7);
@@ -113,8 +95,8 @@ export async function shareGem(
   ctx.log(`=== 分享宝石矿 起点(${startX},${startY}) ===`);
   const worldBtn = config.resourceCollect.worldSwitchButton;
 
-  ctx.log('[step 1] 重置城外视角');
-  await zoomOutToWorld(ctx, worldBtn);
+  ctx.log('[step 1] 切换到城外视角');
+  await ensureInWorld(ctx, config);
 
   if (startX !== 0 || startY !== 0) {
     await locateByCoord(ctx, startX, startY);
@@ -123,14 +105,15 @@ export async function shareGem(
   }
 
   await ctx.sleep(2);
-  ctx.log('[step 3] 开始螺旋搜索');
+  ctx.log('[step 3] 缩地后开始螺旋搜索');
+  await zoomOutToWorld(ctx, worldBtn);
   const spiralState = await createSpiralState(ctx, config, searchWeights);
   const sharedCoords: string[] = [];
   let consecutiveFails = 0;
   let shared = 0;
 
   while (true) {
-    const gem = await searchAndClickGem(ctx, config, spiralState, sharedCoords, maxDistance);
+    const gem = await searchAndClickGem(ctx, config, spiralState, sharedCoords, maxDistance, true);
     if (!gem.found) {
       ctx.log('[step 3] 螺旋步数耗尽');
       break;
@@ -150,6 +133,10 @@ export async function shareGem(
         return { result: 'aborted', shared };
       }
     }
+
+    // 分享完成（或失败）后缩地回世界视角，才能继续螺旋搜索
+    await zoomOutToWorld(ctx, worldBtn, spiralState);
+    await ctx.sleep(1);
   }
 
   ctx.log(`=== 分享结束: 分享 ${shared} 个 ===`);
