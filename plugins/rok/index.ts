@@ -5,7 +5,6 @@ import { gatherSingleResource, GatherTask } from './actions/gatherResources';
 import { researchTech, TECH_TEMPLATES, ECONOMIC_TECHS, MILITARY_TECHS } from './actions/researchTech';
 import { trainTroopsSingle } from './actions/trainTroops';
 import { explore } from './actions/explore';
-import { idleDrag } from './actions/idleDrag';
 import { helpTeammates } from './actions/helpTeammates';
 import { readQueueOverview, resetQueueFilters } from './actions/readQueueOverview';
 import { rallyFort } from './actions/rallyFort';
@@ -14,6 +13,9 @@ import { joinRally } from './actions/joinRally';
 import { gatherGem } from './actions/gatherGem';
 import { gatherGemFocus } from './actions/gatherGemFocus';
 import { shareGem } from './actions/shareGem';
+import { collectSharedGemCoords } from './actions/collectSharedGemCoords';
+import { gatherSharedGem } from './actions/gatherSharedGem';
+import { clearSharedGemPool } from './actions/clearSharedGemPool';
 import { caveExplore, resetCaveExploreState } from './actions/caveExplore';
 import { produceEquipMaterial, MaterialType } from './actions/produceEquipMaterial';
 import { readGemCount } from './actions/readGemCount';
@@ -586,14 +588,6 @@ export const RiseOfKingdomsPlugin: Plugin = {
       }
     },
     {
-      id: 'idle-drag',
-      name: '随机拖拽',
-      description: '模拟人类在循环等待期间随机滑动屏幕',
-      run: async (ctx) => {
-        await idleDrag(ctx);
-      }
-    },
-    {
       id: 'help-teammates',
       name: '帮助盟友',
       description: '检测帮助图标并点击帮助盟友',
@@ -684,7 +678,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       id: 'rally-fort',
       name: '攻打城寨',
       description: '使用游戏内置搜索查找野蛮人城寨并发起集结',
-      run: async (ctx, params: { level?: number; team?: number; downgrade?: boolean; teamPage?: TeamPage } = {}) => {
+      run: async (ctx, params: { level?: number; team?: number; downgrade?: boolean; teamPage?: TeamPage; usePotion?: boolean; troopType?: 'any' | 'infantry' | 'cavalry' | 'archer' } = {}) => {
         if (await ensureNoPopupBlocking(ctx, 'rally-fort')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const level = params.level || 5;
@@ -718,7 +712,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
           ctx.log('⚠️ 未识别到队伍计数，继续城寨集结');
         }
 
-        const outcome = await rallyFort(ctx, config, level, team, downgrade, params.teamPage ?? 'attack');
+        const outcome = await rallyFort(ctx, config, level, team, downgrade, params.teamPage ?? 'attack', params.usePotion === true, params.troopType ?? 'any');
         ctx.log(`城寨集结: Lv.${outcome.foundLevel || level} 队伍${team} → ${outcome.result}`);
       }
     },
@@ -772,6 +766,8 @@ export const RiseOfKingdomsPlugin: Plugin = {
         targetLohar?: boolean;
         maxDistance?: number;
         firstRun?: boolean;
+        usePotion?: boolean;
+        useDefaultTeam?: boolean;
       } = {}) => {
         if (await ensureNoPopupBlocking(ctx, 'join-rally')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
@@ -784,6 +780,8 @@ export const RiseOfKingdomsPlugin: Plugin = {
           targetLohar: params.targetLohar ?? true,
           maxDistance: params.maxDistance ?? 50,
           firstRun: params.firstRun,
+          usePotion: params.usePotion === true,
+          useDefaultTeam: params.useDefaultTeam === true,
         });
         ctx.log(`加入集结: ${outcome.targetType === 'fort' ? '城寨' : outcome.targetType === 'lohar' ? '洛哈' : '未知'} ${outcome.distance || 0}公里 → ${outcome.result}`);
       }
@@ -852,6 +850,46 @@ export const RiseOfKingdomsPlugin: Plugin = {
           maxDistance: params.maxDistance,
         });
         ctx.log(`分享宝石矿: → ${outcome.result}，分享 ${outcome.shared} 个`);
+      }
+    },
+    {
+      id: 'collect-shared-gem-coords',
+      name: '收集分享矿坐标',
+      description: '打开聊天读取主号分享的宝石矿坐标并加入池（按账号隔离）',
+      run: async (ctx, params: { accountId: string }) => {
+        if (!params?.accountId) {
+          ctx.log('❌ 缺少 accountId 参数');
+          return;
+        }
+        const outcome = await collectSharedGemCoords(ctx, params.accountId);
+        ctx.log(`收集分享矿: ${outcome.result} 新增=${outcome.collected} 池=${outcome.poolSize}`);
+      }
+    },
+    {
+      id: 'gather-shared-gem',
+      name: '采集分享矿',
+      description: '从池出队坐标定位并派兵采集；池不足会先自动收集',
+      run: async (ctx, params: { accountId: string; teams?: number[]; teamPage?: 'gather' | 'attack' | 'other' } = { accountId: '' }) => {
+        if (!params?.accountId) {
+          ctx.log('❌ 缺少 accountId 参数');
+          return;
+        }
+        const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
+        const teams = params.teams ?? [1];
+        const outcome = await gatherSharedGem(ctx, config, {
+          accountId: params.accountId,
+          teams,
+          teamPage: params.teamPage ?? 'gather',
+        });
+        ctx.log(`采集分享矿: → ${outcome.result}，采集 ${outcome.gathered} 队`);
+      }
+    },
+    {
+      id: 'clear-shared-gem-pool',
+      name: '清空分享矿池',
+      description: '清空所有账号的分享矿坐标池（点击开始运行时调用一次）',
+      run: async (ctx) => {
+        await clearSharedGemPool(ctx);
       }
     },
     killGame,
