@@ -749,6 +749,11 @@ export function HomePage() {
     loopRunning = true;
     setLoopRunningState(true);
     loopStopped = false;
+    // 清空所有账号的分享矿坐标池（每次开始运行归零）
+    try {
+      const cr = await api.tasks.create(currentAccountId, 'com.rok.automation', 'clear-shared-gem-pool');
+      if (cr.success) await api.tasks.run(cr.task.id);
+    } catch {}
     saveLoopState(currentAccountId);
     setTaskRunning(true);
 
@@ -1725,11 +1730,12 @@ export function HomePage() {
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
-            const isFocus = Math.random() < focusRatio;
-            const actionId = isFocus ? 'gem-gather-focus' : 'gem-gather';
-            const intervalSec = isFocus ? 60 : 300;
-            // 更新下一轮概率（仅混合模式）：驻扎 -0.2(1-p)、普通 +0.4p，clamp [0, 1]
-            if (mode === 'mixed') {
+            const useShared = f.gemGatherSharedOnly && !isFeatureLocked('gemGather');
+            const isFocus = !useShared && Math.random() < focusRatio;
+            const actionId = useShared ? 'gather-shared-gem' : (isFocus ? 'gem-gather-focus' : 'gem-gather');
+            const intervalSec = useShared ? 300 : (isFocus ? 60 : 300);
+            // 更新下一轮概率（仅混合模式，非分享模式时）：驻扎 -0.2(1-p)、普通 +0.4p，clamp [0, 1]
+            if (!useShared && mode === 'mixed') {
               focusRatio = Math.min(1, Math.max(0, focusRatio + (isFocus ? -0.2 * (1 - p) : 0.4 * p)));
               pushLog(`💎 下一轮驻扎概率 ${Math.round(focusRatio * 100)}%`);
             }
@@ -1745,7 +1751,10 @@ export function HomePage() {
               pushLog(`💎 [DEBUG] maxDistance=${f.gemGatherMaxDistance}`);
               const memCoords = getFreshGemCoords(currentAccountId);
               if (memCoords.length > 0) pushLog(`💎 携带跨轮记忆坐标 ${memCoords.length} 个`);
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, { teams: f.gemGatherTeams, teamPage: f.gemGatherTeamPage, searchWeights: f.gemSearchWeights, maxDistance: f.gemGatherMaxDistance, collectedCoords: memCoords });
+              const gemParams = useShared
+                ? { accountId: currentAccountId, teams: f.gemGatherTeams, teamPage: f.gemGatherTeamPage }
+                : { teams: f.gemGatherTeams, teamPage: f.gemGatherTeamPage, searchWeights: f.gemSearchWeights, maxDistance: f.gemGatherMaxDistance, collectedCoords: memCoords };
+              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, gemParams);
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1753,8 +1762,10 @@ export function HomePage() {
                 runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
                 setRunningTaskIds([...runningTaskIdsRef.current]);
                 const logs = runResult.task?.logs ?? [];
-                const added = recordGemCoordsFromLogs(currentAccountId, logs);
-                if (added > 0) pushLog(`💎 记忆新增 ${added} 个坐标（共 ${getFreshGemCoords(currentAccountId).length}）`);
+                if (!useShared) {
+                  const added = recordGemCoordsFromLogs(currentAccountId, logs);
+                  if (added > 0) pushLog(`💎 记忆新增 ${added} 个坐标（共 ${getFreshGemCoords(currentAccountId).length}）`);
+                }
                 const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
                 if (hasExpiredLog) {
                   pushLog(`⛔ 许可证已到期，停止运行`);
@@ -1762,8 +1773,14 @@ export function HomePage() {
                   setExpiredMessage('激活码已到期，请重新激活');
                   refreshStatus();
                 } else {
-                  pushLog(`💎 宝石采集(${isFocus ? '驻扎' : '普通'})完成`);
-                  markRoundDone('gem');
+                  if (useShared) {
+                    const isEmpty = logs.some((l: string) => l.includes('采集分享矿:') && l.includes('→ empty'));
+                    pushLog(isEmpty ? `💎 分享矿池空，本轮跳过` : `💎 采集分享矿完成`);
+                    markRoundDone('gem');
+                  } else {
+                    pushLog(`💎 宝石采集(${isFocus ? '驻扎' : '普通'})完成`);
+                    markRoundDone('gem');
+                  }
                 }
               }
             } catch {} finally { releaseLock(); }
