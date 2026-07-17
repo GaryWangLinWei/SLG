@@ -391,6 +391,7 @@ export function HomePage() {
         if (!isTeamPageChoice(merged.resourceGatherTeamPage)) merged.resourceGatherTeamPage = DEFAULT_FEATURES.resourceGatherTeamPage;
         if (!isTeamPageChoice(merged.gemGatherTeamPage)) merged.gemGatherTeamPage = DEFAULT_FEATURES.gemGatherTeamPage;
         if (typeof merged.rallyFortDowngrade !== 'boolean') merged.rallyFortDowngrade = DEFAULT_FEATURES.rallyFortDowngrade;
+        if (typeof merged.rallyFortUsePotion !== 'boolean') merged.rallyFortUsePotion = DEFAULT_FEATURES.rallyFortUsePotion;
         if (!Number.isFinite(Number(merged.collectResourcesIntervalMinutes))) merged.collectResourcesIntervalMinutes = DEFAULT_COLLECT_RESOURCES_INTERVAL_MINUTES;
         merged.collectResourcesIntervalMinutes = Math.max(MIN_COLLECT_RESOURCES_INTERVAL_MINUTES, Number(merged.collectResourcesIntervalMinutes));
         if (!Number.isFinite(Number(merged.autoReconnectIntervalMinutes))) merged.autoReconnectIntervalMinutes = DEFAULT_AUTO_RECONNECT_INTERVAL_MINUTES;
@@ -406,7 +407,7 @@ export function HomePage() {
 
   const [features, setFeatures] = useState(loadFeatures);
   const [showExtraGatherSlots, setShowExtraGatherSlots] = useState(false);
-  const [showGemSearchWeights, setShowGemSearchWeights] = useState(true);
+  const [showGemAdvanced, setShowGemAdvanced] = useState(false);
   const featuresRef = useRef(features);
   featuresRef.current = features;
   const activeConfigNameRef = useRef(activeConfigName);
@@ -832,7 +833,7 @@ export function HomePage() {
     const sleep = async (s: number) => new Promise(r => setTimeout(r, s * 1000));
 
     const acquireLock = async (): Promise<boolean> => {
-      while ((deviceBusy || attackPreempt) && !isStopped()) { await sleep(0.3); }
+      while ((deviceBusy || attackPreempt || pendingAccountSwitch) && !isStopped()) { await sleep(0.3); }
       if (isStopped()) return false;
       deviceBusy = true;
       return true;
@@ -841,6 +842,8 @@ export function HomePage() {
 
     // per-round 切号：本轮已完成一次的 source 集合；集齐所有勾选的 source 才触发切号
     const roundActionsDone = new Set<string>();
+    // fort-mode 切号：本轮内是否至少一次 rally-fort/join-rally 成功
+    let fortSuccessThisRound = false;
     const computeExpectedActions = (): Set<string> => {
       const f = featuresRef.current;
       const exp = new Set<string>();
@@ -860,7 +863,7 @@ export function HomePage() {
     };
 
     // 子循环执行完一个 action 后调用；根据 switchMode 触发切号 flag
-    // source: 参与 per-round 的动作标识；isSuccess 仅 fort-mode 用
+    // source: 参与 per-round / fort-mode 的动作标识；isSuccess 仅 fort-mode 用
     const markRoundDone = (source: string = 'other', isSuccess: boolean = false) => {
       const feat = featuresRef.current;
       if (!feat.autoSwitchAccount || isFeatureLocked('autoSwitchAccount')) return;
@@ -876,10 +879,24 @@ export function HomePage() {
           pushLog(`⏳ 轮次进度 ${expected.size - missing.length}/${expected.size}，等待 [${missing.join(',')}]`);
         }
       } else if (feat.switchMode === 'fort-mode') {
+        // 累计寨子/集结成功旗
         if ((source === 'rally-fort' || source === 'join-rally') && isSuccess) {
-          pendingAccountSwitch = true;
-          // 成功后重排兜底定时器
-          scheduleFortModeFallback();
+          fortSuccessThisRound = true;
+        }
+        // 本轮所有 expected action 跑完再看是否切号
+        roundActionsDone.add(source);
+        const expected = computeExpectedActions();
+        const missing = [...expected].filter(s => !roundActionsDone.has(s));
+        if (expected.size > 0 && missing.length === 0) {
+          if (fortSuccessThisRound) {
+            pushLog(`🔁 寨子模式：本轮完成且有 rally-fort/join-rally 成功，触发切号`);
+            pendingAccountSwitch = true;
+            scheduleFortModeFallback();
+          } else {
+            pushLog(`⏳ 寨子模式：本轮完成但无成功，继续下一轮`);
+          }
+          roundActionsDone.clear();
+          fortSuccessThisRound = false;
         }
       }
     };
@@ -1147,6 +1164,7 @@ export function HomePage() {
                 }
                 resetAllCooldowns();
                 roundActionsDone.clear();  // 新账号从零开始累计
+                fortSuccessThisRound = false;
                 scheduleSwitchTimer();  // 按新账号的时长重排定时器
                 scheduleFortModeFallback();  // 重置寨子模式兜底计时
                 // 顺序不变，下次切换目标 = validIds 中不等于新 active 的位置
@@ -1177,7 +1195,7 @@ export function HomePage() {
             await ensureGameRunning();
             let cd = 600; // 默认 CD，实际根据结果确定
             try {
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'rally-fort', { level: featuresRef.current.rallyFortLevel, team: featuresRef.current.rallyFortTeam, downgrade: featuresRef.current.rallyFortDowngrade, teamPage: featuresRef.current.rallyFortTeamPage });
+              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'rally-fort', { level: featuresRef.current.rallyFortLevel, team: featuresRef.current.rallyFortTeam, downgrade: featuresRef.current.rallyFortDowngrade, teamPage: featuresRef.current.rallyFortTeamPage, usePotion: featuresRef.current.rallyFortUsePotion, troopType: featuresRef.current.rallyFortTroopType });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1255,6 +1273,8 @@ export function HomePage() {
                 targetLohar: featuresRef.current.joinRallyTargetLohar,
                 maxDistance: featuresRef.current.joinRallyMaxDistance,
                 firstRun,
+                usePotion: featuresRef.current.joinRallyUsePotion,
+                useDefaultTeam: featuresRef.current.joinRallyUseDefaultTeam,
               });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
@@ -1446,7 +1466,8 @@ export function HomePage() {
 
           const startWait = monotonicNow();
           const waitSeq = cooldownResetSeq;
-          while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < 60_000) {
+          const shareGemCd = 60_000 + Math.floor(Math.random() * 60_000); // 60~120s
+          while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < shareGemCd) {
             await sleep(1);
           }
         }
@@ -1895,25 +1916,7 @@ export function HomePage() {
             const cdJitter = cd * (0.85 + Math.random() * 0.3);
             pushLog(`📢 一轮喊话完成，${cdJitter.toFixed(0)} 秒后开始下一轮`);
 
-            const cdStartWait = monotonicNow();
-            const dragSafety = 5;
-            const dragWindow = cdJitter - dragSafety;
-            if (dragWindow > 20 && Math.random() < 0.05) {
-              const dragDelay = 5 + Math.random() * (dragWindow * 0.7);
-              while (!isStopped() && (monotonicNow() - cdStartWait) < dragDelay * 1000) {
-                await sleep(1);
-              }
-              if (!isStopped()) {
-                if (await acquireLock()) {
-                  try { if (!offlineActive) await runTask('idle-drag'); } catch {} finally { releaseLock(); }
-                }
-              }
-              while (!isStopped() && (monotonicNow() - cdStartWait) < cdJitter * 1000) {
-                await sleep(1);
-              }
-            } else {
-              await sleep(cdJitter);
-            }
+            await sleep(cdJitter);
           }
           if (isStopped()) break;
           continue;
@@ -2064,28 +2067,10 @@ export function HomePage() {
           markRoundDone('main');
         }
 
-        // 等待期间随机拖拽
-        const dragSafetyMargin = 5;
-        const dragWindow = nextWake - dragSafetyMargin;
-        if (dragWindow > 120 && Math.random() < 0.4) {
-          const dragDelay = 5 + Math.random() * (dragWindow * 0.7);
-          const startWait = monotonicNow();
-          while (!isStopped() && (monotonicNow() - startWait) < dragDelay * 1000) {
-            await sleep(1);
-          }
-          if (!isStopped()) {
-            if (await acquireLock()) {
-              try { if (!offlineActive) await runTask('idle-drag'); } catch {} finally { releaseLock(); }
-            }
-          }
-          while (!isStopped() && (monotonicNow() - startWait) < nextWake * 1000) {
-            await sleep(1);
-          }
-        } else {
-          const startWait = monotonicNow();
-          while (!isStopped() && (monotonicNow() - startWait) < nextWake * 1000) {
-            await sleep(1);
-          }
+        // 等待期间
+        const startWait = monotonicNow();
+        while (!isStopped() && (monotonicNow() - startWait) < nextWake * 1000) {
+          await sleep(1);
         }
       }
       await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, exploreLoop, caveLoop, produceMaterialLoop, offlineLoop, attackLoop, accountSwitchLoop, shareGemLoop]);
@@ -2441,113 +2426,167 @@ export function HomePage() {
                 </label>
                 )}
               </div>
-              <div className="flex items-center gap-2 mt-2">
-                <span className="text-xs text-slate-400 whitespace-nowrap">派遣</span>
-                {[1,2,3,4,5,6,7].map(teamNum => (
-                  <label key={teamNum} className="flex items-center gap-1 cursor-pointer">
-                    <input type="checkbox"
-                      checked={features.gemGatherTeams.includes(teamNum)}
-                      disabled={features.autoWorldChat || !features.gemGatherEnabled || isFeatureLocked('gemGather')}
-                      onChange={(e) => {
-                        const next = e.target.checked
-                          ? [...features.gemGatherTeams, teamNum].sort((a, b) => a - b)
-                          : features.gemGatherTeams.filter((t: number) => t !== teamNum);
-                        setFeatures({ ...features, gemGatherTeams: next.length === 0 ? [teamNum] : next });
-                      }}
-                      className="sr-only" />
-                    <span className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-semibold border ${features.gemGatherTeams.includes(teamNum) ? 'bg-emerald-100 border-emerald-300 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-400'} ${!features.gemGatherEnabled ? 'opacity-50' : ''}`}>
-                      {teamNum}
-                    </span>
-                  </label>
-                ))}
-                <span className="text-xs text-slate-400 whitespace-nowrap">队伍</span>
+              {/* ── 基础配置 ── */}
+              <div className="mt-3 mb-1 text-[11px] font-bold tracking-wider text-slate-400 uppercase flex items-center gap-1.5">
+                <span className="w-1 h-1 rounded-full bg-emerald-400" />
+                基础配置
               </div>
-              <div className="flex items-center gap-2 mt-2">
-                <span className="text-xs text-slate-400 whitespace-nowrap">模式</span>
-                <span className="text-xs text-slate-500 whitespace-nowrap">普通</span>
-                {(() => {
-                  const ratio = features.gemGatherMixRatio ?? 0.5;
-                  const disabled = !features.gemGatherEnabled || isFeatureLocked('gemGather') || features.autoWorldChat;
-                  return (
-                    <div className={`slider-capsule flex-1 max-w-[160px] ${disabled ? 'is-disabled opacity-60' : ''}`}>
-                      <div className="track" />
-                      <div className="fill" style={{ width: `${ratio * 100}%` }} />
-                      <input type="range" min={0} max={1} step={0.1}
-                        value={ratio}
-                        disabled={disabled}
+
+              {/* 派遣队伍 */}
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-xs text-slate-500 whitespace-nowrap">派遣队伍</span>
+                <div className="flex items-center gap-1">
+                  {[1,2,3,4,5,6,7].map(teamNum => (
+                    <label key={teamNum} className="flex items-center gap-1 cursor-pointer">
+                      <input type="checkbox"
+                        checked={features.gemGatherTeams.includes(teamNum)}
+                        disabled={features.autoWorldChat || !features.gemGatherEnabled || isFeatureLocked('gemGather')}
                         onChange={(e) => {
-                          const r = Math.min(1, Math.max(0, Number(e.target.value)));
-                          const mode = r === 0 ? 'normal' : r === 1 ? 'focus' : 'mixed';
-                          setFeatures({ ...features, gemGatherMixRatio: r, gemGatherMode: mode });
-                        }} />
-                    </div>
-                  );
-                })()}
-                <span className="text-xs text-slate-500 whitespace-nowrap">驻扎</span>
-                <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full w-12 text-center tabular-nums">{Math.round((features.gemGatherMixRatio ?? 0.5) * 100)}%</span>
-                <span className="text-xs text-slate-400 whitespace-nowrap ml-auto">队伍页</span>
+                          const next = e.target.checked
+                            ? [...features.gemGatherTeams, teamNum].sort((a, b) => a - b)
+                            : features.gemGatherTeams.filter((t: number) => t !== teamNum);
+                          setFeatures({ ...features, gemGatherTeams: next.length === 0 ? [teamNum] : next });
+                        }}
+                        className="sr-only" />
+                      <span className={`w-6 h-6 rounded-md flex items-center justify-center text-xs font-semibold border ${features.gemGatherTeams.includes(teamNum) ? 'bg-emerald-100 border-emerald-300 text-emerald-700' : 'bg-slate-100 border-slate-200 text-slate-400'} ${!features.gemGatherEnabled ? 'opacity-50' : ''}`}>
+                        {teamNum}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+
+              {/* 队伍页 */}
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-xs text-slate-500 whitespace-nowrap">队伍页</span>
                 {renderTeamPageSelect(features.gemGatherTeamPage, (v) => setFeatures({ ...features, gemGatherTeamPage: v }), features.autoWorldChat || !features.gemGatherEnabled || isFeatureLocked('gemGather'))}
               </div>
-              <div className="flex items-center gap-2 mt-2">
-                <span className="text-xs text-slate-400 whitespace-nowrap">采集</span>
-                <input type="number" value={features.gemGatherActiveHours ?? 3}
-                  onChange={(e) => setFeatures({ ...features, gemGatherActiveHours: Number(e.target.value) })}
-                  disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
-                  min={1} max={24}
-                  className="w-12 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
-                <span className="text-xs text-slate-400">小时，休息</span>
-                <input type="number" value={features.gemGatherRestHours ?? 1}
-                  onChange={(e) => setFeatures({ ...features, gemGatherRestHours: Number(e.target.value) })}
-                  disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
-                  min={1} max={24}
-                  className="w-12 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
-                <span className="text-xs text-slate-400">小时</span>
+
+              {/* 模式 */}
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-xs text-slate-500 whitespace-nowrap">模式</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500 whitespace-nowrap">普通</span>
+                  {(() => {
+                    const ratio = features.gemGatherMixRatio ?? 0.5;
+                    const disabled = !features.gemGatherEnabled || isFeatureLocked('gemGather') || features.autoWorldChat;
+                    return (
+                      <div className={`slider-capsule w-[128px] ${disabled ? 'is-disabled opacity-60' : ''}`}>
+                        <div className="track" />
+                        <div className="fill" style={{ width: `${ratio * 100}%` }} />
+                        <input type="range" min={0} max={1} step={0.1}
+                          value={ratio}
+                          disabled={disabled}
+                          onChange={(e) => {
+                            const r = Math.min(1, Math.max(0, Number(e.target.value)));
+                            const mode = r === 0 ? 'normal' : r === 1 ? 'focus' : 'mixed';
+                            setFeatures({ ...features, gemGatherMixRatio: r, gemGatherMode: mode });
+                          }} />
+                      </div>
+                    );
+                  })()}
+                  <span className="text-xs text-slate-500 whitespace-nowrap">驻扎</span>
+                </div>
               </div>
-              <div className="flex items-center gap-2 mt-2">
-                <span className="text-xs text-slate-400 whitespace-nowrap">最大采集距离</span>
-                <input type="number" value={features.gemGatherMaxDistance ?? 100}
-                  onChange={(e) => setFeatures({ ...features, gemGatherMaxDistance: Number(e.target.value) })}
-                  disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
-                  min={1} max={9999}
-                  className="w-16 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
-                <span className="text-xs text-slate-400">公里</span>
+
+              {/* 运行节奏 */}
+              <div className="flex items-center justify-between mt-2">
+                <span className="text-xs text-slate-500 whitespace-nowrap">运行节奏</span>
+                <div className="flex items-center gap-1">
+                  <span className="text-xs text-slate-400">采集</span>
+                  <input type="number" value={features.gemGatherActiveHours ?? 3}
+                    onChange={(e) => setFeatures({ ...features, gemGatherActiveHours: Number(e.target.value) })}
+                    disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
+                    min={1} max={24}
+                    className="w-12 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
+                  <span className="text-xs text-slate-400">h，休息</span>
+                  <input type="number" value={features.gemGatherRestHours ?? 1}
+                    onChange={(e) => setFeatures({ ...features, gemGatherRestHours: Number(e.target.value) })}
+                    disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
+                    min={1} max={24}
+                    className="w-12 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
+                  <span className="text-xs text-slate-400">h</span>
+                </div>
               </div>
-              <div className="mt-2">
-                <button type="button"
-                  onClick={() => setShowGemSearchWeights(v => !v)}
-                  className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-700 transition-colors">
-                  <span>搜索路径权重</span>
-                  <span className={`transition-transform ${showGemSearchWeights ? 'rotate-180' : ''}`}>▼</span>
-                </button>
-                {showGemSearchWeights && (() => {
-                  const w = features.gemSearchWeights ?? { spiral: 40, reverseSpiral: 40, randomWalk: 10, snake: 10 };
-                  const total = w.spiral + w.reverseSpiral + w.randomWalk + w.snake;
-                  const rows: Array<Array<readonly [keyof typeof w, string]>> = [
-                    [['spiral', '螺旋'], ['reverseSpiral', '反螺旋']],
-                    [['randomWalk', '随机'], ['snake', '蛇形']],
-                  ];
-                  const renderCell = (key: keyof typeof w, label: string) => (
-                    <label key={String(key)} className="flex items-center gap-1">
-                      <span className="text-xs text-slate-500 w-12">{label}</span>
-                      <input type="number" min={0} max={100} value={w[key]}
+
+              {/* ── 高级策略（可折叠） ── */}
+              <button type="button"
+                onClick={() => setShowGemAdvanced(v => !v)}
+                className="mt-4 mb-1 w-full flex items-center justify-between text-[11px] font-bold tracking-wider text-slate-400 uppercase hover:text-slate-500 transition-colors">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1 h-1 rounded-full bg-cyan-400" />
+                  高级策略
+                </span>
+                <span className={`transition-transform ${showGemAdvanced ? 'rotate-180' : ''}`}>▼</span>
+              </button>
+
+              {showGemAdvanced && (
+                <>
+                  <div className="flex items-center gap-3 mt-2">
+                    <label className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition-colors ${
+                      features.gemGatherSharedOnly
+                        ? 'bg-amber-50 text-amber-700'
+                        : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+                    } ${(!features.gemGatherEnabled || isFeatureLocked('gemGather')) ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                      <input type="checkbox"
+                        checked={features.gemGatherSharedOnly}
+                        onChange={(e) => setFeatures({ ...features, gemGatherSharedOnly: e.target.checked })}
                         disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
-                        onChange={(e) => setFeatures({ ...features, gemSearchWeights: { ...w, [key]: Math.max(0, Number(e.target.value) || 0) } })}
-                        className="w-12 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
+                        className="sr-only peer" />
+                      <span className={`w-[18px] h-[18px] rounded-[5px] border-2 flex items-center justify-center text-[11px] ${
+                        features.gemGatherSharedOnly ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-slate-300 text-transparent'
+                      }`}>✓</span>
+                      采集分享矿
                     </label>
-                  );
-                  return (
-                    <div className="mt-1.5 flex flex-col gap-1 w-fit">
-                      <div className="flex items-center gap-4">
-                        {rows[0].map(([k, l]) => renderCell(k, l))}
-                      </div>
-                      <div className="flex items-center gap-4">
-                        {rows[1].map(([k, l]) => renderCell(k, l))}
-                        <span className={`text-xs tabular-nums ml-2 ${total === 0 ? 'text-red-500' : 'text-slate-400'}`}>合计 {total}</span>
-                      </div>
+                  </div>
+
+                  {/* 最大采集距离 */}
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="text-xs text-slate-500 whitespace-nowrap">最大采集距离</span>
+                    <div className="flex items-center gap-1">
+                      <input type="number" value={features.gemGatherMaxDistance ?? 100}
+                        onChange={(e) => setFeatures({ ...features, gemGatherMaxDistance: Number(e.target.value) })}
+                        disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
+                        min={1} max={9999}
+                        className="w-16 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
+                      <span className="text-xs text-slate-400">公里</span>
                     </div>
-                  );
-                })()}
-              </div>
+                  </div>
+
+                  {/* 搜索路径权重 */}
+                  <div className="mt-2">
+                    <div className="text-xs text-slate-500">搜索路径权重</div>
+                    {(() => {
+                      const w = features.gemSearchWeights ?? { spiral: 40, reverseSpiral: 40, randomWalk: 10, snake: 10 };
+                      const total = w.spiral + w.reverseSpiral + w.randomWalk + w.snake;
+                      const rows: Array<Array<readonly [keyof typeof w, string]>> = [
+                        [['spiral', '螺旋'], ['reverseSpiral', '反螺旋']],
+                        [['randomWalk', '随机'], ['snake', '蛇形']],
+                      ];
+                      const renderCell = (key: keyof typeof w, label: string) => (
+                        <label key={String(key)} className="flex items-center gap-1">
+                          <span className="text-xs text-slate-500 w-12">{label}</span>
+                          <input type="number" min={0} max={100} value={w[key]}
+                            disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
+                            onChange={(e) => setFeatures({ ...features, gemSearchWeights: { ...w, [key]: Math.max(0, Number(e.target.value) || 0) } })}
+                            className="w-12 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
+                        </label>
+                      );
+                      return (
+                        <div className="mt-1.5 flex flex-col gap-1 w-fit">
+                          <div className="flex items-center gap-4">
+                            {rows[0].map(([k, l]) => renderCell(k, l))}
+                          </div>
+                          <div className="flex items-center gap-4">
+                            {rows[1].map(([k, l]) => renderCell(k, l))}
+                            <span className={`text-xs tabular-nums ml-2 ${total === 0 ? 'text-red-500' : 'text-slate-400'}`}>合计 {total}</span>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </>
+              )}
               {gemRestCountdown && (
                 <p className="text-xs text-amber-600 mt-1">💤 休息中 剩余 {gemRestCountdown}</p>
               )}
@@ -2651,78 +2690,41 @@ export function HomePage() {
               </div>
             </div>
 
-            {/* 分享宝石矿 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : isFeatureLocked('shareGem') ? 'bg-amber-50/60 border-amber-300 border-dashed' : features.shareGemEnabled ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
-              {isFeatureLocked('shareGem') && (
-                <div className="absolute -top-1.5 right-3 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-md shadow-amber-200 flex items-center gap-1"
-                  title="升级到 Pro 解锁">
-                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.957a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.37 2.448a1 1 0 00-.364 1.118l1.287 3.957c.3.921-.755 1.688-1.54 1.118l-3.37-2.448a1 1 0 00-1.176 0l-3.37 2.448c-.784.57-1.838-.197-1.539-1.118l1.287-3.957a1 1 0 00-.364-1.118L2.063 9.384c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.957z" /></svg>
-                  PRO
-                </div>
-              )}
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800">
-                  <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-base ${isFeatureLocked('shareGem') ? 'bg-amber-100' : 'bg-cyan-100'}`}>💎</span>
-                  分享宝石矿
-                </span>
-                {isFeatureLocked('shareGem') ? (
-                  <span className="relative w-10 h-[22px] flex-shrink-0 cursor-not-allowed" title="升级到 Pro 解锁">
+            {/* 分享宝石矿（暂时隐藏，待上线）
+            <div className="flex flex-col gap-0 p-4 rounded-lg border border-slate-200 bg-slate-50 relative overflow-hidden">
+              <div className="pointer-events-none select-none blur-[2px] opacity-70">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2 font-semibold text-sm text-slate-800">
+                    <span className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center text-base">💎</span>
+                    分享宝石矿
+                  </span>
+                  <span className="relative w-10 h-[22px] flex-shrink-0">
                     <span className="absolute inset-0 rounded-full bg-slate-200" />
                     <span className="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm" />
                   </span>
-                ) : (
-                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.shareGemEnabled} disabled={features.autoWorldChat}
-                    onChange={(e) => setFeatures({ ...features, shareGemEnabled: e.target.checked })}
-                    className="sr-only" />
-                  <span className={`absolute inset-0 rounded-full transition-colors ${features.shareGemEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
-                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.shareGemEnabled ? 'translate-x-[18px]' : ''}`} />
-                </label>
-                )}
+                </div>
+                <div className="flex items-center gap-3 mt-2 text-xs">
+                  <label className="flex items-center gap-1.5 text-slate-600">
+                    起点 X
+                    <input type="number" value={features.shareGemStartX} disabled className="w-20 px-2 py-1 bg-white border border-slate-200 rounded" readOnly />
+                  </label>
+                  <label className="flex items-center gap-1.5 text-slate-600">
+                    起点 Y
+                    <input type="number" value={features.shareGemStartY} disabled className="w-20 px-2 py-1 bg-white border border-slate-200 rounded" readOnly />
+                  </label>
+                  <span className="text-slate-400">(0,0 = 原地开始)</span>
+                </div>
               </div>
-              <div className="flex items-center gap-3 mt-2 text-xs">
-                <label className="flex items-center gap-1.5 text-slate-600">
-                  起点 X
-                  <input type="number"
-                    value={features.shareGemStartX}
-                    disabled={features.autoWorldChat || !features.shareGemEnabled || isFeatureLocked('shareGem')}
-                    onChange={(e) => setFeatures({ ...features, shareGemStartX: Number(e.target.value) || 0 })}
-                    className="w-20 px-2 py-1 bg-white border border-slate-200 rounded disabled:opacity-50" />
-                </label>
-                <label className="flex items-center gap-1.5 text-slate-600">
-                  起点 Y
-                  <input type="number"
-                    value={features.shareGemStartY}
-                    disabled={features.autoWorldChat || !features.shareGemEnabled || isFeatureLocked('shareGem')}
-                    onChange={(e) => setFeatures({ ...features, shareGemStartY: Number(e.target.value) || 0 })}
-                    className="w-20 px-2 py-1 bg-white border border-slate-200 rounded disabled:opacity-50" />
-                </label>
-                <span className="text-slate-400">(0,0 = 原地开始)</span>
+              <div className="absolute inset-0 flex items-center justify-center bg-white/30">
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/90 border border-slate-200 shadow-sm">
+                  <svg className="w-4 h-4 text-slate-500" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2h.5a1.5 1.5 0 011.5 1.5v7A1.5 1.5 0 0115.5 19h-11A1.5 1.5 0 013 17.5v-7A1.5 1.5 0 014.5 9H5zm2-2a3 3 0 116 0v2H7V7z" clipRule="evenodd" />
+                  </svg>
+                  <span className="text-xs font-semibold text-slate-600">敬请期待</span>
+                </div>
               </div>
             </div>
-
-            {/* 采集分享的宝石矿 — 敬请期待 */}
-            <div className="flex flex-col gap-0 p-4 rounded-lg border border-dashed border-slate-200 bg-slate-100 relative overflow-hidden">
-              <div className="absolute -top-1.5 right-3 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-md shadow-amber-200 flex items-center gap-1 z-20"
-                title="升级到 Pro 解锁">
-                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.957a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.37 2.448a1 1 0 00-.364 1.118l1.287 3.957c.3.921-.755 1.688-1.54 1.118l-3.37-2.448a1 1 0 00-1.176 0l-3.37 2.448c-.784.57-1.838-.197-1.539-1.118l1.287-3.957a1 1 0 00-.364-1.118L2.063 9.384c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.957z" /></svg>
-                PRO
-              </div>
-              <div className="absolute inset-0 bg-slate-100/60 backdrop-blur-[1px] rounded-lg flex items-center justify-center z-10">
-                <span className="bg-white border border-slate-200 px-3 py-1.5 rounded-full text-xs text-slate-500 font-semibold shadow-sm flex items-center gap-1.5">🔒 敬请期待</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 font-semibold text-sm text-slate-400">
-                  <span className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center text-base opacity-50">💎</span>
-                  采集分享的宝石矿
-                </span>
-                <label className="relative w-10 h-[22px] flex-shrink-0">
-                  <span className="absolute inset-0 rounded-full bg-slate-200" />
-                  <span className="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm" />
-                </label>
-              </div>
-              <p className="text-xs text-slate-400 mt-1.5">自动采集主号分享给你的宝石矿</p>
-            </div>
+            */}
 
             {/* 自动攻打城寨 */}
             <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : features.autoRallyFort ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
@@ -2756,26 +2758,55 @@ export function HomePage() {
                   </select>
                   <span className="text-xs text-slate-400 whitespace-nowrap">队伍</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-500 w-16" title="当搜索不到对应等级的城寨后，降级搜索。">降级搜索</span>
-                  <label className={`relative inline-flex items-center ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
-                    title="当搜索不到对应等级的城寨后，降级搜索。">
-                    <input type="checkbox" checked={features.rallyFortDowngrade}
-                      disabled={features.autoWorldChat}
-                      onChange={(e) => setFeatures({ ...features, rallyFortDowngrade: e.target.checked })}
-                      className="sr-only peer" />
-                    <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${features.rallyFortDowngrade ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
-                      {features.rallyFortDowngrade && (
-                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
-                    </span>
-                  </label>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500 whitespace-nowrap" title="当搜索不到对应等级的城寨后，降级搜索。">降级搜索</span>
+                    <label className={`relative inline-flex items-center ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
+                      title="当搜索不到对应等级的城寨后，降级搜索。">
+                      <input type="checkbox" checked={features.rallyFortDowngrade}
+                        disabled={features.autoWorldChat}
+                        onChange={(e) => setFeatures({ ...features, rallyFortDowngrade: e.target.checked })}
+                        className="sr-only peer" />
+                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${features.rallyFortDowngrade ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
+                        {features.rallyFortDowngrade && (
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </span>
+                    </label>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500 whitespace-nowrap" title="体力不足时自动使用体力药水补充；未勾选则跳过本轮等 75 分钟">体力不足使用药水</span>
+                    <label className={`relative inline-flex items-center ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
+                      title="体力不足时自动使用体力药水补充；未勾选则跳过本轮等 75 分钟">
+                      <input type="checkbox" checked={features.rallyFortUsePotion}
+                        disabled={features.autoWorldChat}
+                        onChange={(e) => setFeatures({ ...features, rallyFortUsePotion: e.target.checked })}
+                        className="sr-only peer" />
+                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${features.rallyFortUsePotion ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
+                        {features.rallyFortUsePotion && (
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </span>
+                    </label>
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-400 whitespace-nowrap">队伍页</span>
                   {renderTeamPageSelect(features.rallyFortTeamPage, (v) => setFeatures({ ...features, rallyFortTeamPage: v }), features.autoWorldChat)}
+                  <span className="text-xs text-slate-400 whitespace-nowrap ml-2">部队推荐</span>
+                  <select value={features.rallyFortTroopType}
+                    disabled={features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, rallyFortTroopType: e.target.value as any })}
+                    className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-20">
+                    <option value="any">不限制</option>
+                    <option value="infantry">步兵</option>
+                    <option value="cavalry">骑兵</option>
+                    <option value="archer">弓兵</option>
+                  </select>
                 </div>
               </div>
 
@@ -2818,12 +2849,26 @@ export function HomePage() {
                 )}
               </div>
               <div className={`mt-3 space-y-2 ${features.joinRallyEnabled && !isFeatureLocked('joinRally') ? '' : 'opacity-50 pointer-events-none'}`}>
+                <label className="flex items-center gap-1.5 cursor-pointer">
+                  <input type="checkbox" checked={features.joinRallyUseDefaultTeam}
+                    onChange={(e) => setFeatures({ ...features, joinRallyUseDefaultTeam: e.target.checked })}
+                    className="sr-only peer" />
+                  <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${features.joinRallyUseDefaultTeam ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
+                    {features.joinRallyUseDefaultTeam && (
+                      <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                      </svg>
+                    )}
+                  </span>
+                  <span className="text-xs text-slate-600">使用系统编队</span>
+                </label>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-500 w-12">派遣第</span>
                   <select
                     value={features.joinRallyTeam}
                     onChange={(e) => setFeatures({ ...features, joinRallyTeam: Number(e.target.value) })}
-                    className="px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 focus:outline-none focus:border-emerald-500"
+                    disabled={features.joinRallyUseDefaultTeam}
+                    className={`px-2 py-1 bg-white border border-slate-200 rounded text-xs text-slate-700 focus:outline-none focus:border-emerald-500 ${features.joinRallyUseDefaultTeam ? 'opacity-50 cursor-not-allowed' : ''}`}
                     style={{ width: '50px' }}>
                     {[1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n}</option>)}
                   </select>
@@ -2832,7 +2877,7 @@ export function HomePage() {
                   {renderTeamPageSelect(
                     features.joinRallyTeamPage,
                     (v) => setFeatures({ ...features, joinRallyTeamPage: v }),
-                    !features.joinRallyEnabled
+                    !features.joinRallyEnabled || features.joinRallyUseDefaultTeam
                   )}
                 </div>
                 <div className="flex items-center gap-2">
@@ -2842,8 +2887,8 @@ export function HomePage() {
                       className={`flex items-center gap-1.5 ${!features.joinRallyEnabled ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
                       onClick={() => features.joinRallyEnabled && setFeatures({ ...features, joinRallyTargetFort: !features.joinRallyTargetFort })}
                     >
-                      <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${features.joinRallyTargetFort ? 'bg-orange-500 border-orange-600' : 'bg-white border-slate-300'}`}>
-                        {features.joinRallyTargetFort && <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
+                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${features.joinRallyTargetFort ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
+                        {features.joinRallyTargetFort && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                       </span>
                       <span className="text-xs text-slate-600">城寨</span>
                     </label>
@@ -2851,10 +2896,25 @@ export function HomePage() {
                       className={`flex items-center gap-1.5 ${!features.joinRallyEnabled ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
                       onClick={() => features.joinRallyEnabled && setFeatures({ ...features, joinRallyTargetLohar: !features.joinRallyTargetLohar })}
                     >
-                      <span className={`w-4 h-4 rounded border flex items-center justify-center flex-shrink-0 ${features.joinRallyTargetLohar ? 'bg-orange-500 border-orange-600' : 'bg-white border-slate-300'}`}>
-                        {features.joinRallyTargetLohar && <svg className="w-3 h-3 text-white" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" /></svg>}
+                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${features.joinRallyTargetLohar ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
+                        {features.joinRallyTargetLohar && <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>}
                       </span>
                       <span className="text-xs text-slate-600">洛哈</span>
+                    </label>
+                    <label className={`flex items-center gap-1.5 ml-2 ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
+                      title="体力不足时自动使用体力药水补充；未勾选则跳过本轮">
+                      <input type="checkbox" checked={features.joinRallyUsePotion}
+                        disabled={features.autoWorldChat}
+                        onChange={(e) => setFeatures({ ...features, joinRallyUsePotion: e.target.checked })}
+                        className="sr-only peer" />
+                      <span className="text-xs text-slate-600 whitespace-nowrap">体力不足使用药水</span>
+                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 transition-colors ${features.joinRallyUsePotion ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
+                        {features.joinRallyUsePotion && (
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </span>
                     </label>
                   </div>
                 </div>
