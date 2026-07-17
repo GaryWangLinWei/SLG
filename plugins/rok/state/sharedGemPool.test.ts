@@ -26,6 +26,20 @@ describe('sharedGemPool', () => {
     expect(sharedGemPool.pop('A')).toBeUndefined();
   });
 
+  test('pop 后 has 返回 false（消耗语义）', () => {
+    sharedGemPool.addUnique('A', { x: 100, y: 200 });
+    expect(sharedGemPool.has('A', { x: 100, y: 200 })).toBe(true);
+    sharedGemPool.pop('A');
+    expect(sharedGemPool.has('A', { x: 100, y: 200 })).toBe(false);
+  });
+
+  test('pop 后可再次 addUnique 同坐标（视为重新分享）', () => {
+    sharedGemPool.addUnique('A', { x: 100, y: 200 });
+    sharedGemPool.pop('A');
+    expect(sharedGemPool.addUnique('A', { x: 100, y: 200 })).toBe(true);
+    expect(sharedGemPool.size('A')).toBe(1);
+  });
+
   test('clearAll / clear', () => {
     sharedGemPool.addUnique('A', { x: 1, y: 2 });
     sharedGemPool.addUnique('B', { x: 3, y: 4 });
