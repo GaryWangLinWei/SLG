@@ -2707,41 +2707,57 @@ export function HomePage() {
               </div>
             </div>
 
-            {/* 分享宝石矿（暂时隐藏，待上线）
-            <div className="flex flex-col gap-0 p-4 rounded-lg border border-slate-200 bg-slate-50 relative overflow-hidden">
-              <div className="pointer-events-none select-none blur-[2px] opacity-70">
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2 font-semibold text-sm text-slate-800">
-                    <span className="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center text-base">💎</span>
-                    分享宝石矿
-                  </span>
-                  <span className="relative w-10 h-[22px] flex-shrink-0">
+            {/* 分享宝石矿 */}
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : isFeatureLocked('shareGem') ? 'bg-amber-50/60 border-amber-300 border-dashed' : features.shareGemEnabled ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+              {isFeatureLocked('shareGem') && (
+                <div className="absolute -top-1.5 right-3 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-md shadow-amber-200 flex items-center gap-1"
+                  title="升级到 Pro 解锁">
+                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.957a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.37 2.448a1 1 0 00-.364 1.118l1.287 3.957c.3.921-.755 1.688-1.54 1.118l-3.37-2.448a1 1 0 00-1.176 0l-3.37 2.448c-.784.57-1.838-.197-1.539-1.118l1.287-3.957a1 1 0 00-.364-1.118L2.063 9.384c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.957z" /></svg>
+                  PRO
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800">
+                  <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-base ${isFeatureLocked('shareGem') ? 'bg-amber-100' : 'bg-cyan-100'}`}>💎</span>
+                  分享宝石矿
+                </span>
+                {isFeatureLocked('shareGem') ? (
+                  <span className="relative w-10 h-[22px] flex-shrink-0 cursor-not-allowed" title="升级到 Pro 解锁">
                     <span className="absolute inset-0 rounded-full bg-slate-200" />
                     <span className="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm" />
                   </span>
-                </div>
-                <div className="flex items-center gap-3 mt-2 text-xs">
-                  <label className="flex items-center gap-1.5 text-slate-600">
-                    起点 X
-                    <input type="number" value={features.shareGemStartX} disabled className="w-20 px-2 py-1 bg-white border border-slate-200 rounded" readOnly />
-                  </label>
-                  <label className="flex items-center gap-1.5 text-slate-600">
-                    起点 Y
-                    <input type="number" value={features.shareGemStartY} disabled className="w-20 px-2 py-1 bg-white border border-slate-200 rounded" readOnly />
-                  </label>
-                  <span className="text-slate-400">(0,0 = 原地开始)</span>
-                </div>
+                ) : (
+                <label className={`relative w-10 h-[22px] flex-shrink-0 ${features.autoWorldChat ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                  <input type="checkbox" checked={features.shareGemEnabled}
+                    disabled={features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, shareGemEnabled: e.target.checked })}
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.shareGemEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.shareGemEnabled ? 'translate-x-[18px]' : ''}`} />
+                </label>
+                )}
               </div>
-              <div className="absolute inset-0 flex items-center justify-center bg-white/30">
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/90 border border-slate-200 shadow-sm">
-                  <svg className="w-4 h-4 text-slate-500" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2h.5a1.5 1.5 0 011.5 1.5v7A1.5 1.5 0 0115.5 19h-11A1.5 1.5 0 013 17.5v-7A1.5 1.5 0 014.5 9H5zm2-2a3 3 0 116 0v2H7V7z" clipRule="evenodd" />
-                  </svg>
-                  <span className="text-xs font-semibold text-slate-600">敬请期待</span>
-                </div>
+              <div className="flex items-center gap-3 mt-2 text-xs">
+                <label className="flex items-center gap-1.5 text-slate-600">
+                  起点 X
+                  <input type="number" value={features.shareGemStartX}
+                    onChange={(e) => setFeatures({ ...features, shareGemStartX: Number(e.target.value) || 0 })}
+                    disabled={!features.shareGemEnabled || features.autoWorldChat || isFeatureLocked('shareGem')}
+                    min={0} max={9999}
+                    className="w-20 px-2 py-1 bg-white border border-slate-200 rounded focus:outline-none focus:border-emerald-500 disabled:opacity-50" />
+                </label>
+                <label className="flex items-center gap-1.5 text-slate-600">
+                  起点 Y
+                  <input type="number" value={features.shareGemStartY}
+                    onChange={(e) => setFeatures({ ...features, shareGemStartY: Number(e.target.value) || 0 })}
+                    disabled={!features.shareGemEnabled || features.autoWorldChat || isFeatureLocked('shareGem')}
+                    min={0} max={9999}
+                    className="w-20 px-2 py-1 bg-white border border-slate-200 rounded focus:outline-none focus:border-emerald-500 disabled:opacity-50" />
+                </label>
+                <span className="text-slate-400">(0,0 = 原地开始)</span>
               </div>
             </div>
-            */}
+
 
             {/* 自动攻打城寨 */}
             <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : features.autoRallyFort ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
