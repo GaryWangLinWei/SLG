@@ -2609,7 +2609,7 @@ export function HomePage() {
                     <span className="text-xs text-slate-500 whitespace-nowrap">滑动后额外等待</span>
                     <div className="flex items-center gap-1">
                       <input type="number" value={features.gemGatherExtraSwipePauseSec ?? 0}
-                        onChange={(e) => setFeatures({ ...features, gemGatherExtraSwipePauseSec: Math.max(0, Number(e.target.value) || 0) })}
+                        onChange={(e) => setFeatures({ ...features, gemGatherExtraSwipePauseSec: Math.min(5, Math.max(0, Number(e.target.value) || 0)) })}
                         disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
                         min={0} max={5} step={0.5}
                         className="w-16 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
