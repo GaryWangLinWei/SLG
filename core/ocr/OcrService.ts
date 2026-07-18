@@ -94,7 +94,7 @@ class OcrService {
   async readDistance(imagePath: string): Promise<string> {
     const digitMatcher = await getDigitMatcher(path.join(getTemplatesDir(), 'digits_distance'));
     if (digitMatcher.hasTemplates()) {
-      const result = await digitMatcher.recognize(imagePath, 0.82);
+      const result = await digitMatcher.recognize(imagePath, 0.75);
       console.log(`[DigitMatcher] 距离识别结果: "${result}"`);
       if (result) return result;
     }

@@ -3,8 +3,12 @@ import * as fs from 'fs';
 import { PluginAction } from '../../../core/plugin';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import { ROK_PACKAGE } from './checkGameRunning';
+import { getCurrentLocation } from '../utils/location';
 
-const ROK_ICON_TEMPLATE = path.join(getTemplatesDir(), 'RokIcon.png');
+const ROK_ICON_TEMPLATES = [
+  path.join(getTemplatesDir(), 'RokIcon.png'),
+  path.join(getTemplatesDir(), 'RokIcon2.png'),
+];
 const DEBUG_DIR = path.join(process.cwd(), 'temp', 'launchGame');
 // 进游戏点击区域（替代固定的屏幕正中心）
 export const TAP_REGION = { x1: 324, y1: 256, x2: 1231, y2: 798 };
@@ -27,11 +31,23 @@ export const launchGame: PluginAction = {
     }
 
     // 0. 先检测游戏进程，已在跑就直接跳过启动流程
-    // 用 `|| echo` 兜底 pidof 未找到时的非零退出码
+    // 双重验证：pidof + ps grep（pidof 有时会返回已死进程的残留 pid，用 ps 兜底核实）
     try {
-      const { stdout } = await ctx.execShell(`"pidof ${ROK_PACKAGE} || echo"`);
-      const pid = stdout.trim();
+      const { stdout: pidStdout } = await ctx.execShell(`"pidof ${ROK_PACKAGE} || echo"`);
+      const pid = pidStdout.trim();
+      let alive = false;
       if (pid.length > 0) {
+        // 用 ps 二次核实该 pid 是否真的在跑 ROK
+        try {
+          const { stdout: psStdout } = await ctx.execShell(`"ps -A -o PID,NAME | grep ${ROK_PACKAGE} || echo"`);
+          alive = psStdout.trim().length > 0 && psStdout.includes(ROK_PACKAGE);
+          ctx.log(`[LAUNCH-GAME] pidof=${pid}, ps 核实=${alive ? '在跑' : '不在'}`);
+        } catch {
+          alive = true; // ps 出错时保守认为在跑（避免误启动）
+          ctx.log(`[LAUNCH-GAME] pidof=${pid}, ps 核实失败，保守视为在跑`);
+        }
+      }
+      if (alive) {
         ctx.log(`[LAUNCH-GAME] 游戏进程已存在 (pid=${pid})，跳过启动`);
         return;
       }
@@ -41,11 +57,18 @@ export const launchGame: PluginAction = {
     }
 
     // 1. 图像识别桌面图标并点击（替代 monkey 启动，更接近真人点桌面图标）
-    ctx.log(`[LAUNCH-GAME] 查找桌面图标 ${path.basename(ROK_ICON_TEMPLATE)}`);
+    ctx.log(`[LAUNCH-GAME] 查找桌面图标 ${ROK_ICON_TEMPLATES.map(p => path.basename(p)).join(', ')}`);
     const matchStart = Date.now();
-    let icon;
+    let icon: { found: boolean; x: number; y: number; confidence: number } = { found: false, x: 0, y: 0, confidence: 0 };
     try {
-      icon = await ctx.findImageWithLocation(ROK_ICON_TEMPLATE, 0.8, [0.9, 1.0, 1.1]);
+      for (const tpl of ROK_ICON_TEMPLATES) {
+        const r = await ctx.findImageWithLocation(tpl, 0.8, [0.9, 1.0, 1.1]);
+        if (r.confidence > icon.confidence) icon = r;
+        if (r.found) {
+          ctx.log(`[LAUNCH-GAME] 命中模板 ${path.basename(tpl)} conf=${r.confidence.toFixed(3)}`);
+          break;
+        }
+      }
     } catch (e) {
       const elapsed = ((Date.now() - matchStart) / 1000).toFixed(1);
       ctx.log(`[LAUNCH-GAME] ❌ 图标识别异常，耗时 ${elapsed}s: ${e instanceof Error ? e.message : String(e)}`);
@@ -99,7 +122,20 @@ export const launchGame: PluginAction = {
     ctx.log(`[LAUNCH-GAME] 点击 (${tx}, ${ty}) 进入游戏`);
     await ctx.tap(tx, ty);
 
-    ctx.log(`[LAUNCH-GAME] 等待 15s 加载完成`);
+    ctx.log(`[LAUNCH-GAME] 等待 15s 加载`);
     await ctx.sleep(15);
+
+    // 3. 轮询城内 landmark 最多 60s，每 2s 一次
+    ctx.log(`[LAUNCH-GAME] 每 2s 轮询进城，最多 60s`);
+    const pollStart = Date.now();
+    while (Date.now() - pollStart < 60_000) {
+      await ctx.sleep(2);
+      const loc = await getCurrentLocation(ctx);
+      if (loc === 'city') {
+        ctx.log(`[LAUNCH-GAME] ✅ 已进入城内`);
+        return;
+      }
+    }
+    ctx.log(`[LAUNCH-GAME] ⚠️ 60s 内未检测到城内，继续`);
   },
 };

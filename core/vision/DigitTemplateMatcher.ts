@@ -173,13 +173,17 @@ export class DigitTemplateMatcher {
 
   /**
    * NMS 非极大值抑制 + 按 x 坐标排序
-   * 坐标数字挨得极近，采用按列聚类策略：同一 x 范围内只留最高分
+   * 坐标数字挨得极近，采用按列聚类策略：同一 x 范围内只留最高分。
+   * 之后从"最高分数字"（锚点）向左右按间距 ≤ maxDigitGap 贪婪连接，
+   * 排除距离远的假匹配（如 "公里" 里被误识别成数字的部件）。
    */
   private nmsAndSort(matches: Match[]): Match[] {
     if (matches.length === 0) return [];
 
-    const minScore = 0.82;
-    const clusterThreshold = 5;  // 5 像素内算同一列
+    const minScore = 0.75;
+    const clusterThreshold = 8;   // 8 像素内算同一列（一个字符宽 ~13-15px，字内假匹配需吸收）
+    const maxDigitGap = 20;       // 相邻数字最大 x 间距（超出视为无关内容）
+    const scoreRatio = 0.85;      // 相邻数字分数不低于锚点 * 该比例，否则视为"公"/"里"等假匹配
 
     // 过滤低分
     const validMatches = matches.filter(m => m.score >= minScore);
@@ -201,15 +205,34 @@ export class DigitTemplateMatcher {
       if (!added) clusters.push([m]);
     }
 
-    // 每类取最高分
-    const result = clusters.map(cluster =>
-      cluster.reduce((best, m) => m.score > best.score ? m : best, cluster[0])
+    // 每类取最高分，按 x 排序
+    const best = clusters.map(cluster =>
+      cluster.reduce((b, m) => m.score > b.score ? m : b, cluster[0])
     );
+    best.sort((a, b) => a.x - b.x);
 
-    // 按 x 从左到右排序
-    result.sort((a, b) => a.x - b.x);
+    if (best.length === 0) return [];
 
-    return result;
+    // 找到锚点：分数最高的簇
+    let anchorIdx = 0;
+    for (let i = 1; i < best.length; i++) {
+      if (best[i].score > best[anchorIdx].score) anchorIdx = i;
+    }
+
+    // 从锚点向右延伸
+    const kept: Match[] = [best[anchorIdx]];
+    const minAdjacentScore = best[anchorIdx].score * scoreRatio;
+    for (let i = anchorIdx + 1; i < best.length; i++) {
+      if (best[i].x - kept[kept.length - 1].x <= maxDigitGap && best[i].score >= minAdjacentScore) kept.push(best[i]);
+      else break;
+    }
+    // 从锚点向左延伸
+    for (let i = anchorIdx - 1; i >= 0; i--) {
+      if (kept[0].x - best[i].x <= maxDigitGap && best[i].score >= minAdjacentScore) kept.unshift(best[i]);
+      else break;
+    }
+
+    return kept;
   }
 
   private calcMean(data: Uint8Array): number {

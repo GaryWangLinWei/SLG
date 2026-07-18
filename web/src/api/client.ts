@@ -13,13 +13,19 @@ class ApiError extends Error {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers
-    },
-    ...options
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...options.headers
+      },
+      ...options
+    });
+  } catch (e) {
+    // Network layer failure (Failed to fetch / ECONNREFUSED) — local backend not reachable
+    throw new ApiError('本地服务未启动或已断开，请重启软件后重试', 0, null);
+  }
 
   const data = await response.json().catch(() => null);
 

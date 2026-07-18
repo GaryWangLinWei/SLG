@@ -91,6 +91,7 @@ export function ConfigPage() {
           setBuildingPositions([]);
         }
         setAccountSwitchName((res.config as any).accountSwitch?.accountName ?? '');
+        accountSwitchNameSyncedRef.current = (res.config as any).accountSwitch?.accountName ?? '';
       }
     } catch (e: any) {
       setMessage(e.message || '切换失败');
@@ -98,6 +99,24 @@ export function ConfigPage() {
   };
 
   useEffect(() => { checkStatus(); loadConfig(); loadProfiles(); }, [checkStatus, loadConfig, loadProfiles]);
+
+  // 账号编号 debounce 保存：输入停顿 600ms 后自动写入，避免用户忘记 blur 就切页面导致丢失
+  const accountSwitchNameSyncedRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!currentAccountId) return;
+    // 首次由 loadConfig 写入 state，跳过；后续变化才 debounce
+    if (accountSwitchNameSyncedRef.current === null) {
+      accountSwitchNameSyncedRef.current = accountSwitchName;
+      return;
+    }
+    if (accountSwitchNameSyncedRef.current === accountSwitchName) return;
+    const t = setTimeout(() => {
+      autoSave(buildingPositions);
+      accountSwitchNameSyncedRef.current = accountSwitchName;
+    }, 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountSwitchName, currentAccountId, configName]);
 
   useEffect(() => {
     if (!dropdownOpen) return;
@@ -345,18 +364,16 @@ export function ConfigPage() {
         )}
 
         <span className="text-xs text-slate-400 ml-auto">{configNames.length}/5</span>
-      </div>
 
-      {/* 账号编号 */}
-      <div className="flex items-center gap-2 mb-4 bg-white rounded-lg shadow-sm p-3">
-        <label className="text-sm text-slate-600 whitespace-nowrap">账号编号:</label>
+        {/* 账号编号（与配置同一行） */}
+        <label className="text-sm text-slate-600 whitespace-nowrap ml-2">账号编号:</label>
         <input
           type="text"
           value={accountSwitchName}
           onChange={(e) => setAccountSwitchName(e.target.value)}
           onBlur={() => autoSave(buildingPositions)}
-          placeholder="241872258"
-          className="flex-1 px-2 py-1 text-sm border border-slate-300 rounded"
+          placeholder="请输入"
+          className="px-2 py-1 text-sm border border-slate-300 rounded w-40"
         />
       </div>
 

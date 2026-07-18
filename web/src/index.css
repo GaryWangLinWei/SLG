@@ -55,10 +55,10 @@ body {
 .slider-capsule > input[type=range]::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 22px;
-  height: 22px;
+  width: 14px;
+  height: 14px;
   background: white;
-  border: 3px solid #10b981;
+  border: 2px solid #10b981;
   border-radius: 50%;
   cursor: pointer;
   box-shadow: 0 2px 6px rgba(16,185,129,0.35);
@@ -68,10 +68,10 @@ body {
   transform: scale(1.15);
 }
 .slider-capsule > input[type=range]::-moz-range-thumb {
-  width: 22px;
-  height: 22px;
+  width: 14px;
+  height: 14px;
   background: white;
-  border: 3px solid #10b981;
+  border: 2px solid #10b981;
   border-radius: 50%;
   cursor: pointer;
   box-shadow: 0 2px 6px rgba(16,185,129,0.35);

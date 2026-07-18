@@ -1786,7 +1786,7 @@ export function HomePage() {
               if (memCoords.length > 0) pushLog(`💎 携带跨轮记忆坐标 ${memCoords.length} 个`);
               const gemParams = useShared
                 ? { accountId: currentAccountId, teams: f.gemGatherTeams, teamPage: f.gemGatherTeamPage }
-                : { teams: f.gemGatherTeams, teamPage: f.gemGatherTeamPage, searchWeights: f.gemSearchWeights, maxDistance: f.gemGatherMaxDistance, collectedCoords: memCoords };
+                : { teams: f.gemGatherTeams, teamPage: f.gemGatherTeamPage, searchWeights: f.gemSearchWeights, maxDistance: f.gemGatherMaxDistance, extraSwipePauseSec: f.gemGatherExtraSwipePauseSec ?? 0, collectedCoords: memCoords };
               const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, gemParams);
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
@@ -2600,6 +2600,19 @@ export function HomePage() {
                         min={1} max={9999}
                         className="w-16 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
                       <span className="text-xs text-slate-400">公里</span>
+                    </div>
+                  </div>
+
+                  {/* 滑动后额外等待时间 */}
+                  <div className="flex items-center justify-between mt-2">
+                    <span className="text-xs text-slate-500 whitespace-nowrap">滑动后额外等待</span>
+                    <div className="flex items-center gap-1">
+                      <input type="number" value={features.gemGatherExtraSwipePauseSec ?? 0}
+                        onChange={(e) => setFeatures({ ...features, gemGatherExtraSwipePauseSec: Math.max(0, Number(e.target.value) || 0) })}
+                        disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
+                        min={0} max={60} step={0.5}
+                        className="w-16 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
+                      <span className="text-xs text-slate-400">秒</span>
                     </div>
                   </div>
 

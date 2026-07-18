@@ -1,0 +1,838 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>自动切号排版设计方案 v2 — 可扩展</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  .toggle-on { background: #10b981; }
+  .toggle-off { background: #e2e8f0; }
+  .toggle-on .knob { transform: translateX(18px); }
+  .toggle-off .knob { transform: translateX(0); }
+  .knob { transition: transform 0.2s; }
+  .label-tag {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600;
+  }
+  .tab-active { background: #f59e0b; color: white; }
+  .tab-inactive { background: #f1f5f9; color: #64748b; }
+
+  /* profile chip 在队列中的样式 */
+  .profile-chip {
+    flex-shrink: 0;
+    transition: all 0.2s;
+  }
+  .profile-chip-active {
+    border-color: #10b981 !important;
+    background: #ecfdf5 !important;
+    box-shadow: 0 2px 8px rgba(16,185,129,0.15);
+    transform: translateY(-2px);
+  }
+  /* 水平滚动条美化 */
+  .scroll-x::-webkit-scrollbar { height: 6px; }
+  .scroll-x::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 3px; }
+  .scroll-x::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  .scroll-x::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+  /* 连接箭头 */
+  .arrow-flow {
+    color: #f59e0b;
+    font-size: 14px;
+    flex-shrink: 0;
+    user-select: none;
+  }
+
+  /* timeline 色块 */
+  .tl-block {
+    display: flex; align-items: center; justify-content: center;
+    border-right: 2px solid white;
+    font-size: 11px; font-weight: 600; color: white;
+    position: relative;
+    overflow: hidden;
+  }
+  .tl-block:last-child { border-right: none; }
+  .tl-current::after {
+    content: ''; position: absolute; inset: 0;
+    border: 2px solid #f59e0b; border-radius: 4px;
+  }
+</style>
+</head>
+<body class="bg-slate-200">
+
+<!-- 顶部说明 -->
+<div class="max-w-6xl mx-auto pt-8 px-6">
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-6">
+    <h1 class="text-2xl font-bold text-slate-800 mb-2">🔀 自动切号排版设计 v2</h1>
+    <p class="text-sm text-slate-500">核心问题：切号是「跨账号调度器」，与功能卡片语义不对等。当前 2 个账号，未来扩展到 10 个，设计需可扩展。</p>
+    <div class="mt-4 grid grid-cols-2 gap-4">
+      <div class="bg-red-50 border border-red-200 rounded-xl p-4">
+        <p class="text-xs font-bold text-red-600 mb-2">❌ 当前问题</p>
+        <ul class="text-xs text-slate-600 space-y-1">
+          <li>• 切号卡片和采集/建筑等平铺在 grid-cols-2 中</li>
+          <li>• 写死两个 Profile 左右对称，无法扩展</li>
+          <li>• 账号一多，卡片信息膨胀撑破布局</li>
+        </ul>
+      </div>
+      <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4">
+        <p class="text-xs font-bold text-emerald-600 mb-2">✅ v2 设计目标</p>
+        <ul class="text-xs text-slate-600 space-y-1">
+          <li>• 切号提升为独立全宽调度层</li>
+          <li>• Profile 以横向队列排列，2~10+ 自适应</li>
+          <li>• 当前活跃 Profile 高亮，其余灰显</li>
+          <li>• Timeline 自动按 Profile 数量缩放</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- 方案标签 -->
+  <div class="flex gap-2 mb-4 flex-wrap">
+    <button onclick="showScheme(1)" id="tab1" class="tab-active px-4 py-2 rounded-lg text-sm font-medium transition-colors">方案 A：Profile 队列 (2 账号)</button>
+    <button onclick="showScheme(2)" id="tab2" class="tab-inactive px-4 py-2 rounded-lg text-sm font-medium transition-colors">方案 B：Profile 队列 (10 账号)</button>
+    <button onclick="showScheme(3)" id="tab3" class="tab-inactive px-4 py-2 rounded-lg text-sm font-medium transition-colors">方案 C：Timeline 时间轴</button>
+    <button onclick="showScheme(4)" id="tab4" class="tab-inactive px-4 py-2 rounded-lg text-sm font-medium transition-colors">方案 D：当前 vs 提案对比</button>
+  </div>
+</div>
+
+<!-- ============ 方案 A：2 账号 Profile 队列 ============ -->
+<div id="scheme1" class="scheme max-w-5xl mx-auto px-6 pb-12">
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-4">
+    <h2 class="text-lg font-bold text-slate-800 mb-1">方案 A：Profile 队列 — 2 账号态</h2>
+    <p class="text-xs text-slate-500">横向 Profile 队列 + ←→ 轮换指示。2 个账号时排列宽松，信息清晰。</p>
+  </div>
+
+  <div class="bg-slate-100 rounded-2xl overflow-hidden shadow-xl">
+    <!-- 导航栏 -->
+    <div class="bg-white px-6 py-3 border-b border-slate-200 flex items-center gap-4">
+      <span class="font-bold text-slate-800">🎮 ROK助手</span>
+      <span class="text-sm text-emerald-500">首页</span>
+      <span class="text-sm text-slate-400">坐标配置</span>
+      <div class="flex-1"></div>
+      <span class="text-xs bg-amber-100 text-amber-600 px-2 py-1 rounded-full font-semibold">Pro 版</span>
+    </div>
+
+    <!-- 状态栏 -->
+    <div class="bg-gradient-to-r from-emerald-50 to-emerald-100 border border-emerald-300 rounded-xl p-4 flex items-center justify-between mx-4 mt-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center text-white text-xl">🎮</div>
+        <div>
+          <h3 class="font-semibold text-slate-800">准备就绪</h3>
+          <p class="text-sm text-slate-500">设备已连接</p>
+        </div>
+      </div>
+      <button class="px-8 py-3 bg-gradient-to-r from-emerald-500 to-emerald-400 text-white font-bold rounded-full shadow-lg">▶ 开始运行</button>
+    </div>
+
+    <!-- ★★★ 账号调度层 ★★★ -->
+    <div class="mx-4 mt-4 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-xl p-4">
+      <div class="flex items-center gap-3 mb-3">
+        <span class="w-8 h-8 bg-amber-400 rounded-lg flex items-center justify-center text-white text-base shadow">🔀</span>
+        <div>
+          <h3 class="font-bold text-sm text-slate-800">账号调度</h3>
+          <p class="text-xs text-amber-700">控制何时切换到哪个配置方案 · 共 2 个账号</p>
+        </div>
+        <div class="flex-1"></div>
+        <select class="text-xs bg-white border border-amber-300 rounded px-2 py-1 text-amber-700 font-medium">
+          <option>按时间轮换</option>
+          <option>按轮次轮换</option>
+          <option>寨子模式</option>
+        </select>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-500">调度</span>
+          <label class="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+            <span class="absolute inset-0 rounded-full toggle-on"></span>
+            <span class="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm knob"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- ★ Profile 横向队列 ★ -->
+      <div class="bg-white/70 rounded-lg p-3">
+        <div class="flex items-center gap-2">
+          <!-- Profile 1: 当前 -->
+          <div class="profile-chip profile-chip-active w-44 px-3 py-2.5 bg-white border-2 rounded-lg">
+            <div class="flex items-center justify-between mb-1">
+              <span class="label-tag bg-emerald-100 text-emerald-700"><span class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> 当前</span>
+              <span class="text-[10px] text-slate-300">#1</span>
+            </div>
+            <p class="text-sm font-bold text-slate-800">主号</p>
+            <div class="flex items-center gap-1 mt-1">
+              <input type="number" value="30" class="w-12 px-1 py-0.5 text-xs bg-white border border-slate-200 rounded text-center" />
+              <span class="text-xs text-slate-400">分钟</span>
+            </div>
+          </div>
+
+          <!-- 箭头 -->
+          <span class="arrow-flow">→</span>
+
+          <!-- Profile 2: 待切换 -->
+          <div class="profile-chip w-44 px-3 py-2.5 bg-white border-2 border-slate-200 rounded-lg hover:border-amber-300">
+            <div class="flex items-center justify-between mb-1">
+              <span class="label-tag bg-slate-100 text-slate-500"><span class="w-1.5 h-1.5 bg-slate-400 rounded-full"></span> 待切换</span>
+              <span class="text-[10px] text-slate-300">#2</span>
+            </div>
+            <select class="text-sm font-bold text-slate-800 bg-transparent w-full"><option>小号</option><option>农场号</option></select>
+            <div class="flex items-center gap-1 mt-1">
+              <input type="number" value="40" class="w-12 px-1 py-0.5 text-xs bg-white border border-slate-200 rounded text-center" />
+              <span class="text-xs text-slate-400">分钟</span>
+            </div>
+          </div>
+
+          <!-- 箭头回到开头 -->
+          <span class="arrow-flow">↩</span>
+          <span class="text-xs text-amber-500/70">循环</span>
+
+          <!-- 添加按钮 -->
+          <div class="flex-1"></div>
+          <button class="flex items-center gap-1 text-xs text-amber-500 hover:text-amber-600 px-3 py-1.5 border border-dashed border-amber-300 rounded-lg hover:bg-amber-50">
+            <span class="text-base">+</span> 添加账号
+          </button>
+        </div>
+      </div>
+
+      <p class="mt-2 text-xs text-amber-600/70">💡 切号后自动加载对应方案的全部功能设置 · 共 2 个账号参与轮换</p>
+    </div>
+
+    <!-- 功能设置 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-6 m-4">
+      <div class="flex items-center gap-3 mb-5">
+        <span class="w-7 h-7 bg-emerald-100 rounded-lg flex items-center justify-center text-sm">⚙️</span>
+        <h3 class="text-lg font-bold text-slate-800">功能设置</h3>
+        <span class="ml-auto text-xs text-slate-400">📐 当前: 主号</span>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="p-4 rounded-lg border-2 border-emerald-500 bg-green-50/50 flex items-center justify-between">
+          <span class="flex items-center gap-2 font-semibold text-sm"><span class="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center">💎</span>自动采集宝石</span>
+          <label class="relative w-10 h-[22px] cursor-pointer"><span class="absolute inset-0 rounded-full toggle-on"></span><span class="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm knob"></span></label>
+        </div>
+        <div class="p-4 rounded-lg border-2 border-slate-200 flex items-center justify-between">
+          <span class="flex items-center gap-2 font-semibold text-sm"><span class="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">🌾</span>城外资源采集</span>
+          <label class="relative w-10 h-[22px] cursor-pointer"><span class="absolute inset-0 rounded-full toggle-off"></span><span class="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm knob"></span></label>
+        </div>
+        <div class="p-4 rounded-lg border-2 border-slate-200 flex items-center justify-between">
+          <span class="flex items-center gap-2 font-semibold text-sm"><span class="w-8 h-8 bg-red-100 rounded-lg flex items-center justify-center">🏰</span>自动攻打城寨</span>
+          <label class="relative w-10 h-[22px] cursor-pointer"><span class="absolute inset-0 rounded-full toggle-off"></span><span class="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm knob"></span></label>
+        </div>
+        <div class="p-4 rounded-lg border-2 border-slate-200 flex items-center justify-between">
+          <span class="flex items-center gap-2 font-semibold text-sm"><span class="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">🏗️</span>自动升级建筑</span>
+          <label class="relative w-10 h-[22px] cursor-pointer"><span class="absolute inset-0 rounded-full toggle-off"></span><span class="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm knob"></span></label>
+        </div>
+      </div>
+      <p class="text-center text-xs text-slate-300 mt-4">... 其他功能卡片保持不变 ...</p>
+    </div>
+  </div>
+
+  <!-- 设计要点 -->
+  <div class="mt-6 grid grid-cols-3 gap-4">
+    <div class="bg-white rounded-xl p-4 shadow-sm">
+      <p class="text-xs font-bold text-amber-600 mb-1">📦 横向队列</p>
+      <p class="text-xs text-slate-600">Profile 以 chip 形式横向排列，中间用 → 箭头连接，末尾 ↩ 表示循环回到开头</p>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm">
+      <p class="text-xs font-bold text-amber-600 mb-1">🎯 当前态高亮</p>
+      <p class="text-xs text-slate-600">活跃 Profile 用 emerald 边框 + 阴影 + 上浮，其余灰显，一眼看出当前在哪个号</p>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm">
+      <p class="text-xs font-bold text-amber-600 mb-1">➕ 可扩展</p>
+      <p class="text-xs text-slate-600">末尾「+ 添加账号」按钮，点击新增 chip。2 个时排列宽松，10 个时横向滚动</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 方案 B：10 账号 Profile 队列 ============ -->
+<div id="scheme2" class="scheme max-w-5xl mx-auto px-6 pb-12" style="display:none;">
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-4">
+    <h2 class="text-lg font-bold text-slate-800 mb-1">方案 B：Profile 队列 — 10 账号态</h2>
+    <p class="text-xs text-slate-500">同样布局扩展到 10 个账号，队列横向滚动，活跃 Profile 自动滚入视野。</p>
+  </div>
+
+  <div class="bg-slate-100 rounded-2xl overflow-hidden shadow-xl">
+    <div class="bg-white px-6 py-3 border-b border-slate-200 flex items-center gap-4">
+      <span class="font-bold text-slate-800">🎮 ROK助手</span>
+      <span class="text-sm text-emerald-500">首页</span>
+      <div class="flex-1"></div>
+      <span class="text-xs bg-amber-100 text-amber-600 px-2 py-1 rounded-full font-semibold">Pro 版</span>
+    </div>
+
+    <div class="bg-gradient-to-r from-emerald-50 to-emerald-100 border border-emerald-300 rounded-xl p-4 flex items-center justify-between mx-4 mt-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center text-white text-xl">🎮</div>
+        <div>
+          <h3 class="font-semibold text-slate-800">运行中</h3>
+          <p class="text-sm text-slate-500">10 账号轮换 · 当前 #5 农场号-C</p>
+        </div>
+      </div>
+      <button class="px-8 py-3 bg-red-500 text-white font-bold rounded-full">⏹ 停止</button>
+    </div>
+
+    <!-- ★★★ 账号调度层（10 账号） ★★★ -->
+    <div class="mx-4 mt-4 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-xl p-4">
+      <div class="flex items-center gap-3 mb-3">
+        <span class="w-8 h-8 bg-amber-400 rounded-lg flex items-center justify-center text-white text-base shadow">🔀</span>
+        <div>
+          <h3 class="font-bold text-sm text-slate-800">账号调度</h3>
+          <p class="text-xs text-amber-700">按时间轮换 · 共 10 个账号 · 当前第 5/10</p>
+        </div>
+        <div class="flex-1"></div>
+        <!-- 进度指示 -->
+        <div class="flex items-center gap-2 text-xs">
+          <span class="text-amber-600 font-bold">⏱ 下次切号: 12:34</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <span class="text-xs text-slate-500">调度</span>
+          <label class="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+            <span class="absolute inset-0 rounded-full toggle-on"></span>
+            <span class="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm knob"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- ★ Profile 横向滚动队列 ★ -->
+      <div class="bg-white/70 rounded-lg p-3">
+        <!-- 可滚动容器 -->
+        <div class="scroll-x flex items-center gap-2 overflow-x-auto pb-2">
+          <!-- Profile 1 -->
+          <div class="profile-chip w-36 px-3 py-2 bg-white border-2 border-slate-200 rounded-lg flex-shrink-0 opacity-50">
+            <div class="flex items-center justify-between mb-0.5">
+              <span class="label-tag bg-slate-100 text-slate-400">已完成</span>
+              <span class="text-[10px] text-slate-300">#1</span>
+            </div>
+            <p class="text-sm font-semibold text-slate-500">主号</p>
+            <p class="text-[10px] text-slate-400">✓ 30min</p>
+          </div>
+          <span class="arrow-flow text-slate-300">→</span>
+
+          <!-- Profile 2 -->
+          <div class="profile-chip w-36 px-3 py-2 bg-white border-2 border-slate-200 rounded-lg flex-shrink-0 opacity-50">
+            <div class="flex items-center justify-between mb-0.5">
+              <span class="label-tag bg-slate-100 text-slate-400">已完成</span>
+              <span class="text-[10px] text-slate-300">#2</span>
+            </div>
+            <p class="text-sm font-semibold text-slate-500">小号</p>
+            <p class="text-[10px] text-slate-400">✓ 40min</p>
+          </div>
+          <span class="arrow-flow text-slate-300">→</span>
+
+          <!-- Profile 3 -->
+          <div class="profile-chip w-36 px-3 py-2 bg-white border-2 border-slate-200 rounded-lg flex-shrink-0 opacity-50">
+            <div class="flex items-center justify-between mb-0.5">
+              <span class="label-tag bg-slate-100 text-slate-400">已完成</span>
+              <span class="text-[10px] text-slate-300">#3</span>
+            </div>
+            <p class="text-sm font-semibold text-slate-500">农场号-A</p>
+            <p class="text-[10px] text-slate-400">✓ 35min</p>
+          </div>
+          <span class="arrow-flow text-slate-300">→</span>
+
+          <!-- Profile 4 -->
+          <div class="profile-chip w-36 px-3 py-2 bg-white border-2 border-slate-200 rounded-lg flex-shrink-0 opacity-50">
+            <div class="flex items-center justify-between mb-0.5">
+              <span class="label-tag bg-slate-100 text-slate-400">已完成</span>
+              <span class="text-[10px] text-slate-300">#4</span>
+            </div>
+            <p class="text-sm font-semibold text-slate-500">农场号-B</p>
+            <p class="text-[10px] text-slate-400">✓ 30min</p>
+          </div>
+          <span class="arrow-flow text-amber-500">→</span>
+
+          <!-- ★ Profile 5: 当前活跃 ★ -->
+          <div class="profile-chip profile-chip-active w-40 px-3 py-2.5 bg-white border-2 rounded-lg flex-shrink-0">
+            <div class="flex items-center justify-between mb-0.5">
+              <span class="label-tag bg-emerald-100 text-emerald-700"><span class="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span> 运行中</span>
+              <span class="text-[10px] text-emerald-400">#5</span>
+            </div>
+            <p class="text-sm font-bold text-slate-800">农场号-C</p>
+            <div class="flex items-center gap-1 mt-0.5">
+              <div class="w-full h-1 bg-emerald-100 rounded-full overflow-hidden">
+                <div class="h-full bg-emerald-500 rounded-full" style="width: 58%;"></div>
+              </div>
+              <span class="text-[10px] text-emerald-600 font-medium whitespace-nowrap">17:26</span>
+            </div>
+          </div>
+          <span class="arrow-flow">→</span>
+
+          <!-- Profile 6 -->
+          <div class="profile-chip w-36 px-3 py-2 bg-white border-2 border-slate-200 rounded-lg flex-shrink-0">
+            <div class="flex items-center justify-between mb-0.5">
+              <span class="label-tag bg-slate-100 text-slate-500">等待中</span>
+              <span class="text-[10px] text-slate-300">#6</span>
+            </div>
+            <p class="text-sm font-semibold text-slate-600">矿号-A</p>
+            <p class="text-[10px] text-slate-400">30min</p>
+          </div>
+          <span class="arrow-flow text-slate-300">→</span>
+
+          <!-- Profile 7 -->
+          <div class="profile-chip w-36 px-3 py-2 bg-white border-2 border-slate-200 rounded-lg flex-shrink-0">
+            <div class="flex items-center justify-between mb-0.5">
+              <span class="label-tag bg-slate-100 text-slate-500">等待中</span>
+              <span class="text-[10px] text-slate-300">#7</span>
+            </div>
+            <p class="text-sm font-semibold text-slate-600">矿号-B</p>
+            <p class="text-[10px] text-slate-400">40min</p>
+          </div>
+          <span class="arrow-flow text-slate-300">→</span>
+
+          <!-- Profile 8 -->
+          <div class="profile-chip w-36 px-3 py-2 bg-white border-2 border-slate-200 rounded-lg flex-shrink-0">
+            <div class="flex items-center justify-between mb-0.5">
+              <span class="label-tag bg-slate-100 text-slate-500">等待中</span>
+              <span class="text-[10px] text-slate-300">#8</span>
+            </div>
+            <p class="text-sm font-semibold text-slate-600">大号-战力</p>
+            <p class="text-[10px] text-slate-400">50min</p>
+          </div>
+          <span class="arrow-flow text-slate-300">→</span>
+
+          <!-- Profile 9 -->
+          <div class="profile-chip w-36 px-3 py-2 bg-white border-2 border-slate-200 rounded-lg flex-shrink-0">
+            <div class="flex items-center justify-between mb-0.5">
+              <span class="label-tag bg-slate-100 text-slate-500">等待中</span>
+              <span class="text-[10px] text-slate-300">#9</span>
+            </div>
+            <p class="text-sm font-semibold text-slate-600">小号-采集</p>
+            <p class="text-[10px] text-slate-400">25min</p>
+          </div>
+          <span class="arrow-flow text-slate-300">→</span>
+
+          <!-- Profile 10 -->
+          <div class="profile-chip w-36 px-3 py-2 bg-white border-2 border-slate-200 rounded-lg flex-shrink-0">
+            <div class="flex items-center justify-between mb-0.5">
+              <span class="label-tag bg-slate-100 text-slate-500">等待中</span>
+              <span class="text-[10px] text-slate-300">#10</span>
+            </div>
+            <p class="text-sm font-semibold text-slate-600">农场号-D</p>
+            <p class="text-[10px] text-slate-400">35min</p>
+          </div>
+          <span class="arrow-flow text-slate-300">↩</span>
+        </div>
+
+        <!-- 添加按钮 + 账号计数 -->
+        <div class="flex items-center justify-between mt-2">
+          <span class="text-xs text-amber-500/70">↻ 循环轮换 · #10 结束后回到 #1</span>
+          <div class="flex items-center gap-2">
+            <button class="text-xs text-slate-400 hover:text-slate-600 px-2 py-1">⚙ 批量设置</button>
+            <button class="flex items-center gap-1 text-xs text-amber-500 hover:text-amber-600 px-3 py-1 border border-dashed border-amber-300 rounded-lg hover:bg-amber-50">+ 添加账号</button>
+          </div>
+        </div>
+      </div>
+
+      <p class="mt-2 text-xs text-amber-600/70">💡 当前 #5 农场号-C · 剩余 12:34 后切到 #6 矿号-A · 可拖拽调整顺序</p>
+    </div>
+
+    <!-- 功能设置 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-6 m-4">
+      <div class="flex items-center gap-3 mb-5">
+        <span class="w-7 h-7 bg-emerald-100 rounded-lg flex items-center justify-center text-sm">⚙️</span>
+        <h3 class="text-lg font-bold text-slate-800">功能设置</h3>
+        <span class="ml-auto text-xs text-emerald-500 font-medium">📐 当前: #5 农场号-C</span>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="p-4 rounded-lg border-2 border-emerald-500 bg-green-50/50 flex items-center justify-between">
+          <span class="flex items-center gap-2 font-semibold text-sm"><span class="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center">💎</span>自动采集宝石</span>
+          <label class="relative w-10 h-[22px] cursor-pointer"><span class="absolute inset-0 rounded-full toggle-on"></span><span class="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm knob"></span></label>
+        </div>
+        <div class="p-4 rounded-lg border-2 border-slate-200 flex items-center justify-between">
+          <span class="flex items-center gap-2 font-semibold text-sm"><span class="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">🌾</span>城外资源采集</span>
+          <label class="relative w-10 h-[22px] cursor-pointer"><span class="absolute inset-0 rounded-full toggle-off"></span><span class="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm knob"></span></label>
+        </div>
+      </div>
+      <p class="text-center text-xs text-slate-300 mt-4">... 功能卡片保持不变，标题自动跟随当前 Profile ...</p>
+    </div>
+  </div>
+
+  <!-- 设计要点 -->
+  <div class="mt-6 grid grid-cols-2 gap-4">
+    <div class="bg-white rounded-xl p-4 shadow-sm">
+      <p class="text-xs font-bold text-amber-600 mb-1">📜 横向滚动 + 状态色</p>
+      <p class="text-xs text-slate-600">已完成(opacity-50灰) → 运行中(emerald高亮+进度条) → 等待中(正常灰) 三种状态一目了然。运行中 Profile 自动滚入视野中心。</p>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm">
+      <p class="text-xs font-bold text-amber-600 mb-1">⏱ 进度条 + 倒计时</p>
+      <p class="text-xs text-slate-600">活跃 chip 内嵌进度条，标题栏显示下次切号倒计时。不需要展开看详情就知道还剩多久。</p>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm">
+      <p class="text-xs font-bold text-amber-600 mb-1">🔢 编号 + 拖拽排序</p>
+      <p class="text-xs text-slate-600">每个 chip 显示序号 #1~#10，支持拖拽调整顺序。批量设置按钮可统一配置时长。</p>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm">
+      <p class="text-xs font-bold text-amber-600 mb-1">📐 2→10 平滑过渡</p>
+      <p class="text-xs text-slate-600">2 个账号时队列不滚动、信息宽松；增加到 10 个时自动启用横向滚动，布局结构不变。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 方案 C：Timeline 时间轴（多账号） ============ -->
+<div id="scheme3" class="scheme max-w-5xl mx-auto px-6 pb-12" style="display:none;">
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-4">
+    <h2 class="text-lg font-bold text-slate-800 mb-1">方案 C：Timeline 时间轴 — 多账号轮换可视化</h2>
+    <p class="text-xs text-slate-500">运行态下用色块时间轴展示所有账号的轮换周期，当前段高亮 + 倒计时</p>
+  </div>
+
+  <div class="bg-slate-100 rounded-2xl overflow-hidden shadow-xl">
+    <div class="bg-white px-6 py-3 border-b border-slate-200 flex items-center gap-4">
+      <span class="font-bold text-slate-800">🎮 ROK助手</span>
+      <span class="text-sm text-emerald-500">首页</span>
+      <div class="flex-1"></div>
+      <span class="text-xs bg-amber-100 text-amber-600 px-2 py-1 rounded-full font-semibold">Pro 版</span>
+    </div>
+
+    <div class="bg-gradient-to-r from-emerald-50 to-emerald-100 border border-emerald-300 rounded-xl p-4 flex items-center justify-between mx-4 mt-4">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center text-white text-xl">🎮</div>
+        <div>
+          <h3 class="font-semibold text-slate-800">运行中 · #3 农场号-A</h3>
+          <p class="text-sm text-slate-500">5 账号轮换 · 已运行 1 小时 12 分</p>
+        </div>
+      </div>
+      <button class="px-8 py-3 bg-red-500 text-white font-bold rounded-full">⏹ 停止</button>
+    </div>
+
+    <!-- ★★★ Timeline 调度层 ★★★ -->
+    <div class="mx-4 mt-4 bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 rounded-xl p-4">
+      <div class="flex items-center gap-3 mb-3">
+        <span class="w-8 h-8 bg-amber-400 rounded-lg flex items-center justify-center text-white text-base shadow">🔀</span>
+        <div>
+          <h3 class="font-bold text-sm text-slate-800">账号调度</h3>
+          <p class="text-xs text-amber-700">按时间轮换 · 共 5 个账号 · 一轮 165 分钟</p>
+        </div>
+        <div class="flex-1"></div>
+        <span class="text-xs text-amber-600 font-bold">⏱ 下次切号: 14:23</span>
+        <label class="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+          <span class="absolute inset-0 rounded-full toggle-on"></span>
+          <span class="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm knob"></span>
+        </label>
+      </div>
+
+      <!-- 时间轴 -->
+      <div class="bg-white/70 rounded-lg p-4">
+        <!-- 色块 -->
+        <div class="flex gap-0.5 h-14 rounded-lg overflow-hidden">
+          <div class="tl-block bg-emerald-400/40 flex-[30] tl-current">
+            <span>主号 30m</span>
+            <span class="absolute top-0.5 right-1 text-[9px] text-emerald-700/80">✓</span>
+          </div>
+          <div class="tl-block bg-slate-400/40 flex-[40]">
+            <span class="text-slate-500">小号 40m</span>
+            <span class="absolute top-0.5 right-1 text-[9px] text-slate-500/60">✓</span>
+          </div>
+          <div class="tl-block bg-emerald-500 flex-[35] relative">
+            <span>农场-A 35m</span>
+            <span class="absolute -top-5 left-1/2 -translate-x-1/2 text-[10px] text-amber-600 font-bold whitespace-nowrap">▼ 当前 14:23</span>
+          </div>
+          <div class="tl-block bg-slate-300 flex-[30]">
+            <span class="text-slate-500">矿号 30m</span>
+          </div>
+          <div class="tl-block bg-slate-200 flex-[30]">
+            <span class="text-slate-400">战力 30m</span>
+          </div>
+        </div>
+
+        <!-- 进度线 -->
+        <div class="relative mt-3">
+          <div class="h-1 bg-slate-200 rounded-full"></div>
+          <div class="absolute top-0 left-0 h-1 bg-amber-500 rounded-full" style="width: 42%;"></div>
+          <div class="absolute -top-4 text-[10px] text-amber-600 font-bold" style="left: 42%; transform: translateX(-50%);">●</div>
+        </div>
+
+        <!-- 时间标尺 -->
+        <div class="flex justify-between mt-1 text-[10px] text-slate-400">
+          <span>00:00</span>
+          <span>30m</span>
+          <span>70m</span>
+          <span>105m</span>
+          <span>135m</span>
+          <span>165m</span>
+        </div>
+
+        <!-- Profile 配置行（横向滚动） -->
+        <div class="mt-4 scroll-x overflow-x-auto">
+          <div class="flex gap-2 pb-1">
+            <div class="flex items-center gap-1.5 bg-emerald-50 border border-emerald-300 rounded-lg px-2.5 py-1.5 flex-shrink-0">
+              <span class="text-[10px] text-emerald-400 font-bold">#1</span>
+              <span class="text-xs font-semibold text-slate-700">主号</span>
+              <input type="number" value="30" class="w-10 px-1 py-0 text-[10px] bg-white border border-slate-200 rounded text-center" />
+              <span class="text-[10px] text-slate-400">m</span>
+            </div>
+            <span class="text-amber-400 text-xs self-center">→</span>
+            <div class="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 flex-shrink-0">
+              <span class="text-[10px] text-slate-400 font-bold">#2</span>
+              <span class="text-xs font-semibold text-slate-600">小号</span>
+              <input type="number" value="40" class="w-10 px-1 py-0 text-[10px] bg-white border border-slate-200 rounded text-center" />
+              <span class="text-[10px] text-slate-400">m</span>
+            </div>
+            <span class="text-amber-400 text-xs self-center">→</span>
+            <div class="flex items-center gap-1.5 bg-emerald-100 border-2 border-emerald-400 rounded-lg px-2.5 py-1.5 flex-shrink-0">
+              <span class="text-[10px] text-emerald-600 font-bold">#3</span>
+              <span class="text-xs font-bold text-emerald-700">农场-A</span>
+              <input type="number" value="35" class="w-10 px-1 py-0 text-[10px] bg-white border border-emerald-200 rounded text-center" />
+              <span class="text-[10px] text-emerald-400">m</span>
+            </div>
+            <span class="text-amber-400 text-xs self-center">→</span>
+            <div class="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 flex-shrink-0">
+              <span class="text-[10px] text-slate-400 font-bold">#4</span>
+              <span class="text-xs font-semibold text-slate-600">矿号</span>
+              <input type="number" value="30" class="w-10 px-1 py-0 text-[10px] bg-white border border-slate-200 rounded text-center" />
+              <span class="text-[10px] text-slate-400">m</span>
+            </div>
+            <span class="text-amber-400 text-xs self-center">→</span>
+            <div class="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 flex-shrink-0">
+              <span class="text-[10px] text-slate-400 font-bold">#5</span>
+              <span class="text-xs font-semibold text-slate-600">战力</span>
+              <input type="number" value="30" class="w-10 px-1 py-0 text-[10px] bg-white border border-slate-200 rounded text-center" />
+              <span class="text-[10px] text-slate-400">m</span>
+            </div>
+            <span class="text-amber-400 text-xs self-center">↩</span>
+            <button class="flex items-center gap-0.5 text-[10px] text-amber-500 px-2 py-1 border border-dashed border-amber-300 rounded-lg hover:bg-amber-50 flex-shrink-0">+ 添加</button>
+          </div>
+        </div>
+      </div>
+
+      <p class="mt-2 text-xs text-amber-600/70">💡 色块宽度 = 时长比例 · 当前段高亮 · 进度线显示总体进度 · 10 个账号时自动滚动</p>
+    </div>
+
+    <!-- 功能设置 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-100 p-6 m-4">
+      <div class="flex items-center gap-3 mb-5">
+        <span class="w-7 h-7 bg-emerald-100 rounded-lg flex items-center justify-center text-sm">⚙️</span>
+        <h3 class="text-lg font-bold text-slate-800">功能设置</h3>
+        <span class="ml-auto text-xs text-emerald-500 font-medium">📐 当前: #3 农场号-A</span>
+      </div>
+      <div class="grid grid-cols-2 gap-4">
+        <div class="p-4 rounded-lg border-2 border-emerald-500 bg-green-50/50 flex items-center justify-between">
+          <span class="flex items-center gap-2 font-semibold text-sm"><span class="w-8 h-8 bg-cyan-100 rounded-lg flex items-center justify-center">💎</span>自动采集宝石</span>
+          <label class="relative w-10 h-[22px] cursor-pointer"><span class="absolute inset-0 rounded-full toggle-on"></span><span class="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm knob"></span></label>
+        </div>
+        <div class="p-4 rounded-lg border-2 border-slate-200 flex items-center justify-between">
+          <span class="flex items-center gap-2 font-semibold text-sm"><span class="w-8 h-8 bg-amber-100 rounded-lg flex items-center justify-center">🌾</span>城外资源采集</span>
+          <label class="relative w-10 h-[22px] cursor-pointer"><span class="absolute inset-0 rounded-full toggle-off"></span><span class="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm knob"></span></label>
+        </div>
+      </div>
+      <p class="text-center text-xs text-slate-300 mt-4">... 功能卡片保持不变 ...</p>
+    </div>
+  </div>
+
+  <!-- 设计要点 -->
+  <div class="mt-6 grid grid-cols-3 gap-4">
+    <div class="bg-white rounded-xl p-4 shadow-sm">
+      <p class="text-xs font-bold text-amber-600 mb-1">📊 色块 = 时长比例</p>
+      <p class="text-xs text-slate-600">每个色块宽度与账号时长成正比，一眼看出哪个号运行最久。色块颜色区分已运行/当前/未运行。</p>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm">
+      <p class="text-xs font-bold text-amber-600 mb-1">⏱ 总进度线</p>
+      <p class="text-xs text-slate-600">底部进度线显示当前在一轮中的位置，配合倒计时，不用心算就知道还有多久回到开头。</p>
+    </div>
+    <div class="bg-white rounded-xl p-4 shadow-sm">
+      <p class="text-xs font-bold text-amber-600 mb-1">🔄 静态/动态切换</p>
+      <p class="text-xs text-slate-600">未运行时显示配置行（可编辑）；运行时变成色块时间轴（只读+进度）。信息密度随状态自适应。</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 方案 D：当前 vs 提案对比 ============ -->
+<div id="scheme4" class="scheme max-w-5xl mx-auto px-6 pb-12" style="display:none;">
+  <div class="bg-white rounded-2xl shadow-lg p-6 mb-4">
+    <h2 class="text-lg font-bold text-slate-800 mb-1">方案 D：当前 vs 提案对比</h2>
+    <p class="text-xs text-slate-500">并排展示当前布局和提案布局，直观对比层级关系变化</p>
+  </div>
+
+  <div class="grid grid-cols-2 gap-6">
+    <!-- 当前 -->
+    <div>
+      <div class="bg-red-50 border border-red-200 rounded-xl p-3 mb-3">
+        <p class="text-xs font-bold text-red-600">❌ 当前布局</p>
+        <p class="text-xs text-slate-500 mt-1">切号卡片在 grid 末尾，和其他卡片平级。写死 2 个 Profile，无法扩展。</p>
+      </div>
+      <div class="bg-slate-100 rounded-2xl p-4 space-y-3">
+        <div class="bg-emerald-50 border border-emerald-300 rounded-lg p-2 text-center">
+          <span class="text-xs text-emerald-600 font-medium">状态栏</span>
+        </div>
+        <div class="bg-white rounded-lg border border-slate-100 p-3">
+          <p class="text-xs font-bold text-slate-700 mb-2">⚙️ 功能设置</p>
+          <div class="grid grid-cols-2 gap-2">
+            <div class="bg-cyan-50 border border-cyan-200 rounded p-2 text-center text-[10px]">💎 宝石</div>
+            <div class="bg-amber-50 border border-amber-200 rounded p-2 text-center text-[10px]">🌾 采集</div>
+            <div class="bg-red-50 border border-red-200 rounded p-2 text-center text-[10px]">🏰 城寨</div>
+            <div class="bg-emerald-50 border border-emerald-200 rounded p-2 text-center text-[10px]">🏗️ 建筑</div>
+            <div class="bg-blue-50 border border-blue-200 rounded p-2 text-center text-[10px]">🔬 科技</div>
+            <div class="bg-purple-50 border border-purple-200 rounded p-2 text-center text-[10px]">⚔️ 训兵</div>
+            <div class="bg-slate-50 border border-slate-200 rounded p-2 text-center text-[10px]">📋 辅助</div>
+            <div class="bg-amber-100 border-2 border-red-400 rounded p-2 text-center text-[10px] relative">
+              🔀 切号
+              <span class="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 text-white text-[8px] rounded-full flex items-center justify-center">!</span>
+            </div>
+          </div>
+        </div>
+        <div class="bg-slate-800 rounded-lg p-2 text-center">
+          <span class="text-xs text-slate-400">📋 日志</span>
+        </div>
+      </div>
+      <div class="mt-3 bg-red-50 border border-red-200 rounded-lg p-3">
+        <ul class="text-xs text-slate-600 space-y-1">
+          <li>• 切号和「采集宝石」等平级，层级混乱</li>
+          <li>• 写死 2 个 Profile 左右对称</li>
+          <li>• 账号多了卡片撑爆 grid 布局</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- 提案 -->
+    <div>
+      <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 mb-3">
+        <p class="text-xs font-bold text-emerald-600">✅ 提案布局</p>
+        <p class="text-xs text-slate-500 mt-1">调度层独立全宽，Profile 横向队列可扩展 2~10+</p>
+      </div>
+      <div class="bg-slate-100 rounded-2xl p-4 space-y-3">
+        <div class="bg-emerald-50 border border-emerald-300 rounded-lg p-2 text-center">
+          <span class="text-xs text-emerald-600 font-medium">状态栏</span>
+        </div>
+        <!-- ★ 调度层 ★ -->
+        <div class="bg-amber-50 border-2 border-amber-300 rounded-lg p-2.5">
+          <p class="text-xs font-bold text-amber-700 mb-1.5">🔀 账号调度 · 5 个账号</p>
+          <div class="scroll-x flex items-center gap-1 overflow-x-auto pb-1">
+            <div class="flex-shrink-0 bg-emerald-50 border border-emerald-300 rounded px-2 py-1 text-center">
+              <span class="text-[9px] text-emerald-600 font-bold">#1 ▶ 主号</span>
+            </div>
+            <span class="text-amber-400 text-[10px]">→</span>
+            <div class="flex-shrink-0 bg-slate-50 border border-slate-200 rounded px-2 py-1 text-center">
+              <span class="text-[9px] text-slate-500">#2 小号</span>
+            </div>
+            <span class="text-amber-400 text-[10px]">→</span>
+            <div class="flex-shrink-0 bg-slate-50 border border-slate-200 rounded px-2 py-1 text-center">
+              <span class="text-[9px] text-slate-500">#3 农场A</span>
+            </div>
+            <span class="text-amber-400 text-[10px]">→</span>
+            <div class="flex-shrink-0 bg-slate-50 border border-slate-200 rounded px-2 py-1 text-center">
+              <span class="text-[9px] text-slate-500">#4 矿号</span>
+            </div>
+            <span class="text-amber-400 text-[10px]">→</span>
+            <div class="flex-shrink-0 bg-slate-50 border border-slate-200 rounded px-2 py-1 text-center">
+              <span class="text-[9px] text-slate-500">#5 战力</span>
+            </div>
+            <span class="text-amber-400 text-[10px]">↩</span>
+            <span class="text-[9px] text-amber-400/70 flex-shrink-0">+ 添加</span>
+          </div>
+        </div>
+        <!-- 功能设置 -->
+        <div class="bg-white rounded-lg border border-slate-100 p-3">
+          <p class="text-xs font-bold text-slate-700 mb-2">⚙️ 功能设置 <span class="text-emerald-500 font-normal">· #1 主号</span></p>
+          <div class="grid grid-cols-2 gap-2">
+            <div class="bg-cyan-50 border border-cyan-200 rounded p-2 text-center text-[10px]">💎 宝石</div>
+            <div class="bg-amber-50 border border-amber-200 rounded p-2 text-center text-[10px]">🌾 采集</div>
+            <div class="bg-red-50 border border-red-200 rounded p-2 text-center text-[10px]">🏰 城寨</div>
+            <div class="bg-emerald-50 border border-emerald-200 rounded p-2 text-center text-[10px]">🏗️ 建筑</div>
+            <div class="bg-blue-50 border border-blue-200 rounded p-2 text-center text-[10px]">🔬 科技</div>
+            <div class="bg-purple-50 border border-purple-200 rounded p-2 text-center text-[10px]">⚔️ 训兵</div>
+            <div class="bg-slate-50 border border-slate-200 rounded p-2 text-center text-[10px] col-span-2">📋 辅助（含7个子功能）</div>
+          </div>
+        </div>
+        <div class="bg-slate-800 rounded-lg p-2 text-center">
+          <span class="text-xs text-slate-400">📋 日志</span>
+        </div>
+      </div>
+      <div class="mt-3 bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+        <ul class="text-xs text-slate-600 space-y-1">
+          <li>• 调度层独立全宽，amber 色系区分</li>
+          <li>• Profile 队列横向滚动，2~10+ 自适应</li>
+          <li>• 功能标题标注当前 Profile 名称</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- 语义层级对比 -->
+  <div class="mt-6 bg-white rounded-2xl shadow-lg p-6">
+    <h3 class="text-base font-bold text-slate-800 mb-4">语义层级变化</h3>
+    <div class="grid grid-cols-2 gap-6">
+      <div>
+        <p class="text-xs font-bold text-red-600 mb-2">当前：扁平结构（不可扩展）</p>
+        <div class="bg-slate-50 rounded-lg p-4 font-mono text-xs text-slate-600 leading-relaxed">
+          状态栏<br>
+          └ 功能设置 (grid-cols-2)<br>
+          &nbsp;&nbsp;├ 宝石 ─ 采集 ─ 城寨<br>
+          &nbsp;&nbsp;├ 集结 ─ 建筑 ─ 科技<br>
+          &nbsp;&nbsp;├ 训兵 ─ 喊话 ─ 辅助<br>
+          &nbsp;&nbsp;└ <span class="text-red-500 font-bold">切号 ← 写死2个Profile!</span><br>
+          日志
+        </div>
+      </div>
+      <div>
+        <p class="text-xs font-bold text-emerald-600 mb-2">提案：分层结构（可扩展）</p>
+        <div class="bg-slate-50 rounded-lg p-4 font-mono text-xs text-slate-600 leading-relaxed">
+          状态栏<br>
+          └ <span class="text-amber-600 font-bold">账号调度层（跨账号）</span><br>
+          &nbsp;&nbsp;└ #1 → #2 → #3 → ... → #N ↩<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;(横向滚动, 2~10+ 自适应)<br>
+          └ <span class="text-emerald-600 font-bold">功能设置层（本账号内）</span><br>
+          &nbsp;&nbsp;├ 宝石 ─ 采集 ─ 城寨<br>
+          &nbsp;&nbsp;├ 集结 ─ 建筑 ─ 科技<br>
+          &nbsp;&nbsp;└ 训兵 ─ 喊话 ─ 辅助<br>
+          日志
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 扩展性对比 -->
+  <div class="mt-6 bg-white rounded-2xl shadow-lg p-6">
+    <h3 class="text-base font-bold text-slate-800 mb-4">扩展性对比</h3>
+    <table class="w-full text-sm">
+      <thead>
+        <tr class="border-b border-slate-200">
+          <th class="text-left py-2 px-3 text-xs font-bold text-slate-500">维度</th>
+          <th class="text-left py-2 px-3 text-xs font-bold text-red-500">当前方案</th>
+          <th class="text-left py-2 px-3 text-xs font-bold text-emerald-500">提案方案</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        <tr>
+          <td class="py-2.5 px-3 text-xs text-slate-600 font-medium">2 个账号</td>
+          <td class="py-2.5 px-3 text-xs text-slate-500">✅ 左右对称勉强能用</td>
+          <td class="py-2.5 px-3 text-xs text-emerald-600">✅ 队列宽松排列</td>
+        </tr>
+        <tr>
+          <td class="py-2.5 px-3 text-xs text-slate-600 font-medium">5 个账号</td>
+          <td class="py-2.5 px-3 text-xs text-red-500">❌ 卡片信息膨胀撑破 grid</td>
+          <td class="py-2.5 px-3 text-xs text-emerald-600">✅ 横向滚动 + 时间轴</td>
+        </tr>
+        <tr>
+          <td class="py-2.5 px-3 text-xs text-slate-600 font-medium">10 个账号</td>
+          <td class="py-2.5 px-3 text-xs text-red-500">❌ 完全无法展示</td>
+          <td class="py-2.5 px-3 text-xs text-emerald-600">✅ 横向滚动 + 拖拽排序</td>
+        </tr>
+        <tr>
+          <td class="py-2.5 px-3 text-xs text-slate-600 font-medium">运行态可视化</td>
+          <td class="py-2.5 px-3 text-xs text-red-500">❌ 只有静态配置</td>
+          <td class="py-2.5 px-3 text-xs text-emerald-600">✅ 进度条 + 倒计时 + 色块</td>
+        </tr>
+        <tr>
+          <td class="py-2.5 px-3 text-xs text-slate-600 font-medium">添加/删除账号</td>
+          <td class="py-2.5 px-3 text-xs text-red-500">❌ 需改 UI 结构</td>
+          <td class="py-2.5 px-3 text-xs text-emerald-600">✅ + 按钮 / 右键删除</td>
+        </tr>
+        <tr>
+          <td class="py-2.5 px-3 text-xs text-slate-600 font-medium">调整顺序</td>
+          <td class="py-2.5 px-3 text-xs text-red-500">❌ 固定 A↔B</td>
+          <td class="py-2.5 px-3 text-xs text-emerald-600">✅ 拖拽排序</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+function showScheme(n) {
+  for (let i = 1; i <= 4; i++) {
+    document.getElementById('scheme' + i).style.display = i === n ? 'block' : 'none';
+    const tab = document.getElementById('tab' + i);
+    tab.className = i === n
+      ? 'tab-active px-4 py-2 rounded-lg text-sm font-medium transition-colors'
+      : 'tab-inactive px-4 py-2 rounded-lg text-sm font-medium transition-colors';
+  }
+}
+</script>
+
+</body>
+</html>

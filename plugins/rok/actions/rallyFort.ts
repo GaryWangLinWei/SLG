@@ -3,7 +3,57 @@ import { RokConfig } from '../index';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import { ensureInWorld } from '../utils/location';
 import { ensureTeamPage, TeamPage } from '../utils/teamPage';
+import { ocrService } from '../../../core/ocr/OcrService';
 import * as path from 'path';
+import * as fsp from 'fs/promises';
+import sharp from 'sharp';
+
+const FORT_MAX_LEVEL = 10;
+const FORT_LEVEL_RECT = { x1: 126, y1: 425, x2: 564, y2: 454 };
+const FORT_LEVEL_RESET_BTN = { x: 167, y: 486 };
+
+/** OCR 读取城寨当前等级，失败返回 null */
+async function readCurrentFortLevel(ctx: PluginContext): Promise<number | null> {
+  let shot: string | null = null;
+  let processed: string | null = null;
+  try {
+    shot = await ctx.captureRegion(
+      FORT_LEVEL_RECT.x1, FORT_LEVEL_RECT.y1,
+      FORT_LEVEL_RECT.x2 - FORT_LEVEL_RECT.x1,
+      FORT_LEVEL_RECT.y2 - FORT_LEVEL_RECT.y1,
+    );
+    processed = shot.replace(/\.png$/i, '_lvl.png');
+    await sharp(shot)
+      .resize({ width: (FORT_LEVEL_RECT.x2 - FORT_LEVEL_RECT.x1) * 3, kernel: 'nearest' })
+      .grayscale()
+      .normalise()
+      .toFile(processed);
+
+    // 用中文 OCR 读完整 "等级：N"，再用正则抓数字，避免"等级：" 被误认成数字
+    const txt = await ocrService.readChineseText(processed);
+    ctx.log(`  [OCR] 城寨等级原始识别: "${txt.replace(/\s+/g, ' ')}"`);
+
+    // 匹配"等级"后（含各种冒号/空格）的数字
+    const m = txt.match(/等\s*级[^\d]{0,5}(\d{1,2})/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n >= 1 && n <= FORT_MAX_LEVEL) return n;
+    }
+    // fallback：抓所有数字，取首个 1~10
+    const nums = txt.match(/\d{1,2}/g) || [];
+    for (const s of nums) {
+      const n = parseInt(s, 10);
+      if (n >= 1 && n <= FORT_MAX_LEVEL) return n;
+    }
+    return null;
+  } catch (e) {
+    ctx.log(`  [OCR] 城寨等级识别异常: ${(e as Error).message}`);
+    return null;
+  } finally {
+    if (shot) await fsp.unlink(shot).catch(() => {});
+    if (processed) await fsp.unlink(processed).catch(() => {});
+  }
+}
 
 const TEMPLATE_DIR = getTemplatesDir();
 const PAGE_INDICATOR_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_page_indicator.png');
@@ -36,6 +86,60 @@ const SWITCH_IN_CITY_TEMPLATE = path.join(TEMPLATE_DIR, 'switch_in_city.png');
 const SWITCH_IN_WORLD_TEMPLATE = path.join(TEMPLATE_DIR, 'switch_in_world.png');
 const TILI_BUTTON_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_tili.png');
 const TILI_BUTTON_REGION = { x: 1014, y: 242, width: 1358 - 1014, height: 407 - 242 };
+const STAMINA_BAR_RECT = { x1: 557, y1: 174, x2: 575, y2: 197 };
+const POTION_USE_BUTTON = { x: 1200, y: 326 };
+const CLOSE_STAMINA_POPUP = { x: 1363, y: 103 };
+const MAX_FREE_TILI_CLICKS = 2;
+const MAX_POTION_USES = 10;
+
+type StaminaColor = 'green' | 'yellow' | 'unknown';
+
+/** 采样体力条区域平均 RGB，判定绿/黄/未知 */
+async function readStaminaColor(ctx: PluginContext): Promise<StaminaColor> {
+  let shot: string | null = null;
+  try {
+    shot = await ctx.captureRegion(
+      STAMINA_BAR_RECT.x1, STAMINA_BAR_RECT.y1,
+      STAMINA_BAR_RECT.x2 - STAMINA_BAR_RECT.x1,
+      STAMINA_BAR_RECT.y2 - STAMINA_BAR_RECT.y1,
+    );
+    const { data, info } = await sharp(shot).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    let sumR = 0, sumG = 0, sumB = 0;
+    const pixels = info.width * info.height;
+    for (let i = 0; i < data.length; i += 3) {
+      sumR += data[i];
+      sumG += data[i + 1];
+      sumB += data[i + 2];
+    }
+    const r = sumR / pixels, g = sumG / pixels, b = sumB / pixels;
+    ctx.log(`  [体力条] RGB=(${r.toFixed(0)},${g.toFixed(0)},${b.toFixed(0)})`);
+    // 绿：G 明显大于 R
+    if (g > r + 20 && g > b + 20) return 'green';
+    // 黄：R 与 G 都高且接近，B 较低
+    if (r > 120 && g > 90 && Math.abs(r - g) < 60 && b < Math.min(r, g) - 40) return 'yellow';
+    return 'unknown';
+  } catch (e) {
+    ctx.log(`  [体力条] 采样异常: ${(e as Error).message}`);
+    return 'unknown';
+  } finally {
+    if (shot) await fsp.unlink(shot).catch(() => {});
+  }
+}
+
+/** 循环点击 btn_tili 领取免费体力，最多 MAX_FREE_TILI_CLICKS 次或按钮消失 */
+async function claimAllFreeStamina(ctx: PluginContext): Promise<number> {
+  let claimed = 0;
+  for (let i = 0; i < MAX_FREE_TILI_CLICKS; i++) {
+    const btn = await ctx.findImageWithLocation(TILI_BUTTON_TEMPLATE, 0.8, [0.9, 1.0, 1.1], false, undefined, TILI_BUTTON_REGION);
+    ctx.log(`  [体力] 免费按钮检测 #${i + 1}: found=${btn.found} conf=${btn.confidence.toFixed(3)}`);
+    if (!btn.found) break;
+    ctx.log(`  [体力] 点击免费按钮 (${btn.x}, ${btn.y})`);
+    await ctx.tap(btn.x, btn.y);
+    await ctx.sleep(0.8);
+    claimed++;
+  }
+  return claimed;
+}
 
 export interface RallyFortOutcome {
   result: 'success' | 'not_found' | 'team_unavailable' | 'rally_full' | 'stamina_insufficient';
@@ -49,7 +153,9 @@ export async function rallyFort(
   targetLevel: number,
   team: number,
   downgrade: boolean = true,
-  teamPage: TeamPage = 'attack'
+  teamPage: TeamPage = 'attack',
+  usePotion: boolean = false,
+  troopType: 'any' | 'infantry' | 'cavalry' | 'archer' = 'any'
 ): Promise<RallyFortOutcome> {
   ctx.log(`=== 自动攻打城寨 Lv.${targetLevel} 队伍${team} ===`);
 
@@ -78,26 +184,34 @@ export async function rallyFort(
   // [5/8] 设置等级并搜索
   ctx.log(`  [5/8] 设置等级并搜索`);
 
-  // 重置到 1 级：快速点击 - ×9
-  ctx.log(`  重置到1级: 快速点击 - ×9`);
-  for (let i = 0; i < 9; i++) {
-    await ctx.tapRect(FORT_MINUS_RECT.x1, FORT_MINUS_RECT.y1, FORT_MINUS_RECT.x2, FORT_MINUS_RECT.y2);
-    await ctx.sleep(0.15);
-  }
-
-  // 设到目标等级
+  // OCR 读当前等级，只点差值次数；失败则点重置按钮回 Lv.1 后再加
+  const ocrLevel = await readCurrentFortLevel(ctx);
   let currentLevel = 1;
   let searchSuccess = false;
 
-  const plusClicks = targetLevel - 1;
-  if (plusClicks > 0) {
-    ctx.log(`  设置 Lv.${targetLevel}: + ×${plusClicks}`);
-    for (let i = 0; i < plusClicks; i++) {
-      await ctx.tapRect(FORT_PLUS_RECT.x1, FORT_PLUS_RECT.y1, FORT_PLUS_RECT.x2, FORT_PLUS_RECT.y2);
+  if (ocrLevel !== null) {
+    const diff = targetLevel - ocrLevel;
+    ctx.log(`  OCR 当前 Lv.${ocrLevel} → 目标 Lv.${targetLevel}: ${diff === 0 ? '无需调整' : (diff > 0 ? `+ ×${diff}` : `- ×${-diff}`)}`);
+    for (let i = 0; i < Math.abs(diff); i++) {
+      if (diff > 0) await ctx.tapRect(FORT_PLUS_RECT.x1, FORT_PLUS_RECT.y1, FORT_PLUS_RECT.x2, FORT_PLUS_RECT.y2);
+      else await ctx.tapRect(FORT_MINUS_RECT.x1, FORT_MINUS_RECT.y1, FORT_MINUS_RECT.x2, FORT_MINUS_RECT.y2);
       await ctx.sleep(0.15);
     }
+    currentLevel = targetLevel;
+  } else {
+    ctx.log(`  OCR 失败，fallback: 点击重置按钮回 Lv.1`);
+    await ctx.tap(FORT_LEVEL_RESET_BTN.x, FORT_LEVEL_RESET_BTN.y);
+    await ctx.sleep(0.3);
+    const plusClicks = targetLevel - 1;
+    if (plusClicks > 0) {
+      ctx.log(`  设置 Lv.${targetLevel}: + ×${plusClicks}`);
+      for (let i = 0; i < plusClicks; i++) {
+        await ctx.tapRect(FORT_PLUS_RECT.x1, FORT_PLUS_RECT.y1, FORT_PLUS_RECT.x2, FORT_PLUS_RECT.y2);
+        await ctx.sleep(0.15);
+      }
+    }
+    currentLevel = targetLevel;
   }
-  currentLevel = targetLevel;
 
   // 搜索 + 降级重试
   while (currentLevel >= 1) {
@@ -158,6 +272,19 @@ export async function rallyFort(
   ctx.log(`  [7/8] 确认集结时间 (${CONFIRM_TIME_BUTTON.x}, ${CONFIRM_TIME_BUTTON.y})`);
   await ctx.tapRect(CONFIRM_TIME_BUTTON_RECT.x1, CONFIRM_TIME_BUTTON_RECT.y1, CONFIRM_TIME_BUTTON_RECT.x2, CONFIRM_TIME_BUTTON_RECT.y2);
   await ctx.sleep(1);
+
+  // 部队推荐：勾选兵种（步/骑/弓），不限制则跳过
+  if (troopType !== 'any') {
+    const troopTapMap: Record<string, { x: number; y: number }> = {
+      infantry: { x: 864, y: 136 },
+      cavalry: { x: 1009, y: 136 },
+      archer: { x: 1152, y: 134 },
+    };
+    const tap = troopTapMap[troopType];
+    ctx.log(`  [部队推荐] ${troopType} → 点击 (${tap.x}, ${tap.y})`);
+    await ctx.tap(tap.x, tap.y);
+    await ctx.sleep(0.6);
+  }
 
   // 检测分页 + 拿到换页按钮坐标
   const pageResult = await ctx.findImageWithLocation(PAGE_INDICATOR_TEMPLATE, 0.8);
@@ -221,24 +348,60 @@ export async function rallyFort(
 
     ctx.log(`  ⚠️ 切换按钮不可见 → 行动力不足弹窗`);
 
-    if (marchAttempt === 1) {
-      const tiliButton = await ctx.findImageWithLocation(TILI_BUTTON_TEMPLATE, 0.8, [0.9, 1.0, 1.1], false, undefined, TILI_BUTTON_REGION);
-      ctx.log(`  [体力] 免费体力按钮: found=${tiliButton.found} conf=${tiliButton.confidence.toFixed(3)}`);
-      if (tiliButton.found) {
-        ctx.log(`  [体力] 领取免费体力 (${tiliButton.x}, ${tiliButton.y})`);
-        await ctx.tap(tiliButton.x, tiliButton.y);
-        await ctx.sleep(0.8);
-        await ctx.tap(1363, 103);  // 关闭行动力不足弹窗
+    if (marchAttempt >= 2) {
+      // 第二次仍失败，兜底关闭返回
+      await ctx.tap(CLOSE_STAMINA_POPUP.x, CLOSE_STAMINA_POPUP.y);
+      await ctx.sleep(0.5);
+      await ctx.tap(CLOSE_TEAM_PANEL_BUTTON.x, CLOSE_TEAM_PANEL_BUTTON.y);
+      await ctx.sleep(0.5);
+      await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
+      await ctx.sleep(2);
+      return { result: 'stamina_insufficient', dispatched: 0, foundLevel: currentLevel };
+    }
+
+    // Step A: 循环领免费体力（最多 2 次，或按钮消失）
+    const claimed = await claimAllFreeStamina(ctx);
+    ctx.log(`  [体力] 免费领取 ${claimed} 次`);
+
+    // Step B: 采样体力条颜色
+    const color = await readStaminaColor(ctx);
+    ctx.log(`  [体力] 判定颜色: ${color}`);
+
+    if (color === 'green') {
+      ctx.log(`  [体力] 充足 → 关闭弹窗重试行军`);
+      await ctx.tap(CLOSE_STAMINA_POPUP.x, CLOSE_STAMINA_POPUP.y);
+      await ctx.sleep(0.8);
+      continue;
+    }
+
+    // 非绿：视为体力不足
+    if (color === 'yellow' && usePotion) {
+      // Step C: 循环使用体力药水直到变绿
+      let becameGreen = false;
+      for (let i = 0; i < MAX_POTION_USES; i++) {
+        ctx.log(`  [体力] 使用药水 #${i + 1} → (${POTION_USE_BUTTON.x}, ${POTION_USE_BUTTON.y})`);
+        await ctx.tap(POTION_USE_BUTTON.x, POTION_USE_BUTTON.y);
+        await ctx.sleep(0.9);
+        const c = await readStaminaColor(ctx);
+        if (c === 'green') { becameGreen = true; break; }
+      }
+      if (becameGreen) {
+        ctx.log(`  [体力] 药水补至绿 → 关闭弹窗重试行军`);
+        await ctx.tap(CLOSE_STAMINA_POPUP.x, CLOSE_STAMINA_POPUP.y);
         await ctx.sleep(0.8);
         continue;
       }
+      ctx.log(`  [体力] 药水用尽仍未转绿 → 放弃`);
+    } else {
+      ctx.log(`  [体力] 不足（color=${color}, usePotion=${usePotion}）→ 放弃`);
     }
 
-    await ctx.tap(1363, 103);  // 关闭行动力不足弹窗
+    // 关闭 → 关队伍面板 → 切城内 → 返回
+    await ctx.tap(CLOSE_STAMINA_POPUP.x, CLOSE_STAMINA_POPUP.y);
     await ctx.sleep(0.5);
-    await ctx.tap(CLOSE_TEAM_PANEL_BUTTON.x, CLOSE_TEAM_PANEL_BUTTON.y);  // 关闭队伍面板
+    await ctx.tap(CLOSE_TEAM_PANEL_BUTTON.x, CLOSE_TEAM_PANEL_BUTTON.y);
     await ctx.sleep(0.5);
-    await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);  // 切换到城内
+    await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
     await ctx.sleep(2);
     return { result: 'stamina_insufficient', dispatched: 0, foundLevel: currentLevel };
   }

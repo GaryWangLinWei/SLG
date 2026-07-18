@@ -5,6 +5,58 @@ import { ensureTeamPage, TeamPage } from '../utils/teamPage';
 import { ocrService } from '../../../core/ocr/OcrService';
 import * as path from 'path';
 import * as fs from 'fs/promises';
+import sharp from 'sharp';
+
+const STAMINA_BAR_RECT = { x1: 557, y1: 174, x2: 575, y2: 197 };
+const POTION_USE_BUTTON = { x: 1200, y: 326 };
+const CLOSE_STAMINA_POPUP = { x: 1363, y: 103 };
+const MAX_FREE_TILI_CLICKS = 2;
+const MAX_POTION_USES = 10;
+const TILI_BUTTON_REGION = { x: 1014, y: 242, width: 1588 - 1014, height: 407 - 242 };
+
+type StaminaColor = 'green' | 'yellow' | 'unknown';
+
+async function readStaminaColor(ctx: PluginContext): Promise<StaminaColor> {
+  let shot: string | null = null;
+  try {
+    shot = await ctx.captureRegion(
+      STAMINA_BAR_RECT.x1, STAMINA_BAR_RECT.y1,
+      STAMINA_BAR_RECT.x2 - STAMINA_BAR_RECT.x1,
+      STAMINA_BAR_RECT.y2 - STAMINA_BAR_RECT.y1,
+    );
+    const { data, info } = await sharp(shot).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    let sumR = 0, sumG = 0, sumB = 0;
+    const pixels = info.width * info.height;
+    for (let i = 0; i < data.length; i += 3) {
+      sumR += data[i]; sumG += data[i + 1]; sumB += data[i + 2];
+    }
+    const r = sumR / pixels, g = sumG / pixels, b = sumB / pixels;
+    ctx.log(`  [体力条] RGB=(${r.toFixed(0)},${g.toFixed(0)},${b.toFixed(0)})`);
+    if (g > r + 20 && g > b + 20) return 'green';
+    if (r > 120 && g > 90 && Math.abs(r - g) < 60 && b < Math.min(r, g) - 40) return 'yellow';
+    return 'unknown';
+  } catch (e) {
+    ctx.log(`  [体力条] 采样异常: ${(e as Error).message}`);
+    return 'unknown';
+  } finally {
+    if (shot) await fs.unlink(shot).catch(() => {});
+  }
+}
+
+async function claimAllFreeStamina(ctx: PluginContext): Promise<number> {
+  const tpl = path.join(getTemplatesDir(), 'btn_tili.png');
+  let claimed = 0;
+  for (let i = 0; i < MAX_FREE_TILI_CLICKS; i++) {
+    const btn = await ctx.findImageWithLocation(tpl, 0.8, [0.9, 1.0, 1.1], false, undefined, TILI_BUTTON_REGION);
+    ctx.log(`  [体力] 免费按钮检测 #${i + 1}: found=${btn.found} conf=${btn.confidence.toFixed(3)}`);
+    if (!btn.found) break;
+    ctx.log(`  [体力] 点击免费按钮 (${btn.x}, ${btn.y})`);
+    await ctx.tap(btn.x, btn.y);
+    await ctx.sleep(0.8);
+    claimed++;
+  }
+  return claimed;
+}
 
 const TEMPLATE_DIR = getTemplatesDir();
 const PAGE_INDICATOR_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_page_indicator.png');
@@ -67,6 +119,8 @@ export async function joinRally(
     targetLohar: boolean;
     maxDistance: number;
     firstRun?: boolean;
+    usePotion?: boolean;
+    useDefaultTeam?: boolean;
   }
 ): Promise<JoinRallyOutcome> {
   ctx.log(`=== 加入集结 队伍${params.team} 最大距离${params.maxDistance}公里 ===`);
@@ -109,16 +163,16 @@ export async function joinRally(
   await ctx.tap(stateResult.x, stateResult.y);
   await ctx.sleep(1.5);
 
-  // [3/6] 首次运行：按距离排序
-  if (isFirstRun) {
-    ctx.log('  [3/6] 首次运行：设置按距离排序');
-    await ctx.tap(SORT_SETTINGS_BUTTON.x, SORT_SETTINGS_BUTTON.y);
-    await ctx.sleep(1);
-    await ctx.tap(SORT_BY_DISTANCE_BUTTON.x, SORT_BY_DISTANCE_BUTTON.y);
-    await ctx.sleep(0.5);
-  } else {
-    ctx.log('  [3/6] 非首次运行：跳过排序设置');
-  }
+  // [3/6] 每次都按距离排序（原首次运行判断暂时注释）
+  // if (isFirstRun) {
+  ctx.log('  [3/6] 设置按距离排序');
+  await ctx.tap(SORT_SETTINGS_BUTTON.x, SORT_SETTINGS_BUTTON.y);
+  await ctx.sleep(1);
+  await ctx.tap(SORT_BY_DISTANCE_BUTTON.x, SORT_BY_DISTANCE_BUTTON.y);
+  await ctx.sleep(0.5);
+  // } else {
+  //   ctx.log('  [3/6] 非首次运行：跳过排序设置');
+  // }
 
   // [4/6] 遍历三栏识别可加入的集结
   ctx.log('  [4/6] 遍历三栏识别可加入的集结...');
@@ -172,6 +226,16 @@ export async function joinRally(
 
     const distPath = await ctx.captureRegion(col.distance.x, col.distance.y, col.distance.width, col.distance.height);
     const distText = await ocrService.readDistance(distPath);
+    // 调试：保存 OCR 区域截图（文件名后缀带识别结果）
+    try {
+      const debugDir = path.join(process.cwd(), 'temp', 'debug', 'joinrally_ocr');
+      await fs.mkdir(debugDir, { recursive: true });
+      const saved = path.join(debugDir, `dist_${Date.now()}_d${distText || 'x'}.png`);
+      await fs.copyFile(distPath, saved);
+      ctx.log(`    [调试] OCR 区域已保存: ${saved}`);
+    } catch (e) {
+      ctx.log(`    [调试] 保存截图失败: ${(e as Error).message}`);
+    }
     await fs.unlink(distPath).catch(() => {});
     ctx.log(`    距离 OCR: "${distText}"`);
 
@@ -229,43 +293,47 @@ export async function joinRally(
   // [6/6] 选择队伍并行军（复用 rallyFort 逻辑）
   ctx.log('  [6/6] 选择队伍并行军...');
 
-  const pageResult = await ctx.findImageWithLocation(PAGE_INDICATOR_TEMPLATE, 0.8);
-  const hasPaging = pageResult.found;
-  if (hasPaging) {
-    ctx.log(`  换页按钮: 存在 (>7组) @ (${pageResult.x},${pageResult.y})`);
+  if (params.useDefaultTeam) {
+    ctx.log('  使用默认队伍，跳过换页和队伍选择');
   } else {
-    ctx.log(`  换页按钮: 不存在 (≤7组)`);
-  }
+    const pageResult = await ctx.findImageWithLocation(PAGE_INDICATOR_TEMPLATE, 0.8);
+    const hasPaging = pageResult.found;
+    if (hasPaging) {
+      ctx.log(`  换页按钮: 存在 (>7组) @ (${pageResult.x},${pageResult.y})`);
+    } else {
+      ctx.log(`  换页按钮: 不存在 (≤7组)`);
+    }
 
-  if (hasPaging) {
-    const onTargetPage = await ensureTeamPage(
-      ctx,
-      params.teamPage,
-      { x: pageResult.x, y: pageResult.y },
-      { x: 1361, y: 359, w: 36, h: 35 }
-    );
-    if (!onTargetPage) {
-      ctx.log(`  ⚠️ 未能切换到目标队伍页`);
+    if (hasPaging) {
+      const onTargetPage = await ensureTeamPage(
+        ctx,
+        params.teamPage,
+        { x: pageResult.x, y: pageResult.y },
+        { x: 1361, y: 359, w: 36, h: 35 }
+      );
+      if (!onTargetPage) {
+        ctx.log(`  ⚠️ 未能切换到目标队伍页`);
+        return { result: 'team_unavailable', joined: 0, targetType: detectedTarget!, distance: detectedDistance };
+      }
+    }
+
+    const teamButtons = hasPaging ? TEAM_BUTTONS_PAGED : TEAM_BUTTONS_NO_PAGE;
+    const teamBtn = teamButtons[params.team];
+    if (!teamBtn) {
+      ctx.log(`  ❌ 无效的队伍序号: ${params.team}`);
       return { result: 'team_unavailable', joined: 0, targetType: detectedTarget!, distance: detectedDistance };
     }
-  }
 
-  const teamButtons = hasPaging ? TEAM_BUTTONS_PAGED : TEAM_BUTTONS_NO_PAGE;
-  const teamBtn = teamButtons[params.team];
-  if (!teamBtn) {
-    ctx.log(`  ❌ 无效的队伍序号: ${params.team}`);
-    return { result: 'team_unavailable', joined: 0, targetType: detectedTarget!, distance: detectedDistance };
-  }
+    ctx.log(`  选择队伍 ${params.team} (${teamBtn.x}, ${teamBtn.y})`);
+    const stateResult2 = await ctx.checkButtonStateChange(teamBtn.x, teamBtn.y, 150, 50, 0.1);
+    ctx.log(`  像素变化率: ${(stateResult2.diffPercentage * 100).toFixed(1)}%, changed: ${stateResult2.changed}`);
 
-  ctx.log(`  选择队伍 ${params.team} (${teamBtn.x}, ${teamBtn.y})`);
-  const stateResult2 = await ctx.checkButtonStateChange(teamBtn.x, teamBtn.y, 150, 50, 0.1);
-  ctx.log(`  像素变化率: ${(stateResult2.diffPercentage * 100).toFixed(1)}%, changed: ${stateResult2.changed}`);
-
-  if (!stateResult2.changed) {
-    ctx.log(`  ⚠️ 队伍${params.team}不可用，按钮无选中状态变化`);
-    await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);  // 关闭队伍面板
-    await ctx.sleep(0.5);
-    return { result: 'team_unavailable', joined: 0, targetType: detectedTarget!, distance: detectedDistance };
+    if (!stateResult2.changed) {
+      ctx.log(`  ⚠️ 队伍${params.team}不可用，按钮无选中状态变化`);
+      await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);  // 关闭队伍面板
+      await ctx.sleep(0.5);
+      return { result: 'team_unavailable', joined: 0, targetType: detectedTarget!, distance: detectedDistance };
+    }
   }
 
   // 点击行军；先检测胜算不足弹窗，再检测行动力不足，有免费体力则领取重试
@@ -298,24 +366,56 @@ export async function joinRally(
 
     ctx.log(`  ⚠️ 切换按钮不可见 → 行动力不足弹窗`);
 
-    if (marchAttempt === 1) {
-      const tiliButton = await ctx.findImageWithLocation(path.join(TEMPLATE_DIR, 'btn_tili.png'), 0.8, [0.9, 1.0, 1.1], false, undefined, { x: 1014, y: 242, width: 1588 - 1014, height: 407 - 242 });
-      ctx.log(`  [体力] 免费体力按钮: found=${tiliButton.found} conf=${tiliButton.confidence.toFixed(3)}`);
-      if (tiliButton.found) {
-        ctx.log(`  [体力] 领取免费体力 (${tiliButton.x}, ${tiliButton.y})`);
-        await ctx.tap(tiliButton.x, tiliButton.y);
-        await ctx.sleep(0.8);
-        await ctx.tap(1363, 103);  // 关闭行动力不足弹窗
+    if (marchAttempt >= 2) {
+      await ctx.tap(CLOSE_STAMINA_POPUP.x, CLOSE_STAMINA_POPUP.y);
+      await ctx.sleep(0.5);
+      await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
+      await ctx.sleep(0.5);
+      await ctx.tap(80, 830);
+      await ctx.sleep(1);
+      return { result: 'stamina_insufficient', joined: 0, targetType: detectedTarget!, distance: detectedDistance };
+    }
+
+    // Step A: 循环领免费体力
+    const claimed = await claimAllFreeStamina(ctx);
+    ctx.log(`  [体力] 免费领取 ${claimed} 次`);
+
+    // Step B: 采样体力条颜色
+    const color = await readStaminaColor(ctx);
+    ctx.log(`  [体力] 判定颜色: ${color}`);
+
+    if (color === 'green') {
+      ctx.log(`  [体力] 充足 → 关闭弹窗重试行军`);
+      await ctx.tap(CLOSE_STAMINA_POPUP.x, CLOSE_STAMINA_POPUP.y);
+      await ctx.sleep(0.8);
+      continue;
+    }
+
+    if (color === 'yellow' && params.usePotion) {
+      let becameGreen = false;
+      for (let i = 0; i < MAX_POTION_USES; i++) {
+        ctx.log(`  [体力] 使用药水 #${i + 1} → (${POTION_USE_BUTTON.x}, ${POTION_USE_BUTTON.y})`);
+        await ctx.tap(POTION_USE_BUTTON.x, POTION_USE_BUTTON.y);
+        await ctx.sleep(0.9);
+        const c = await readStaminaColor(ctx);
+        if (c === 'green') { becameGreen = true; break; }
+      }
+      if (becameGreen) {
+        ctx.log(`  [体力] 药水补至绿 → 关闭弹窗重试行军`);
+        await ctx.tap(CLOSE_STAMINA_POPUP.x, CLOSE_STAMINA_POPUP.y);
         await ctx.sleep(0.8);
         continue;
       }
+      ctx.log(`  [体力] 药水用尽仍未转绿 → 放弃`);
+    } else {
+      ctx.log(`  [体力] 不足（color=${color}, usePotion=${params.usePotion === true}）→ 放弃`);
     }
 
-    await ctx.tap(1363, 103);  // 关闭行动力不足弹窗
+    await ctx.tap(CLOSE_STAMINA_POPUP.x, CLOSE_STAMINA_POPUP.y);
     await ctx.sleep(0.5);
-    await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);  // 关闭队伍面板
+    await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
     await ctx.sleep(0.5);
-    await ctx.tap(80, 830); // 点击回城按钮
+    await ctx.tap(80, 830);
     await ctx.sleep(1);
     return { result: 'stamina_insufficient', joined: 0, targetType: detectedTarget!, distance: detectedDistance };
   }

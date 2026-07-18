@@ -35,6 +35,8 @@ export interface HomeFeatures {
   rallyFortTeam: number;
   rallyFortTeamPage: TeamPageChoice;
   rallyFortDowngrade: boolean;
+  rallyFortUsePotion: boolean;
+  rallyFortTroopType: 'any' | 'infantry' | 'cavalry' | 'archer';
   shareGemEnabled: boolean;
   shareGemStartX: number;
   shareGemStartY: number;
@@ -46,6 +48,9 @@ export interface HomeFeatures {
   gemGatherRestHours: number;
   gemGatherMixRatio: number;
   gemGatherMaxDistance: number;
+  gemGatherSharedOnly: boolean;
+  /** 滑动搜索后额外等待秒数（默认 0）。用于慢速模拟器给渲染更长时间 */
+  gemGatherExtraSwipePauseSec: number;
   gemSearchWeights: { spiral: number; reverseSpiral: number; randomWalk: number; snake: number };
   autoCaveExplore: boolean;
   nightMode: boolean;
@@ -55,6 +60,8 @@ export interface HomeFeatures {
   joinRallyTargetFort: boolean;
   joinRallyTargetLohar: boolean;
   joinRallyMaxDistance: number;
+  joinRallyUsePotion: boolean;
+  joinRallyUseDefaultTeam: boolean;
   produceMaterialEnabled: boolean;
   produceMaterialType: 'leather' | 'iron' | 'ebony' | 'bone';
   attackDetectEnabled: boolean;
@@ -97,6 +104,8 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   rallyFortTeam: 1,
   rallyFortTeamPage: 'attack',
   rallyFortDowngrade: true,
+  rallyFortUsePotion: false,
+  rallyFortTroopType: 'any',
   shareGemEnabled: false,
   shareGemStartX: 0,
   shareGemStartY: 0,
@@ -108,6 +117,8 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   gemGatherRestHours: 1,
   gemGatherMixRatio: 0.5,
   gemGatherMaxDistance: 100,
+  gemGatherSharedOnly: false,
+  gemGatherExtraSwipePauseSec: 0,
   gemSearchWeights: { spiral: 40, reverseSpiral: 40, randomWalk: 10, snake: 10 },
   autoCaveExplore: false,
   nightMode: false,
@@ -117,6 +128,8 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   joinRallyTargetFort: true,
   joinRallyTargetLohar: true,
   joinRallyMaxDistance: 50,
+  joinRallyUsePotion: false,
+  joinRallyUseDefaultTeam: false,
   produceMaterialEnabled: false,
   produceMaterialType: 'leather',
   attackDetectEnabled: false,

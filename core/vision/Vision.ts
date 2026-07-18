@@ -1,10 +1,12 @@
 import * as fs from 'fs/promises';
 import * as fsSync from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import sharp from 'sharp';
 import { ImageMatchResult, Rect, Point } from '../types';
 
-const TEMP_DIR = path.join(process.cwd(), 'temp', 'vision');
+// 用系统用户临时目录，避免 exe 安装到 C:\Program Files 时无权写 cwd
+const TEMP_DIR = path.join(os.tmpdir(), 'rok-automation', 'vision');
 
 // Ensure temp directory exists
 if (!fsSync.existsSync(TEMP_DIR)) {

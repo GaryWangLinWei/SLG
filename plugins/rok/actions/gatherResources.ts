@@ -7,6 +7,60 @@ import sharp from 'sharp';
 import { ensureInWorld } from '../utils/location';
 import { ensureTeamPage, TeamPage } from '../utils/teamPage';
 import { getTeamButtons } from '../utils/teamButtons';
+import { ocrService } from '../../../core/ocr/OcrService';
+
+const MAX_LEVEL = 8;
+
+// 等级重置按钮坐标（点一次直接回到 Lv.1）
+const LEVEL_RESET_BTN: Record<string, { x: number; y: number }> = {
+  '农田':   { x: 423,  y: 525 },
+  '伐木场': { x: 665,  y: 523 },
+  '石矿':   { x: 902,  y: 523 },
+  '金矿':   { x: 1139, y: 523 },
+};
+
+// 等级数字显示区域（minus 和 plus 中间的 "Lv.N" 数字）
+const LEVEL_RECTS: Record<string, { x1: number; y1: number; x2: number; y2: number }> = {
+  '农田':   { x1: 391,  y1: 478, x2: 734,  y2: 501 },
+  '伐木场': { x1: 631,  y1: 478, x2: 978,  y2: 501 },
+  '石矿':   { x1: 868,  y1: 478, x2: 1214, y2: 501 },
+  '金矿':   { x1: 1107, y1: 478, x2: 1450, y2: 501 },
+};
+
+/** 截取等级区域并 OCR 读数字，失败返回 null */
+async function readCurrentLevel(ctx: PluginContext, type: string): Promise<number | null> {
+  const rect = LEVEL_RECTS[type];
+  if (!rect) return null;
+  let shot: string | null = null;
+  try {
+    shot = await ctx.captureRegion(rect.x1, rect.y1, rect.x2 - rect.x1, rect.y2 - rect.y1);
+
+    // 预处理：3x 放大 + 灰度 + 二值化，方便 tesseract 识别小字
+    const processed = shot.replace(/\.png$/i, '_lvl.png');
+    await sharp(shot)
+      .resize({ width: (rect.x2 - rect.x1) * 3, kernel: 'nearest' })
+      .grayscale()
+      .normalise()
+      .threshold(160)
+      .toFile(processed);
+
+    const txt = await ocrService.readDigits(processed);
+    ctx.log(`  [OCR] 等级原始识别: "${txt}" (${type})`);
+    await fs.unlink(processed).catch(() => {});
+
+    const digits = txt.replace(/\D/g, '');
+    if (!digits) return null;
+    // 若识别出多个数字（如 "18"），只取最后一位（等级：1 时可能有杂数字）
+    const n = parseInt(digits.slice(-1), 10);
+    if (n >= 1 && n <= MAX_LEVEL) return n;
+    return null;
+  } catch (e) {
+    ctx.log(`  [OCR] 等级识别异常: ${(e as Error).message}`);
+    return null;
+  } finally {
+    if (shot) await fs.unlink(shot).catch(() => {});
+  }
+}
 
 const TEMPLATE_DIR = getTemplatesDir();
 const PAGE_INDICATOR_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_page_indicator.png');
@@ -93,28 +147,51 @@ export async function gatherSingleResource(
 
   const buttonRects = RESOURCE_BUTTON_RECTS[task.type];
 
-  ctx.log(`  [4/9] 重置到1级: 快速点击 - ×7`);
-  for (let i = 0; i < 7; i++) {
-    if (buttonRects) await ctx.tapRect(buttonRects.minus.x1, buttonRects.minus.y1, buttonRects.minus.x2, buttonRects.minus.y2);
-    else await ctx.tap(minusX, minusY);
-    await ctx.sleep(0.15);
-  }
+  // Step 4: OCR 读当前等级，只点差值次数（读不到则退回"减 MAX_LEVEL-1 次"兜底）
+  const ocrLevel = await readCurrentLevel(ctx, task.type);
+  let currentLevel: number;
 
-  // Step 5: Set level and search with downgrade retry
-  let currentLevel = 1;
-  let searchSuccess = false;
-
-  // First attempt: set to target level
-  const initialClicks = task.level - 1;
-  if (initialClicks > 0) {
-    ctx.log(`  [5/9] 设置 Lv.${task.level}: + ×${initialClicks}`);
-    for (let i = 0; i < initialClicks; i++) {
-      if (buttonRects) await ctx.tapRect(buttonRects.plus.x1, buttonRects.plus.y1, buttonRects.plus.x2, buttonRects.plus.y2);
-      else await ctx.tap(plusX, plusY);
+  if (ocrLevel !== null) {
+    const diff = task.level - ocrLevel;
+    ctx.log(`  [4/9] OCR 当前 Lv.${ocrLevel} → 目标 Lv.${task.level}: ${diff === 0 ? '无需调整' : (diff > 0 ? `+ ×${diff}` : `- ×${-diff}`)}`);
+    for (let i = 0; i < Math.abs(diff); i++) {
+      if (diff > 0) {
+        if (buttonRects) await ctx.tapRect(buttonRects.plus.x1, buttonRects.plus.y1, buttonRects.plus.x2, buttonRects.plus.y2);
+        else await ctx.tap(plusX, plusY);
+      } else {
+        if (buttonRects) await ctx.tapRect(buttonRects.minus.x1, buttonRects.minus.y1, buttonRects.minus.x2, buttonRects.minus.y2);
+        else await ctx.tap(minusX, minusY);
+      }
       await ctx.sleep(0.15);
     }
+    currentLevel = task.level;
+  } else {
+    ctx.log(`  [4/9] OCR 读等级失败，fallback: 点击重置按钮回到 Lv.1`);
+    const resetBtn = LEVEL_RESET_BTN[task.type];
+    if (resetBtn) {
+      await ctx.tap(resetBtn.x, resetBtn.y);
+      await ctx.sleep(0.3);
+    } else {
+      // 无重置按钮配置，退回连点减号
+      for (let i = 0; i < MAX_LEVEL - 1; i++) {
+        if (buttonRects) await ctx.tapRect(buttonRects.minus.x1, buttonRects.minus.y1, buttonRects.minus.x2, buttonRects.minus.y2);
+        else await ctx.tap(minusX, minusY);
+        await ctx.sleep(0.15);
+      }
+    }
+    const initialClicks = task.level - 1;
+    if (initialClicks > 0) {
+      ctx.log(`  [5/9] 设置 Lv.${task.level}: + ×${initialClicks}`);
+      for (let i = 0; i < initialClicks; i++) {
+        if (buttonRects) await ctx.tapRect(buttonRects.plus.x1, buttonRects.plus.y1, buttonRects.plus.x2, buttonRects.plus.y2);
+        else await ctx.tap(plusX, plusY);
+        await ctx.sleep(0.15);
+      }
+    }
+    currentLevel = task.level;
   }
-  currentLevel = task.level;
+
+  let searchSuccess = false;
 
   while (currentLevel >= 1) {
     ctx.log(`  [5/9] 搜索 Lv.${currentLevel} (${searchX}, ${searchY})`);

@@ -91,18 +91,19 @@ export async function switchAccount(ctx: PluginContext, targetName: string): Pro
   ctx.log(`  点击 (${tx}, ${ty}) 进入游戏`);
   await ctx.tap(tx, ty);
 
-  ctx.log(`  等待 15s 加载...`);
-  await ctx.sleep(15);
+  ctx.log(`  等待 20s 加载...`);
+  await ctx.sleep(20);
 
-  // 轮询城内 landmark 最多 60s
+  // 轮询城内 landmark 最多 60s，每 2s 一次
+  ctx.log(`  每 2s 轮询进城，最多 60s`);
   const pollStart = Date.now();
   while (Date.now() - pollStart < 60_000) {
+    await ctx.sleep(2);
     const loc = await getCurrentLocation(ctx);
     if (loc === 'city') {
       ctx.log(`  ✅ 已回到城内，切号成功`);
       return 'success';
     }
-    await ctx.sleep(2);
   }
   ctx.log(`  ❌ 60s 内未检测到城内界面`);
   return 'load_timeout';

@@ -302,7 +302,7 @@ export class AdbDevice implements Device {
     return points;
   }
 
-  async swipe(x1: number, y1: number, x2: number, y2: number, duration: number = 500, useBezier: boolean = false): Promise<void> {
+  async swipe(x1: number, y1: number, x2: number, y2: number, duration: number = 500, useBezier: boolean = false, singleShot: boolean = false): Promise<void> {
     const sx1 = this.jitterCoord(x1);
     const sy1 = this.jitterCoord(y1);
     const sx2 = this.jitterCoord(x2);
@@ -310,6 +310,15 @@ export class AdbDevice implements Device {
     const jitteredDuration = Math.round(this.randConfig.enabled
       ? duration * (0.8 + Math.random() * 0.4)
       : duration);
+
+    // singleShot：一条原始 input swipe，不分段（用于短 fling 触发惯性）
+    if (singleShot) {
+      await this.execAdb(
+        `"${getAdbPath()}" -s ${this.deviceId} shell input swipe ${sx1} ${sy1} ${sx2} ${sy2} ${jitteredDuration}`,
+        `单次滑动 (${x1},${y1})→(${x2},${y2}) dur=${jitteredDuration}`
+      );
+      return;
+    }
 
     if (!this.randConfig.enabled || !useBezier) {
       // 普通直线滑动（默认）：3-5 段 + Y 轴微小偏移

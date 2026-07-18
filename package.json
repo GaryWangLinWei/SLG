@@ -1,6 +1,6 @@
 {
   "name": "rok-automation",
-  "version": "1.1.5",
+  "version": "1.1.7",
   "description": "万国觉醒自动化助手",
   "main": "dist/electron/main.js",
   "scripts": {
@@ -20,7 +20,7 @@
     "appId": "com.rok.automation",
     "productName": "ROK助手",
     "releaseInfo": {
-      "releaseNotes": "1.1.5更新内容\n1.重复采矿bug修复\n2.账号调度、加入集结权限修改（改回pro权限）\n3.迷雾探索取消独立模式"
+      "releaseNotes": "1.1.7更新内容\n1.加入集结新增\"使用系统编队\"选项，方便帮别人集结不混兵\n2.自动攻打城寨新增部队推荐下拉，方便别人加入你的集结不混兵\n3.修复部分情况下无法加入集结的 bug\n4.优化宝石采集滑动搜索"
     },
     "directories": {
       "output": "release"

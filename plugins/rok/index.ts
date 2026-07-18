@@ -790,7 +790,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       id: 'gem-gather',
       name: '智能采集宝石',
       description: '使用图像识别螺旋搜索宝石矿并派出队伍采集',
-      run: async (ctx, params: { teams?: number[]; teamPage?: TeamPage; searchWeights?: any; maxDistance?: number } = {}) => {
+      run: async (ctx, params: { teams?: number[]; teamPage?: TeamPage; searchWeights?: any; maxDistance?: number; extraSwipePauseSec?: number } = {}) => {
         if (await ensureNoPopupBlocking(ctx, 'gem-gather')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const teams = params.teams || [1];
@@ -820,7 +820,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
           ctx.log('⚠️ 未识别到队伍计数，继续宝石采集');
         }
 
-        const outcome = await gatherGem(ctx, config, teams, { teamPage: params.teamPage ?? 'gather', searchWeights: params.searchWeights, maxDistance: params.maxDistance });
+        const outcome = await gatherGem(ctx, config, teams, { teamPage: params.teamPage ?? 'gather', searchWeights: params.searchWeights, maxDistance: params.maxDistance, extraSwipePauseSec: params.extraSwipePauseSec ?? 0 });
         ctx.log(`宝石采集: 队伍[${teams.join(', ')}] → ${outcome.result}，派出 ${outcome.dispatched} 队`);
       }
     },

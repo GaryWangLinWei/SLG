@@ -199,10 +199,13 @@ export async function gatherGemFocus(
   teams: number[],
   teamPage: TeamPage = 'gather',
   searchWeights?: GemSearchWeights,
+  maxDistance?: number,
+  initialCoords?: string[],
 ): Promise<GemGatherOutcome> {
   ctx.log(`=== 宝石采集专注模式 队伍[${teams.join(', ')}] ===`);
   const worldBtn = config.resourceCollect.worldSwitchButton;
-  const collectedCoords: string[] = [];
+  const collectedCoords: string[] = initialCoords ? [...initialCoords] : [];
+  if (collectedCoords.length > 0) ctx.log(`  [坐标] 携带跨轮记忆 ${collectedCoords.length} 个`);
   const spiralState = await createSpiralState(ctx, config, searchWeights);
   let dispatched = 0;
   let hasPaging: boolean | null = null;
@@ -264,7 +267,7 @@ export async function gatherGemFocus(
     await zoomOutToWorld(ctx, worldBtn);
     // 每次接续派矿都从新螺旋开始搜，避免沿用上一轮已耗尽的 spiralState 直接返回搜不到矿
     Object.assign(spiralState, await createSpiralState(ctx, config, searchWeights));
-    const gem = await searchAndClickGem(ctx, config, spiralState, collectedCoords);
+    const gem = await searchAndClickGem(ctx, config, spiralState, collectedCoords, maxDistance);
     if (!gem.found) {
       ctx.log('[step 3.2] 搜不到矿，退大 UI 回 step 1');
       await ctx.tap(EXIT_LARGE_UI_BUTTON.x, EXIT_LARGE_UI_BUTTON.y);
