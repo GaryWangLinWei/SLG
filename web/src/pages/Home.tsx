@@ -26,6 +26,32 @@ const GATHER_LOOP_INTERVAL = 300; // 城外采集独立循环间隔（秒）
 // 宝石已采集坐标跨轮次记忆：按 accountId 隔离，1 小时 TTL 自动过期
 const GEM_COORD_TTL_MS = 60 * 60 * 1000;
 const gemCoordMemory: Map<string, { coord: string; ts: number }[]> = new Map();
+
+// 分享矿已分享坐标记忆：按 accountId 隔离，无 TTL，start 时清空、stop 保留、切号不影响
+const sharedGemCoordMemory: Map<string, Set<string>> = new Map();
+function getSharedGemCoords(accountId: string): string[] {
+  return [...(sharedGemCoordMemory.get(accountId) ?? new Set<string>())];
+}
+function recordSharedGemCoordsFromLogs(accountId: string, logs: string[]): number {
+  const set = sharedGemCoordMemory.get(accountId) ?? new Set<string>();
+  let added = 0;
+  for (const line of logs) {
+    const m = line.match(/\[坐标\]\s*记录已分享:\s*(\S+)/);
+    if (m) {
+      const coord = m[1].replace(/[^0-9]/g, '');
+      if (coord && !set.has(coord)) {
+        set.add(coord);
+        added++;
+      }
+    }
+  }
+  if (added > 0) sharedGemCoordMemory.set(accountId, set);
+  return added;
+}
+function clearAllSharedGemMemory() {
+  sharedGemCoordMemory.clear();
+}
+
 function getFreshGemCoords(accountId: string): string[] {
   const now = Date.now();
   const arr = gemCoordMemory.get(accountId) ?? [];
@@ -754,6 +780,8 @@ export function HomePage() {
       const cr = await api.tasks.create(currentAccountId, 'com.rok.automation', 'clear-shared-gem-pool');
       if (cr.success) await api.tasks.run(cr.task.id);
     } catch {}
+    // 清空所有账号的「已分享坐标」记忆（生命周期 = 开始→下一次开始）
+    clearAllSharedGemMemory();
     saveLoopState(currentAccountId);
     setTaskRunning(true);
 
@@ -1444,9 +1472,12 @@ export function HomePage() {
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
             try {
+              const memShared = getSharedGemCoords(currentAccountId);
+              if (memShared.length > 0) pushLog(`💎 携带已分享坐标 ${memShared.length} 个`);
               const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'share-gem', {
                 startX: featuresRef.current.shareGemStartX,
                 startY: featuresRef.current.shareGemStartY,
+                recordedCoords: memShared,
               });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
@@ -1455,6 +1486,8 @@ export function HomePage() {
                 runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
                 setRunningTaskIds([...runningTaskIdsRef.current]);
                 const logs = runResult.task?.logs ?? [];
+                const addedShared = recordSharedGemCoordsFromLogs(currentAccountId, logs);
+                if (addedShared > 0) pushLog(`💎 分享记忆新增 ${addedShared} 个（共 ${getSharedGemCoords(currentAccountId).length}）`);
                 const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
                 if (hasExpiredLog) {
                   pushLog(`⛔ 许可证已到期，停止运行`);

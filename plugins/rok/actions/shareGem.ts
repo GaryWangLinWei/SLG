@@ -30,6 +30,8 @@ export interface ShareGemParams {
   startY: number;
   searchWeights?: GemSearchWeights;
   maxDistance?: number;
+  /** 跨轮记忆：本次运行内已分享过的坐标（Home.tsx 从日志累计，start 时清空） */
+  recordedCoords?: string[];
 }
 
 export interface ShareGemOutcome {
@@ -108,7 +110,8 @@ export async function shareGem(
   ctx.log('[step 3] 缩地后开始螺旋搜索');
   await zoomOutToWorld(ctx, worldBtn);
   const spiralState = await createSpiralState(ctx, config, searchWeights);
-  const sharedCoords: string[] = [];
+  const sharedCoords: string[] = params.recordedCoords ? [...params.recordedCoords] : [];
+  if (sharedCoords.length > 0) ctx.log(`  [记忆] 携带已分享坐标 ${sharedCoords.length} 个`);
   let consecutiveFails = 0;
   let shared = 0;
 
