@@ -2575,7 +2575,7 @@ export function HomePage() {
                   <div className="flex items-center gap-3 mt-2">
                     <label className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition-colors ${
                       features.gemGatherSharedOnly
-                        ? 'bg-amber-50 text-amber-700'
+                        ? 'bg-rose-50 text-rose-700'
                         : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
                     } ${(!features.gemGatherEnabled || isFeatureLocked('gemGather')) ? 'opacity-40 cursor-not-allowed' : ''}`}>
                       <input type="checkbox"
@@ -2584,10 +2584,11 @@ export function HomePage() {
                         disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
                         className="sr-only peer" />
                       <span className={`w-[18px] h-[18px] rounded-[5px] border-2 flex items-center justify-center text-[11px] ${
-                        features.gemGatherSharedOnly ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-slate-300 text-transparent'
+                        features.gemGatherSharedOnly ? 'bg-rose-500 border-rose-500 text-white' : 'bg-white border-slate-300 text-transparent'
                       }`}>✓</span>
                       采集分享矿
                     </label>
+                    <span className="text-xs text-slate-400">不搜矿，只采集小号分享的矿</span>
                   </div>
 
                   {/* 最大采集距离 */}
