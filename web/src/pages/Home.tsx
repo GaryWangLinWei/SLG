@@ -2606,7 +2606,10 @@ export function HomePage() {
 
                   {/* 滑动后额外等待时间 */}
                   <div className="flex items-center justify-between mt-2">
-                    <span className="text-xs text-slate-500 whitespace-nowrap">滑动后额外等待</span>
+                    <span className="text-xs text-slate-500 whitespace-nowrap flex items-center gap-2">
+                      滑动后额外等待
+                      <span className="text-xs text-slate-400 font-normal">如识别正常无需调节</span>
+                    </span>
                     <div className="flex items-center gap-1">
                       <input type="number" value={features.gemGatherExtraSwipePauseSec ?? 0}
                         onChange={(e) => setFeatures({ ...features, gemGatherExtraSwipePauseSec: Math.min(5, Math.max(0, Number(e.target.value) || 0)) })}
