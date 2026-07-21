@@ -23,3 +23,7 @@ server-auth/yolov8n.pt
 
 # VPS 数据库备份（含用户激活码与设备指纹，禁止入库）
 backups/
+
+# 运行时截图和调试产物
+temp/
+
