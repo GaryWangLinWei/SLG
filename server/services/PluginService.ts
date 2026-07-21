@@ -19,6 +19,7 @@ class PluginService {
   private yoloDetector: YoloDetector | null = null;
   private stateDetector: YoloDetector | null = null;
   private heroDetector: YoloDetector | null = null;
+  private bigGemDetector: YoloDetector | null = null;
 
   async initYoloDetector(): Promise<void> {
     const modelPath = path.join(getModelsDir(), 'gem.onnx');
@@ -47,6 +48,15 @@ class PluginService {
       console.warn('[PluginService] hero model not found at', heroModelPath, '- hero detection disabled:', err.message);
       this.heroDetector = null;
     }
+
+    const bigGemModelPath = path.join(getModelsDir(), 'bigGem.onnx');
+    try {
+      this.bigGemDetector = await YoloDetector.create(bigGemModelPath);
+      console.log('[PluginService] bigGem detector initialized');
+    } catch (err: any) {
+      console.warn('[PluginService] bigGem model not found at', bigGemModelPath, '- bigGem detection disabled:', err.message);
+      this.bigGemDetector = null;
+    }
   }
 
   /**
@@ -57,7 +67,7 @@ class PluginService {
     const device = deviceService.getDevice(accountId);
     if (!device) throw new Error(`账号 ${accountId} 设备未连接，请先连接`);
 
-    const manager = new PluginManager(device, this.vision, this.yoloDetector ?? undefined, this.stateDetector ?? undefined, this.heroDetector ?? undefined);
+    const manager = new PluginManager(device, this.vision, this.yoloDetector ?? undefined, this.stateDetector ?? undefined, this.heroDetector ?? undefined, this.bigGemDetector ?? undefined);
     ALL_PLUGINS.forEach(p => manager.register(p));
     return manager;
   }

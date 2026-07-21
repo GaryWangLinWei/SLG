@@ -34,155 +34,22 @@ const TEMPLATE_DIR = getTemplatesDir();
 // 状态模板（保留行军按钮模板路径，其余状态改用 state.onnx 检测）
 const MARCH_BTN_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_xingjun.png');
 
-// 队伍状态类型 ↔ state.onnx 类别索引（0=返回 1=采集 2=行军 3=驻扎）
-type TeamState = 'back' | 'caiji' | 'totarget' | 'zhuzha';
-const STATE_CLASS_INDEX: Record<TeamState, number> = {
-  back: 0,
-  caiji: 1,
-  totarget: 2,
-  zhuzha: 3,
-};
-const CLASS_INDEX_STATE: Record<number, TeamState> = {
-  0: 'back',
-  1: 'caiji',
-  2: 'totarget',
-  3: 'zhuzha',
-};
-
-// 检测置信度阈值：按类别区分。驻扎类模型置信度偏低，单独放宽（待重训模型后统一）。
-const STATE_DETECT_THRESHOLD = 0.35; // 推理时用最低阈值，过滤阶段再按类别卡
-const STATE_CONF_THRESHOLD: Record<TeamState, number> = {
-  back: 0.35,
-  caiji: 0.35,
-  totarget: 0.35,
-  zhuzha: 0.35,
-};
+import {
+  detectStatusRegionTeamStates,
+  detectTeamStates,
+} from '../utils/teamStateDetection';
 
 // step 4 大 UI 中驻扎队伍的检测区域 + 点击 X（图标在区域中线）
 const LARGE_REGION  = { x: 1443, y: 53,  w: 152, h: 753 };
-// 右侧采集状态面板检测区域: (1530,202)-(1582,680)
-const STATUS_REGION = { x: 1530, y: 202, w: 52, h: 478 };
 const ZHUZHA_BUTTON = { x: 800, y: 593 };
 const EXIT_LARGE_UI_BUTTON = { x: 70, y: 834 };
 const MARCH_SEARCH_REGION = { x: 1068, y: 20, width: 362, height: 860 };
 const BACK_RETRY_LIMIT = 5;
-
-// 状态图标 → 队伍头像的偏移：头像在状态图标左上方。点击作用到头像上才能选中/定位队伍。
 const AVATAR_OFFSET = { dx: -25, dy: -25 };
-
-export interface DetectedState {
-  state: TeamState;
-  x: number;
-  y: number;
-  confidence: number;
-}
 
 export interface GemGatherOutcome {
   result: 'success' | 'not_found' | 'no_idle_teams' | 'team_unavailable';
   dispatched: number;
-}
-
-/**
- * 用 state.onnx 全屏检测队伍状态（不再拖动展开面板）。
- * 类别：0=返回 1=采集 2=行军 3=驻扎。
- * @param region 可选检测区域，命中框中心落在区域内才保留（如 step 4 的大 UI 区域）
- */
-export async function detectTeamStates(
-  ctx: PluginContext,
-  states: TeamState[] = ['zhuzha', 'caiji', 'back', 'totarget'],
-  region?: { x: number; y: number; w: number; h: number }
-): Promise<DetectedState[]> {
-  ctx.log(`[状态检测] state.onnx 全屏检测 states=[${states.join(',')}]`);
-
-  // 截全屏（用于检测 + 调试标注）。检测全部 4 类，便于调试图标注所有识别到的类；
-  // 功能过滤（只保留请求的 states）在下方循环里做。
-  const shotPath = await ctx.captureRegion(0, 0, 1600, 900);
-  let dets: Awaited<ReturnType<typeof ctx.detectStateImage>>;
-  try {
-    dets = await ctx.detectStateImage(shotPath, STATE_DETECT_THRESHOLD, [0, 1, 2, 3]);
-
-    const results: DetectedState[] = [];
-    for (const d of dets) {
-      const state = CLASS_INDEX_STATE[d.classIndex];
-      if (!state || !states.includes(state)) continue;
-      if (d.confidence < STATE_CONF_THRESHOLD[state]) continue; // 按类别卡置信度
-      const x = Math.round(d.x);
-      const y = Math.round(d.y);
-      if (region && !(x >= region.x && x <= region.x + region.w && y >= region.y && y <= region.y + region.h)) {
-        continue;
-      }
-      results.push({ state, x, y, confidence: d.confidence });
-      ctx.log(`  [${state}] (${x},${y}) conf=${(d.confidence * 100).toFixed(1)}%`);
-    }
-
-    // 测试阶段：把检测到的状态画红框 + 置信度，保存截图（已关闭）
-    // if (isDevEnv()) {
-    //   await saveStateDebugShot(ctx, shotPath, dets, region).catch(e =>
-    //     ctx.log(`  [调试] 保存状态截图失败: ${e.message}`));
-    // }
-
-    results.sort((a, b) => a.y - b.y);
-    return results;
-  } finally {
-    await fs.unlink(shotPath).catch(() => {});
-  }
-}
-
-/**
- * 测试阶段：在全屏截图上用红框标注所有检测到的状态框及其类别/置信度，保存到 DEBUG_DIR。（已关闭）
- */
-// async function saveStateDebugShot(
-//   ctx: PluginContext,
-//   shotPath: string,
-//   dets: Awaited<ReturnType<typeof ctx.detectStateImage>>,
-//   region?: { x: number; y: number; w: number; h: number }
-// ): Promise<void> {
-//   await fs.mkdir(DEBUG_DIR, { recursive: true });
-//   const meta = await sharp(shotPath).metadata();
-//   const W = meta.width!;
-//   const H = meta.height!;
-//
-//   let svg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg">`;
-//   // 检测区域用蓝色虚线框标出
-//   if (region) {
-//     svg += `<rect x="${region.x}" y="${region.y}" width="${region.w}" height="${region.h}"
-//       fill="none" stroke="#3b82f6" stroke-width="2" stroke-dasharray="6,4"/>`;
-//   }
-//   for (const d of dets) {
-//     const state = CLASS_INDEX_STATE[d.classIndex] || `cls${d.classIndex}`;
-//     const bx = Math.round(d.x - d.width / 2);
-//     const by = Math.round(d.y - d.height / 2);
-//     const bw = Math.round(d.width);
-//     const bh = Math.round(d.height);
-//     const label = `${state} ${(d.confidence * 100).toFixed(1)}%`;
-//     const textW = label.length * 8 + 10;
-//     const lx = Math.max(0, bx - textW); // 标签放到框左侧
-//     svg += `
-//       <rect x="${bx}" y="${by}" width="${bw}" height="${bh}" fill="none" stroke="red" stroke-width="2"/>
-//       <rect x="${lx}" y="${by}" width="${textW}" height="18" fill="red" opacity="0.85"/>
-//       <text x="${lx + 4}" y="${by + 13}" font-family="Arial" font-size="13" font-weight="bold" fill="white">${label}</text>`;
-//   }
-//   if (dets.length === 0) {
-//     svg += `<text x="${W / 2}" y="${H / 2}" font-family="Arial" font-size="20" fill="red" text-anchor="middle">无匹配</text>`;
-//   }
-//   svg += '</svg>';
-//
-//   const outPath = path.join(DEBUG_DIR, `state_${Date.now()}.png`);
-//   await sharp(shotPath)
-//     .composite([{ input: Buffer.from(svg), top: 0, left: 0 }])
-//     .toFile(outPath);
-//   ctx.log(`  [调试] 状态截图已保存: ${outPath}`);
-// }
-
-/**
- * 检测右侧采集状态面板的队伍状态。直接用 state.onnx 全屏检索，无需拖动展开；
- * 只保留落在右侧状态面板区域 STATUS_REGION 内的命中。
- */
-export async function detectStatusRegionTeamStates(
-  ctx: PluginContext,
-  states: TeamState[] = ['zhuzha', 'caiji', 'back', 'totarget']
-): Promise<DetectedState[]> {
-  return detectTeamStates(ctx, states, STATUS_REGION);
 }
 
 /**
@@ -206,7 +73,7 @@ export async function gatherGemFocus(
   const worldBtn = config.resourceCollect.worldSwitchButton;
   const collectedCoords: string[] = initialCoords ? [...initialCoords] : [];
   if (collectedCoords.length > 0) ctx.log(`  [坐标] 携带跨轮记忆 ${collectedCoords.length} 个`);
-  const spiralState = await createSpiralState(ctx, config, searchWeights);
+  const spiralState = createSpiralState(config);
   let dispatched = 0;
   let hasPaging: boolean | null = null;
   let quotaFull = false;
@@ -249,9 +116,13 @@ export async function gatherGemFocus(
       ctx.log('[step 3.1] 调用 gatherGem 完整流程');
       const r = await gatherGem(ctx, config, teams, { collectedCoords, teamPage });
       dispatched += r.dispatched;
+      if (r.result === 'no_idle_teams') {
+        ctx.log('[step 3.1] gatherGem 报告无空闲队伍，退出专注模式');
+        break;
+      }
       // gatherGem 内部独立维护 spiralState 且可能让视角回到城内，
       // 重置焦点循环的 spiralState 以避免与实际视角错位
-      Object.assign(spiralState, await createSpiralState(ctx, config, searchWeights));
+      Object.assign(spiralState, createSpiralState(config));
       await ctx.sleep(2);
       continue;
     }
@@ -266,8 +137,8 @@ export async function gatherGemFocus(
 
     await zoomOutToWorld(ctx, worldBtn);
     // 每次接续派矿都从新螺旋开始搜，避免沿用上一轮已耗尽的 spiralState 直接返回搜不到矿
-    Object.assign(spiralState, await createSpiralState(ctx, config, searchWeights));
-    const gem = await searchAndClickGem(ctx, config, spiralState, collectedCoords, maxDistance);
+    Object.assign(spiralState, createSpiralState(config));
+    const gem = await searchAndClickGem(ctx, config, spiralState, collectedCoords);
     if (!gem.found) {
       ctx.log('[step 3.2] 搜不到矿，退大 UI 回 step 1');
       await ctx.tap(EXIT_LARGE_UI_BUTTON.x, EXIT_LARGE_UI_BUTTON.y);
@@ -276,13 +147,17 @@ export async function gatherGemFocus(
     }
 
     // === step 4: 大 UI 中找驻扎/返回队伍 + 行军按钮 ===
+    // 全屏检测后按 LARGE_REGION 过滤（避免 152×753 被 ONNX resize 到 640×640 拉伸漏检）
+    const inLarge = (d: { x: number; y: number }) =>
+      d.x >= LARGE_REGION.x && d.x <= LARGE_REGION.x + LARGE_REGION.w &&
+      d.y >= LARGE_REGION.y && d.y <= LARGE_REGION.y + LARGE_REGION.h;
     // 优先找驻扎队伍
-    let stateIn4 = await detectTeamStates(ctx, ['zhuzha'], LARGE_REGION);
+    let stateIn4 = (await detectTeamStates(ctx, ['zhuzha'])).filter(inLarge);
     let foundState = 'zhuzha';
 
     // 没找到驻扎，找返回队伍
     if (stateIn4.length === 0) {
-      stateIn4 = await detectTeamStates(ctx, ['back'], LARGE_REGION);
+      stateIn4 = (await detectTeamStates(ctx, ['back'])).filter(inLarge);
       if (stateIn4.length > 0) {
         foundState = 'back';
         ctx.log(`[step 4] 未检测到驻扎，找到返回队伍`);

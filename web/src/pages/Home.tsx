@@ -462,7 +462,7 @@ export function HomePage() {
   }, [features, currentAccountId, activeConfigName]);
 
   const RESOURCE_TYPES = ['农田', '伐木场', '石矿', '金矿'];
-  const RESOURCE_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8];
+  const RESOURCE_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
   const TRAIN_TIERS = [1, 2, 3, 4, 5];
   const renderTeamPageSelect = (value: TeamPageChoice, onChange: (value: TeamPageChoice) => void, disabled: boolean = false) => (
     <select
@@ -755,7 +755,7 @@ export function HomePage() {
       features.helpTeammates ||
       features.collectResources ||
       (features.joinRallyEnabled && !isFeatureLocked('joinRally')) ||
-      (features.shareGemEnabled && !isFeatureLocked('shareGem')) ||
+      (features.gemGatherEnabled && features.shareGemEnabled && !isFeatureLocked('shareGem')) ||
       features.produceMaterialEnabled ||
       features.attackDetectEnabled;
     if (!hasAnyFeature) {
@@ -877,6 +877,8 @@ export function HomePage() {
     const roundActionsDone = new Set<string>();
     // fort-mode 切号：本轮内是否至少一次 rally-fort/join-rally 成功
     let fortSuccessThisRound = false;
+    // combo-gem: 本轮内是否满足触发（分享矿跑完 或 采集分享矿后 pool<5）
+    let comboGemTriggeredThisRound = false;
     const computeExpectedActions = (): Set<string> => {
       const f = featuresRef.current;
       const exp = new Set<string>();
@@ -888,16 +890,17 @@ export function HomePage() {
       if (f.autoRallyFort && f.rallyFortLevel > 0) exp.add('rally-fort');
       if (f.joinRallyEnabled && !isFeatureLocked('joinRally')) exp.add('join-rally');
       if (f.autoCaveExplore) exp.add('cave');
-      if (f.shareGemEnabled && !isFeatureLocked('shareGem')) exp.add('share-gem');
+      if (f.gemGatherEnabled && f.shareGemEnabled && !isFeatureLocked('shareGem')) exp.add('share-gem');
       if (f.produceMaterialEnabled) exp.add('produce-material');
-      if (f.gemGatherEnabled && !isFeatureLocked('gemGather') && f.gemGatherTeams.length > 0) exp.add('gem');
+      // gemGather 与 shareGem 互斥：勾了分享，gemLoop 会 skip，不计入 expected
+      if (f.gemGatherEnabled && !isFeatureLocked('gemGather') && f.gemGatherTeams.length > 0 && !(f.shareGemEnabled && !isFeatureLocked('shareGem'))) exp.add('gem');
       if (f.upgradeBuildings || f.autoResearch || f.trainTroops) exp.add('main');
       return exp;
     };
 
     // 子循环执行完一个 action 后调用；根据 switchMode 触发切号 flag
-    // source: 参与 per-round / fort-mode 的动作标识；isSuccess 仅 fort-mode 用
-    const markRoundDone = (source: string = 'other', isSuccess: boolean = false) => {
+    // source: 参与 per-round / fort-mode / combo-gem 的动作标识；isSuccess: fort-mode 用；extra: combo-gem 传入 { poolSize }
+    const markRoundDone = (source: string = 'other', isSuccess: boolean = false, extra?: { poolSize?: number }) => {
       const feat = featuresRef.current;
       if (!feat.autoSwitchAccount || isFeatureLocked('autoSwitchAccount')) return;
       if (feat.switchMode === 'per-round') {
@@ -930,6 +933,27 @@ export function HomePage() {
           }
           roundActionsDone.clear();
           fortSuccessThisRound = false;
+        }
+      } else if (feat.switchMode === 'combo-gem') {
+        // 累计触发旗：分享宝石矿跑完 或 采集分享矿后 pool<5
+        if (source === 'share-gem') {
+          comboGemTriggeredThisRound = true;
+        } else if (source === 'gem' && typeof extra?.poolSize === 'number' && extra.poolSize < 5) {
+          comboGemTriggeredThisRound = true;
+        }
+        // 本轮所有 expected action 跑完再看是否切号
+        roundActionsDone.add(source);
+        const expected = computeExpectedActions();
+        const missing = [...expected].filter(s => !roundActionsDone.has(s));
+        if (expected.size > 0 && missing.length === 0) {
+          if (comboGemTriggeredThisRound) {
+            pushLog(`🔁 组合采集：本轮完成且触发条件满足，切号`);
+            pendingAccountSwitch = true;
+          } else {
+            pushLog(`⏳ 组合采集：本轮完成但未触发（分享矿未跑 或 池≥5），继续下一轮`);
+          }
+          roundActionsDone.clear();
+          comboGemTriggeredThisRound = false;
         }
       }
     };
@@ -1467,17 +1491,25 @@ export function HomePage() {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
 
-          if (featuresRef.current.shareGemEnabled && !isFeatureLocked('shareGem') && !featuresRef.current.autoWorldChat) {
+          if (featuresRef.current.gemGatherEnabled && featuresRef.current.shareGemEnabled && !isFeatureLocked('shareGem') && !featuresRef.current.autoWorldChat) {
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
             try {
               const memShared = getSharedGemCoords(currentAccountId);
               if (memShared.length > 0) pushLog(`💎 携带已分享坐标 ${memShared.length} 个`);
+              const stopCond = featuresRef.current.shareGemStopCondition ?? 'spiral';
+              const targetCount = stopCond === 'count5' ? 5
+                : stopCond === 'count10' ? 10
+                : stopCond === 'count15' ? 15
+                : stopCond === 'count100' ? 100
+                : undefined;
               const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'share-gem', {
-                startX: featuresRef.current.shareGemStartX,
-                startY: featuresRef.current.shareGemStartY,
+                startX: featuresRef.current.gemGatherHomeX ?? 0,
+                startY: featuresRef.current.gemGatherHomeY ?? 0,
                 recordedCoords: memShared,
+                searchWeights: { spiral: 100, reverseSpiral: 0, randomWalk: 0, snake: 0 },
+                targetCount,
               });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
@@ -1730,6 +1762,10 @@ export function HomePage() {
           if (!f.gemGatherEnabled || isFeatureLocked('gemGather') || f.gemGatherTeams.length === 0 || f.autoWorldChat) {
             await sleep(30); continue;
           }
+          // 勾了「分享宝石矿(小号用)」时，本卡片只走 shareGemLoop，不执行采集
+          if (f.shareGemEnabled && !isFeatureLocked('shareGem')) {
+            await sleep(30); continue;
+          }
 
           // ── 读取初始宝石数（首次进入或被 reset 后）──
           if (localInitialCount === null) {
@@ -1760,13 +1796,21 @@ export function HomePage() {
 
           while (!isStopped() && !relaunchRequested && monotonicNow() < activeEnd) {
             if (offlineActive) { await sleep(30); continue; }
+            // 每轮重新读 features，防止切号后仍按旧账号配置执行
+            const fNow = featuresRef.current;
+            if (!fNow.gemGatherEnabled || isFeatureLocked('gemGather') || fNow.gemGatherTeams.length === 0 || fNow.autoWorldChat) {
+              break; // 回外层，由 1762 guard 决定 sleep 或退出
+            }
+            if (fNow.shareGemEnabled && !isFeatureLocked('shareGem')) {
+              break; // 切到分享账号，让 shareGemLoop 接管
+            }
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
-            const useShared = f.gemGatherSharedOnly && !isFeatureLocked('gemGather');
+            const useShared = fNow.gemGatherSharedOnly && !isFeatureLocked('gemGather');
             const isFocus = !useShared && Math.random() < focusRatio;
             const actionId = useShared ? 'gather-shared-gem' : (isFocus ? 'gem-gather-focus' : 'gem-gather');
-            const intervalSec = useShared ? 300 : (isFocus ? 60 : 300);
+            const intervalSec = useShared ? 60 : (isFocus ? 60 : 300);
             // 更新下一轮概率（仅混合模式，非分享模式时）：驻扎 -0.2(1-p)、普通 +0.4p，clamp [0, 1]
             if (!useShared && mode === 'mixed') {
               focusRatio = Math.min(1, Math.max(0, focusRatio + (isFocus ? -0.2 * (1 - p) : 0.4 * p)));
@@ -1781,12 +1825,12 @@ export function HomePage() {
                 pushLog(`💎 已采集: ${moduleGemCollectedCount} 颗`);
               }
 
-              pushLog(`💎 [DEBUG] maxDistance=${f.gemGatherMaxDistance}`);
+              pushLog(`💎 [DEBUG] maxDistance=${fNow.gemGatherMaxDistance}`);
               const memCoords = getFreshGemCoords(currentAccountId);
               if (memCoords.length > 0) pushLog(`💎 携带跨轮记忆坐标 ${memCoords.length} 个`);
               const gemParams = useShared
-                ? { accountId: currentAccountId, teams: f.gemGatherTeams, teamPage: f.gemGatherTeamPage }
-                : { teams: f.gemGatherTeams, teamPage: f.gemGatherTeamPage, searchWeights: f.gemSearchWeights, maxDistance: f.gemGatherMaxDistance, extraSwipePauseSec: f.gemGatherExtraSwipePauseSec ?? 0, collectedCoords: memCoords };
+                ? { accountId: currentAccountId, teams: fNow.gemGatherTeams, teamPage: fNow.gemGatherTeamPage, homeX: fNow.gemGatherHomeX, homeY: fNow.gemGatherHomeY }
+                : { teams: fNow.gemGatherTeams, teamPage: fNow.gemGatherTeamPage, searchWeights: fNow.gemSearchWeights, maxDistance: fNow.gemGatherMaxDistance, extraSwipePauseSec: fNow.gemGatherExtraSwipePauseSec ?? 0, collectedCoords: memCoords };
               const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, gemParams);
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
@@ -1809,7 +1853,13 @@ export function HomePage() {
                   if (useShared) {
                     const isEmpty = logs.some((l: string) => l.includes('采集分享矿:') && l.includes('→ empty'));
                     pushLog(isEmpty ? `💎 分享矿池空，本轮跳过` : `💎 采集分享矿完成`);
-                    markRoundDone('gem');
+                    // 从日志解析 pool 数量，供 combo-gem 切号判断
+                    let poolSize: number | undefined;
+                    for (const l of logs as string[]) {
+                      const m = l.match(/采集分享矿:.*pool=(\d+)/);
+                      if (m) { poolSize = parseInt(m[1], 10); break; }
+                    }
+                    markRoundDone('gem', false, { poolSize });
                   } else {
                     pushLog(`💎 宝石采集(${isFocus ? '驻扎' : '普通'})完成`);
                     markRoundDone('gem');
@@ -2313,13 +2363,14 @@ export function HomePage() {
                 <div className="flex-1"></div>
                 <select
                   value={features.switchMode}
-                  onChange={(e) => setFeatures({ ...features, switchMode: e.target.value as 'per-round' | 'per-time' | 'fort-mode' })}
+                  onChange={(e) => setFeatures({ ...features, switchMode: e.target.value as 'per-round' | 'per-time' | 'fort-mode' | 'combo-gem' })}
                   disabled={isFeatureLocked('autoSwitchAccount')}
                   className="text-xs bg-white border border-amber-300 rounded px-2 py-1 text-amber-700 font-medium focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-300 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <option value="per-time">按时间轮换</option>
                   <option value="per-round">按轮次轮换</option>
                   <option value="fort-mode">寨子模式</option>
+                  <option value="combo-gem">组合采集</option>
                 </select>
                 <div className="flex items-center gap-2">
                   {isFeatureLocked('autoSwitchAccount') ? (
@@ -2572,25 +2623,6 @@ export function HomePage() {
 
               {showGemAdvanced && (
                 <>
-                  <div className="flex items-center gap-3 mt-2">
-                    <label className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition-colors ${
-                      features.gemGatherSharedOnly
-                        ? 'bg-rose-50 text-rose-700'
-                        : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
-                    } ${(!features.gemGatherEnabled || isFeatureLocked('gemGather')) ? 'opacity-40 cursor-not-allowed' : ''}`}>
-                      <input type="checkbox"
-                        checked={features.gemGatherSharedOnly}
-                        onChange={(e) => setFeatures({ ...features, gemGatherSharedOnly: e.target.checked })}
-                        disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
-                        className="sr-only peer" />
-                      <span className={`w-[18px] h-[18px] rounded-[5px] border-2 flex items-center justify-center text-[11px] ${
-                        features.gemGatherSharedOnly ? 'bg-rose-500 border-rose-500 text-white' : 'bg-white border-slate-300 text-transparent'
-                      }`}>✓</span>
-                      采集分享矿
-                    </label>
-                    <span className="text-xs text-slate-400">不搜矿，只采集小号分享的矿</span>
-                  </div>
-
                   {/* 最大采集距离 */}
                   <div className="flex items-center justify-between mt-2">
                     <span className="text-xs text-slate-500 whitespace-nowrap">最大采集距离</span>
@@ -2600,7 +2632,7 @@ export function HomePage() {
                         disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
                         min={1} max={9999}
                         className="w-16 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
-                      <span className="text-xs text-slate-400">公里</span>
+                      <span className="text-xs text-slate-400 w-8">公里</span>
                     </div>
                   </div>
 
@@ -2616,7 +2648,7 @@ export function HomePage() {
                         disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
                         min={0} max={5} step={0.5}
                         className="w-16 px-1 py-0.5 bg-white border border-slate-200 rounded text-xs text-slate-700 text-center focus:outline-none focus:border-cyan-500 disabled:opacity-50" />
-                      <span className="text-xs text-slate-400">秒</span>
+                      <span className="text-xs text-slate-400 w-8">秒</span>
                     </div>
                   </div>
 
@@ -2651,6 +2683,84 @@ export function HomePage() {
                         </div>
                       );
                     })()}
+                  </div>
+
+                  {/* 组合采集 */}
+                  <div className="mt-3">
+                    <div className="text-xs text-slate-500 font-semibold">组合采集</div>
+                  </div>
+
+                  <div className="flex items-center gap-3 mt-2">
+                    <label className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition-colors ${
+                      features.gemGatherSharedOnly
+                        ? 'bg-rose-50 text-rose-700'
+                        : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+                    } ${(!features.gemGatherEnabled || isFeatureLocked('gemGather')) ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                      <input type="checkbox"
+                        checked={features.gemGatherSharedOnly}
+                        onChange={(e) => setFeatures({ ...features, gemGatherSharedOnly: e.target.checked, ...(e.target.checked ? { shareGemEnabled: false } : {}) })}
+                        disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather')}
+                        className="sr-only peer" />
+                      <span className={`w-[18px] h-[18px] rounded-[5px] border-2 flex items-center justify-center text-[11px] ${
+                        features.gemGatherSharedOnly ? 'bg-rose-500 border-rose-500 text-white' : 'bg-white border-slate-300 text-transparent'
+                      }`}>✓</span>
+                      采集分享矿(大号用)
+                    </label>
+                    <span className="text-xs text-slate-400">不搜矿，只采集小号分享的矿</span>
+                  </div>
+
+                  {/* 分享宝石矿（与采集分享矿互斥：勾一个自动取消另一个） */}
+                  <div className="flex items-center gap-3 mt-2">
+                    <label className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold cursor-pointer transition-colors ${
+                      features.shareGemEnabled
+                        ? 'bg-rose-50 text-rose-700'
+                        : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+                    } ${(!features.gemGatherEnabled || isFeatureLocked('gemGather') || isFeatureLocked('shareGem')) ? 'opacity-40 cursor-not-allowed' : ''}`}>
+                      <input type="checkbox"
+                        checked={features.shareGemEnabled}
+                        onChange={(e) => setFeatures({ ...features, shareGemEnabled: e.target.checked, ...(e.target.checked ? { gemGatherSharedOnly: false } : {}) })}
+                        disabled={!features.gemGatherEnabled || isFeatureLocked('gemGather') || isFeatureLocked('shareGem')}
+                        className="sr-only peer" />
+                      <span className={`w-[18px] h-[18px] rounded-[5px] border-2 flex items-center justify-center text-[11px] ${
+                        features.shareGemEnabled ? 'bg-rose-500 border-rose-500 text-white' : 'bg-white border-slate-300 text-transparent'
+                      }`}>✓</span>
+                      分享宝石矿(小号用)
+                    </label>
+                    <span className="text-xs text-slate-400">不采集，只分享宝石矿给大号</span>
+                  </div>
+
+                  {/* 搜索停止条件 */}
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-xs text-slate-500 whitespace-nowrap">搜索停止条件</span>
+                    <select
+                      value={features.shareGemStopCondition ?? 'spiral'}
+                      disabled={!features.gemGatherEnabled || !features.shareGemEnabled || isFeatureLocked('gemGather') || isFeatureLocked('shareGem')}
+                      onChange={(e) => setFeatures({ ...features, shareGemStopCondition: e.target.value as 'spiral' | 'count5' | 'count10' | 'count15' | 'count100' })}
+                      className="px-2 py-1 border border-slate-300 rounded text-xs bg-white disabled:opacity-50"
+                    >
+                      <option value="spiral">搜索步数耗尽(81步)</option>
+                      <option value="count5">分享 5 个矿</option>
+                      <option value="count10">分享 10 个矿</option>
+                      <option value="count15">分享 15 个矿</option>
+                    </select>
+                    <span className="text-xs text-slate-400">仅用于分享宝石矿</span>
+                  </div>
+
+                  {/* 大号城堡坐标（用于采集分享矿计算最近矿 / 分享宝石矿螺旋起点） */}
+                  <div className="flex items-center gap-2 mt-2">
+                    <span className="text-xs text-slate-500 whitespace-nowrap">大号城堡坐标</span>
+                    <span className="text-xs text-slate-400">X</span>
+                    <input type="number"
+                      className="w-14 px-1 py-1 border border-slate-300 rounded text-xs"
+                      value={features.gemGatherHomeX ?? 0}
+                      disabled={!features.gemGatherEnabled || (!features.gemGatherSharedOnly && !features.shareGemEnabled) || isFeatureLocked('gemGather')}
+                      onChange={(e) => setFeatures({ ...features, gemGatherHomeX: Number(e.target.value) || 0 })} />
+                    <span className="text-xs text-slate-400">Y</span>
+                    <input type="number"
+                      className="w-14 px-1 py-1 border border-slate-300 rounded text-xs"
+                      value={features.gemGatherHomeY ?? 0}
+                      disabled={!features.gemGatherEnabled || (!features.gemGatherSharedOnly && !features.shareGemEnabled) || isFeatureLocked('gemGather')}
+                      onChange={(e) => setFeatures({ ...features, gemGatherHomeY: Number(e.target.value) || 0 })} />
                   </div>
                 </>
               )}
@@ -2756,58 +2866,6 @@ export function HomePage() {
                 {renderTeamPageSelect(features.resourceGatherTeamPage, (v) => setFeatures({ ...features, resourceGatherTeamPage: v }), features.autoWorldChat)}
               </div>
             </div>
-
-            {/* 分享宝石矿 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : isFeatureLocked('shareGem') ? 'bg-amber-50/60 border-amber-300 border-dashed' : features.shareGemEnabled ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
-              {isFeatureLocked('shareGem') && (
-                <div className="absolute -top-1.5 right-3 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-md shadow-amber-200 flex items-center gap-1"
-                  title="升级到 Pro 解锁">
-                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.957a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.37 2.448a1 1 0 00-.364 1.118l1.287 3.957c.3.921-.755 1.688-1.54 1.118l-3.37-2.448a1 1 0 00-1.176 0l-3.37 2.448c-.784.57-1.838-.197-1.539-1.118l1.287-3.957a1 1 0 00-.364-1.118L2.063 9.384c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.957z" /></svg>
-                  PRO
-                </div>
-              )}
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800">
-                  <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-base ${isFeatureLocked('shareGem') ? 'bg-amber-100' : 'bg-cyan-100'}`}>💎</span>
-                  分享宝石矿
-                </span>
-                {isFeatureLocked('shareGem') ? (
-                  <span className="relative w-10 h-[22px] flex-shrink-0 cursor-not-allowed" title="升级到 Pro 解锁">
-                    <span className="absolute inset-0 rounded-full bg-slate-200" />
-                    <span className="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm" />
-                  </span>
-                ) : (
-                <label className={`relative w-10 h-[22px] flex-shrink-0 ${features.autoWorldChat ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
-                  <input type="checkbox" checked={features.shareGemEnabled}
-                    disabled={features.autoWorldChat}
-                    onChange={(e) => setFeatures({ ...features, shareGemEnabled: e.target.checked })}
-                    className="sr-only" />
-                  <span className={`absolute inset-0 rounded-full transition-colors ${features.shareGemEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
-                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.shareGemEnabled ? 'translate-x-[18px]' : ''}`} />
-                </label>
-                )}
-              </div>
-              <div className="flex items-center gap-3 mt-2 text-xs">
-                <label className="flex items-center gap-1.5 text-slate-600">
-                  起点 X
-                  <input type="number" value={features.shareGemStartX}
-                    onChange={(e) => setFeatures({ ...features, shareGemStartX: Number(e.target.value) || 0 })}
-                    disabled={!features.shareGemEnabled || features.autoWorldChat || isFeatureLocked('shareGem')}
-                    min={0} max={9999}
-                    className="w-20 px-2 py-1 bg-white border border-slate-200 rounded focus:outline-none focus:border-emerald-500 disabled:opacity-50" />
-                </label>
-                <label className="flex items-center gap-1.5 text-slate-600">
-                  起点 Y
-                  <input type="number" value={features.shareGemStartY}
-                    onChange={(e) => setFeatures({ ...features, shareGemStartY: Number(e.target.value) || 0 })}
-                    disabled={!features.shareGemEnabled || features.autoWorldChat || isFeatureLocked('shareGem')}
-                    min={0} max={9999}
-                    className="w-20 px-2 py-1 bg-white border border-slate-200 rounded focus:outline-none focus:border-emerald-500 disabled:opacity-50" />
-                </label>
-                <span className="text-slate-400">(0,0 = 原地开始)</span>
-              </div>
-            </div>
-
 
             {/* 自动攻打城寨 */}
             <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : features.autoRallyFort ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>

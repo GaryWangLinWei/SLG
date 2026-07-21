@@ -22,7 +22,7 @@ const EDGE_OFFSET = 60;   // 边缘避让偏移量
 const SWIPE_GAIN = 1.135;
 const WORLD_SWITCH_BUTTON_RECT = { x1: 39, y1: 776, x2: 115, y2: 858 };
 
-async function tapWorldSwitchButton(ctx: PluginContext): Promise<void> {
+export async function tapWorldSwitchButton(ctx: PluginContext): Promise<void> {
   await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
 }
 

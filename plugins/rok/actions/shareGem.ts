@@ -17,10 +17,14 @@ import { locateByCoord } from '../utils/locateCoord';
 const TEMPLATE_DIR = getTemplatesDir();
 const BTN_SHARE = path.join(TEMPLATE_DIR, 'share_gem', 'btn_share.png');
 const MAINROLE_HEAD = path.join(TEMPLATE_DIR, 'share_gem', 'mainrolehead.png');
+const ZHANKAI_BLUE = path.join(TEMPLATE_DIR, 'share_gem', 'zhankai_blue.png');
+const ZHANKAI_ZONG = path.join(TEMPLATE_DIR, 'share_gem', 'zhankai_zong.png');
 
 // UI 坐标（1600x900）
 const CONFIRM_SHARE_BTN  = { x: 893, y: 551 };
-const DISMISS_SHARE_BOX  = { x: 782, y: 447 };
+// 关闭聊天框位置：未展开(小聊天窗) 用 (782,447)，展开(大聊天窗) 用 (1182,448)
+const DISMISS_SHARE_BOX_COLLAPSED = { x: 782, y: 447 };
+const DISMISS_SHARE_BOX_EXPANDED  = { x: 1182, y: 448 };
 const CLOSE_SHARE_LIST   = { x: 1110, y: 102 };
 
 const FAIL_LIMIT = 3;
@@ -32,6 +36,8 @@ export interface ShareGemParams {
   maxDistance?: number;
   /** 跨轮记忆：本次运行内已分享过的坐标（Home.tsx 从日志累计，start 时清空） */
   recordedCoords?: string[];
+  /** 分享数量上限，达到就停止（默认无上限，即由螺旋步数耗尽结束） */
+  targetCount?: number;
 }
 
 export interface ShareGemOutcome {
@@ -44,7 +50,7 @@ type ShareResult = 'ok' | 'no_share_btn' | 'no_mainrole';
 async function shareCurrentGem(ctx: PluginContext): Promise<ShareResult> {
   const shareBtn = await ctx.findImageWithLocation(BTN_SHARE, 0.7);
   if (!shareBtn.found) {
-    ctx.log('  ⚠️ 找不到分享按钮');
+    ctx.log(`  ⚠️ 找不到分享按钮 (confidence: ${shareBtn.confidence.toFixed(3)})`);
     return 'no_share_btn';
   }
   ctx.log(`  [分享] 点击分享按钮 (${shareBtn.x},${shareBtn.y})`);
@@ -55,7 +61,7 @@ async function shareCurrentGem(ctx: PluginContext): Promise<ShareResult> {
   if (heads.length === 0) {
     ctx.log('  ⚠️ 找不到主号头像，关闭分享列表');
     await ctx.tap(CLOSE_SHARE_LIST.x, CLOSE_SHARE_LIST.y);
-    await ctx.sleep(0.8);
+    await ctx.sleep(1.5);
     return 'no_mainrole';
   }
   const target = [...heads].sort((a, b) => a.y - b.y)[0];
@@ -64,9 +70,24 @@ async function shareCurrentGem(ctx: PluginContext): Promise<ShareResult> {
   await ctx.sleep(1);
 
   await ctx.tap(CONFIRM_SHARE_BTN.x, CONFIRM_SHARE_BTN.y);
-  await ctx.sleep(1);
-  await ctx.tap(DISMISS_SHARE_BOX.x, DISMISS_SHARE_BOX.y);
-  await ctx.sleep(0.8);
+  await ctx.sleep(1.5);
+
+  // 关闭聊天框：按 zhankai 按钮位置判定聊天框是否展开
+  //   未展开(按钮 x < 340) → 关闭位置 (782,447)
+  //   展开             → 关闭位置 (1182,448)
+  const blue = await ctx.findImageWithLocation(ZHANKAI_BLUE, 0.75);
+  const btn = blue.found ? blue : await ctx.findImageWithLocation(ZHANKAI_ZONG, 0.75);
+  let dismiss = DISMISS_SHARE_BOX_COLLAPSED;
+  if (!btn.found) {
+    ctx.log(`  [关闭聊天] 未识别到展开按钮，默认按未展开处理 (${dismiss.x},${dismiss.y})`);
+  } else if (btn.x < 340) {
+    ctx.log(`  [关闭聊天] 按钮 (${btn.x},${btn.y}) 判定未展开，点 (${dismiss.x},${dismiss.y})`);
+  } else {
+    dismiss = DISMISS_SHARE_BOX_EXPANDED;
+    ctx.log(`  [关闭聊天] 按钮 (${btn.x},${btn.y}) 判定已展开，点 (${dismiss.x},${dismiss.y})`);
+  }
+  await ctx.tap(dismiss.x, dismiss.y);
+  await ctx.sleep(1.5);
   return 'ok';
 }
 
@@ -109,14 +130,14 @@ export async function shareGem(
   await ctx.sleep(2);
   ctx.log('[step 3] 缩地后开始螺旋搜索');
   await zoomOutToWorld(ctx, worldBtn);
-  const spiralState = await createSpiralState(ctx, config, searchWeights);
+  const spiralState = createSpiralState(config);
   const sharedCoords: string[] = params.recordedCoords ? [...params.recordedCoords] : [];
   if (sharedCoords.length > 0) ctx.log(`  [记忆] 携带已分享坐标 ${sharedCoords.length} 个`);
   let consecutiveFails = 0;
   let shared = 0;
 
   while (true) {
-    const gem = await searchAndClickGem(ctx, config, spiralState, sharedCoords, maxDistance, true);
+    const gem = await searchAndClickGem(ctx, config, spiralState, sharedCoords, { skipCaijiClick: true });
     if (!gem.found) {
       ctx.log('[step 3] 螺旋步数耗尽');
       break;
@@ -127,6 +148,11 @@ export async function shareGem(
       shared++;
       consecutiveFails = 0;
       await recordCurrentCoord(ctx, sharedCoords);
+      if (params.targetCount && shared >= params.targetCount) {
+        ctx.log(`[早退] 已分享 ${shared} 个 ≥ 目标 ${params.targetCount}，停止`);
+        ctx.log(`=== 分享结束: 分享 ${shared} 个 ===`);
+        return { result: 'success', shared };
+      }
     } else {
       consecutiveFails++;
       ctx.log(`  [失败计数] ${consecutiveFails}/${FAIL_LIMIT}`);
@@ -138,7 +164,7 @@ export async function shareGem(
     }
 
     // 分享完成（或失败）后缩地回世界视角，才能继续螺旋搜索
-    await zoomOutToWorld(ctx, worldBtn, spiralState);
+    await zoomOutToWorld(ctx, worldBtn);
     await ctx.sleep(1);
   }
 

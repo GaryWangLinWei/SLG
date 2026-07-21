@@ -33,11 +33,11 @@ describe('sharedGemPool', () => {
     expect(sharedGemPool.has('A', { x: 100, y: 200 })).toBe(false);
   });
 
-  test('pop 后可再次 addUnique 同坐标（视为重新分享）', () => {
+  test('pop 后不可再次 addUnique 同坐标（已消费去重）', () => {
     sharedGemPool.addUnique('A', { x: 100, y: 200 });
     sharedGemPool.pop('A');
-    expect(sharedGemPool.addUnique('A', { x: 100, y: 200 })).toBe(true);
-    expect(sharedGemPool.size('A')).toBe(1);
+    expect(sharedGemPool.addUnique('A', { x: 100, y: 200 })).toBe(false);
+    expect(sharedGemPool.size('A')).toBe(0);
   });
 
   test('clearAll / clear', () => {

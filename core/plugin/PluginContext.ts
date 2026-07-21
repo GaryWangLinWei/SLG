@@ -17,7 +17,8 @@ export class PluginContext {
     logCallback?: (msg: string) => void,
     private yoloDetector?: YoloDetector,
     private stateDetector?: YoloDetector,
-    private heroDetector?: YoloDetector
+    private heroDetector?: YoloDetector,
+    private bigGemDetector?: YoloDetector
   ) {
     this.logOutput = logCallback ?? ((msg: string) => console.log(msg));
   }
@@ -207,8 +208,8 @@ export class PluginContext {
     return false;
   }
 
-  async swipe(x1: number, y1: number, x2: number, y2: number, duration: number = 500, useBezier: boolean = false, singleShot: boolean = false): Promise<void> {
-    await this.device.swipe(x1, y1, x2, y2, duration, useBezier, singleShot);
+  async swipe(x1: number, y1: number, x2: number, y2: number, duration: number = 500, useBezier: boolean = false): Promise<void> {
+    await this.device.swipe(x1, y1, x2, y2, duration, useBezier);
   }
 
   /**
@@ -527,5 +528,32 @@ export class PluginContext {
     this.checkCancellation();
     if (!this.heroDetector) return [];
     return this.heroDetector.detect(imagePath, threshold, 0.45, classIndices);
+  }
+
+  /**
+   * 用放大宝石模型（bigGem.onnx）检测指定图片，不做截图与清理。
+   */
+  async detectBigGemImage(imagePath: string, threshold: number = 0.5, classIndices: number[] = [0]): Promise<Detection[]> {
+    this.checkCancellation();
+    if (!this.bigGemDetector) return [];
+    return this.bigGemDetector.detect(imagePath, threshold, 0.45, classIndices);
+  }
+
+  /**
+   * 截图并用放大宝石模型（bigGem.onnx）检测，自动清理临时文件。
+   */
+  async detectBigGemWithScreenshot(threshold: number = 0.5, classIndices: number[] = [0]): Promise<Detection[]> {
+    this.checkCancellation();
+    if (!this.bigGemDetector) return [];
+
+    const screenshotBuffer = await this.device.screenshot();
+    const tempPath = path.join(os.tmpdir(), `bigGem-${Date.now()}.png`);
+    await fs.writeFile(tempPath, screenshotBuffer);
+
+    try {
+      return await this.bigGemDetector.detect(tempPath, threshold, 0.45, classIndices);
+    } finally {
+      await fs.unlink(tempPath).catch(() => {});
+    }
   }
 }

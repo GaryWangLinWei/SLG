@@ -38,8 +38,7 @@ export interface HomeFeatures {
   rallyFortUsePotion: boolean;
   rallyFortTroopType: 'any' | 'infantry' | 'cavalry' | 'archer';
   shareGemEnabled: boolean;
-  shareGemStartX: number;
-  shareGemStartY: number;
+  shareGemStopCondition: 'spiral' | 'count5' | 'count10' | 'count15' | 'count100';
   gemGatherEnabled: boolean;
   gemGatherMode: 'normal' | 'focus' | 'mixed';
   gemGatherTeams: number[];
@@ -49,6 +48,8 @@ export interface HomeFeatures {
   gemGatherMixRatio: number;
   gemGatherMaxDistance: number;
   gemGatherSharedOnly: boolean;
+  gemGatherHomeX: number;
+  gemGatherHomeY: number;
   /** 滑动搜索后额外等待秒数（默认 0）。用于慢速模拟器给渲染更长时间 */
   gemGatherExtraSwipePauseSec: number;
   gemSearchWeights: { spiral: number; reverseSpiral: number; randomWalk: number; snake: number };
@@ -67,7 +68,7 @@ export interface HomeFeatures {
   attackDetectEnabled: boolean;
   autoShieldEnabled: boolean;
   autoSwitchAccount: boolean;
-  switchMode: 'per-round' | 'per-time';
+  switchMode: 'per-round' | 'per-time' | 'fort-mode' | 'combo-gem';
   switchIntervalMinutes: number;
   switchProfileIds: [string, string];  // 恰好 2 个 profile 名称
 }
@@ -107,8 +108,7 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   rallyFortUsePotion: false,
   rallyFortTroopType: 'any',
   shareGemEnabled: false,
-  shareGemStartX: 0,
-  shareGemStartY: 0,
+  shareGemStopCondition: 'spiral',
   gemGatherEnabled: false,
   gemGatherMode: 'normal',
   gemGatherTeams: [1],
@@ -118,6 +118,8 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   gemGatherMixRatio: 0.5,
   gemGatherMaxDistance: 100,
   gemGatherSharedOnly: false,
+  gemGatherHomeX: 0,
+  gemGatherHomeY: 0,
   gemGatherExtraSwipePauseSec: 0,
   gemSearchWeights: { spiral: 40, reverseSpiral: 40, randomWalk: 10, snake: 10 },
   autoCaveExplore: false,

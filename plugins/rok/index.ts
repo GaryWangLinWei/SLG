@@ -15,6 +15,7 @@ import { gatherGemFocus } from './actions/gatherGemFocus';
 import { shareGem } from './actions/shareGem';
 import { collectSharedGemCoords } from './actions/collectSharedGemCoords';
 import { gatherSharedGem } from './actions/gatherSharedGem';
+import { sharedGemPool } from './state/sharedGemPool';
 import { clearSharedGemPool } from './actions/clearSharedGemPool';
 import { caveExplore, resetCaveExploreState } from './actions/caveExplore';
 import { produceEquipMaterial, MaterialType } from './actions/produceEquipMaterial';
@@ -152,7 +153,6 @@ export interface RokConfig {
   gemGather: {
     baoshiTemplates: string[];
     caijiBtnTemplate: string;
-    pinchedGemTapPoint: { x: number; y: number };
     pinch: {
       from1: { x: number; y: number };
       from2: { x: number; y: number };
@@ -304,7 +304,6 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
   gemGather: {
     baoshiTemplates: ['baoshi.png', 'baoshi_night.png', 'baoshi_afternoon.png'],
     caijiBtnTemplate: 'btn_caiji.png',
-    pinchedGemTapPoint: { x: 791, y: 423 },
     pinch: {
       from1: { x: 300, y: 450 },
       from2: { x: 1300, y: 450 },
@@ -820,7 +819,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
           ctx.log('⚠️ 未识别到队伍计数，继续宝石采集');
         }
 
-        const outcome = await gatherGem(ctx, config, teams, { teamPage: params.teamPage ?? 'gather', searchWeights: params.searchWeights, maxDistance: params.maxDistance, extraSwipePauseSec: params.extraSwipePauseSec ?? 0 });
+        const outcome = await gatherGem(ctx, config, teams, { teamPage: params.teamPage ?? 'gather' });
         ctx.log(`宝石采集: 队伍[${teams.join(', ')}] → ${outcome.result}，派出 ${outcome.dispatched} 队`);
       }
     },
@@ -840,7 +839,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       id: 'share-gem',
       name: '分享宝石矿',
       description: '从指定起点缩地螺旋搜宝石矿，自动分享给同盟主号',
-      run: async (ctx, params: { startX?: number; startY?: number; searchWeights?: any; maxDistance?: number } = {}) => {
+      run: async (ctx, params: { startX?: number; startY?: number; searchWeights?: any; maxDistance?: number; recordedCoords?: string[]; targetCount?: number } = {}) => {
         if (await ensureNoPopupBlocking(ctx, 'share-gem')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const outcome = await shareGem(ctx, config, {
@@ -848,6 +847,8 @@ export const RiseOfKingdomsPlugin: Plugin = {
           startY: params.startY ?? 0,
           searchWeights: params.searchWeights,
           maxDistance: params.maxDistance,
+          recordedCoords: params.recordedCoords,
+          targetCount: params.targetCount,
         });
         ctx.log(`分享宝石矿: → ${outcome.result}，分享 ${outcome.shared} 个`);
       }
@@ -869,7 +870,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       id: 'gather-shared-gem',
       name: '采集分享矿',
       description: '从池出队坐标定位并派兵采集；池不足会先自动收集',
-      run: async (ctx, params: { accountId: string; teams?: number[]; teamPage?: 'gather' | 'attack' | 'other' } = { accountId: '' }) => {
+      run: async (ctx, params: { accountId: string; teams?: number[]; teamPage?: 'gather' | 'attack' | 'other'; homeX?: number; homeY?: number } = { accountId: '' }) => {
         if (!params?.accountId) {
           ctx.log('❌ 缺少 accountId 参数');
           return;
@@ -880,8 +881,10 @@ export const RiseOfKingdomsPlugin: Plugin = {
           accountId: params.accountId,
           teams,
           teamPage: params.teamPage ?? 'gather',
+          homeX: params.homeX,
+          homeY: params.homeY,
         });
-        ctx.log(`采集分享矿: → ${outcome.result}，采集 ${outcome.gathered} 队`);
+        ctx.log(`采集分享矿: → ${outcome.result}，采集 ${outcome.gathered} 队，pool=${sharedGemPool.size(params.accountId)}`);
       }
     },
     {

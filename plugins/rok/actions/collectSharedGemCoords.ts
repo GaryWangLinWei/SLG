@@ -12,18 +12,17 @@ const ZHANKAI_ZONG = path.join(TEMPLATE_DIR, 'share_gem', 'zhankai_zong.png');
 const MAINROLE_HEAD = path.join(TEMPLATE_DIR, 'share_gem', 'mainrolehead.png');
 
 // 关键坐标（1600×900）
-const CHAT_ENTRY = { x: 375, y: 854 };
+const CHAT_ENTRY = { x: 184, y: 844 };
 const EXPAND_BTN = { x: 45, y: 34 };
 const MAINROLE_SEARCH_REGION = { x: 20, y: 66, width: 91, height: 754 };
 const CHAT_CLOSE = { x: 1189, y: 447 };
-const SWIPE_FROM = { x: 641, y: 121 };
-const SWIPE_TO = { x: 618, y: 720 };
+const SWIPE_TO = { x: 958, y: 783 };
 
 // pin 图标左侧的坐标文字块相对偏移
-const COORD_TEXT_DX = -215;
-const COORD_TEXT_DY = -12;
-const COORD_TEXT_W = 200;
-const COORD_TEXT_H = 55;
+const COORD_TEXT_DX = -340;
+const COORD_TEXT_DY = -18;
+const COORD_TEXT_W = 320;
+const COORD_TEXT_H = 45;
 
 const MAX_SWIPES = 15;
 
@@ -44,6 +43,10 @@ function parseCoordText(text: string): SharedGemCoord | null {
   return { x, y };
 }
 
+export function addCollectedCoord(accountId: string, coord: SharedGemCoord): boolean {
+  return sharedGemPool.addUnique(accountId, coord);
+}
+
 export async function collectSharedGemCoords(
   ctx: PluginContext,
   accountId: string
@@ -55,19 +58,23 @@ export async function collectSharedGemCoords(
   await ctx.tap(CHAT_ENTRY.x, CHAT_ENTRY.y);
   await ctx.sleep(1);
 
-  // [2] 检测是否已展开
+  // [2] 检测是否已展开（按钮位置判断：未展开≈(135,37)，展开≈(543,33)）
   const blue = await ctx.findImageWithLocation(ZHANKAI_BLUE, 0.75);
-  const zong = blue.found ? blue : await ctx.findImageWithLocation(ZHANKAI_ZONG, 0.75);
-  if (!blue.found && !zong.found) {
-    ctx.log(`[2] 未展开，点击展开按钮 (${EXPAND_BTN.x},${EXPAND_BTN.y})`);
+  const btn = blue.found ? blue : await ctx.findImageWithLocation(ZHANKAI_ZONG, 0.75);
+  if (!btn.found) {
+    ctx.log(`[2] 未识别到展开/收起按钮，尝试点击默认位置 (${EXPAND_BTN.x},${EXPAND_BTN.y})`);
     await ctx.tap(EXPAND_BTN.x, EXPAND_BTN.y);
     await ctx.sleep(0.8);
+  } else if (btn.x < 340) {
+    ctx.log(`[2] 按钮位于 (${btn.x},${btn.y})，判定未展开，点击 (42,37) 展开`);
+    await ctx.tap(42, 37);
+    await ctx.sleep(0.8);
   } else {
-    ctx.log(`[2] 聊天已展开`);
+    ctx.log(`[2] 按钮位于 (${btn.x},${btn.y})，判定已展开`);
   }
 
   // [3] 找主号头像
-  const heads = await ctx.findAllImages(MAINROLE_HEAD, 0.7, MAINROLE_SEARCH_REGION);
+  const heads = await ctx.findAllImages(MAINROLE_HEAD, 0.75, MAINROLE_SEARCH_REGION);
   if (!heads || heads.length === 0) {
     ctx.log(`[3] 未找到主号头像，关闭聊天`);
     await ctx.tap(CHAT_CLOSE.x, CHAT_CLOSE.y);
@@ -109,11 +116,12 @@ export async function collectSharedGemCoords(
         }
         if (sharedGemPool.has(accountId, coord)) {
           ctx.log(`  pin@(${pin.x},${pin.y}) -> (${coord.x},${coord.y}) 已在池`);
-        } else {
-          sharedGemPool.addUnique(accountId, coord);
+        } else if (addCollectedCoord(accountId, coord)) {
           addedThisPage++;
           allSeen = false;
           ctx.log(`  pin@(${pin.x},${pin.y}) -> (${coord.x},${coord.y}) 加入池`);
+        } else {
+          ctx.log(`  pin@(${pin.x},${pin.y}) -> (${coord.x},${coord.y}) 已处理过`);
         }
       } catch (e) {
         ctx.log(`  pin@(${pin.x},${pin.y}) OCR 失败: ${(e as Error).message}`);
@@ -124,14 +132,23 @@ export async function collectSharedGemCoords(
     }
 
     ctx.log(`  本屏新增 ${addedThisPage}，池当前 ${sharedGemPool.size(accountId)}`);
+    if (addedThisPage === 0) {
+      ctx.log(`[4] 本屏新增 0，停止滑动`);
+      break;
+    }
     if (pins.length > 0 && allSeen) {
       ctx.log(`[4] 本屏所有坐标均已存在池中，停止滑动`);
       break;
     }
 
     if (round < MAX_SWIPES - 1) {
-      ctx.log(`  向下滑动 (${SWIPE_FROM.x},${SWIPE_FROM.y})→(${SWIPE_TO.x},${SWIPE_TO.y})`);
-      await ctx.swipe(SWIPE_FROM.x, SWIPE_FROM.y, SWIPE_TO.x, SWIPE_TO.y, 800);
+      if (!pins || pins.length === 0) {
+        ctx.log(`  本屏无 pin，无法确定滑动起点，停止`);
+        break;
+      }
+      const topPin = [...pins].sort((a, b) => a.y - b.y)[0];
+      ctx.log(`  向下滑动 (${topPin.x},${topPin.y})→(${SWIPE_TO.x},${SWIPE_TO.y})`);
+      await ctx.swipe(topPin.x, topPin.y, SWIPE_TO.x, SWIPE_TO.y, 800);
       await ctx.sleep(0.8);
     } else {
       ctx.log(`[4] 达到最大滑动次数 ${MAX_SWIPES}`);

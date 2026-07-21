@@ -56,7 +56,7 @@ export async function switchAccount(ctx: PluginContext, targetName: string): Pro
   // 5. 展开下拉 + OCR 匹配
   ctx.log(`  [5/6] 展开下拉 (${DROPDOWN_BTN.x}, ${DROPDOWN_BTN.y})`);
   await ctx.tap(DROPDOWN_BTN.x, DROPDOWN_BTN.y);
-  await ctx.sleep(0.5);
+  await ctx.sleep(1);
 
   const region1Img = await ctx.captureRegion(REGION1.x, REGION1.y, REGION1.w, REGION1.h);
   const region2Img = await ctx.captureRegion(REGION2.x, REGION2.y, REGION2.w, REGION2.h);
