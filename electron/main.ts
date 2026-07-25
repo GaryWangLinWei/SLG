@@ -6,6 +6,10 @@ import { initResourcePaths } from '../core/resourcePath';
 import { autoUpdater } from 'electron-updater';
 import { remoteClient } from '../core/remote/RemoteClient';
 import { licenseService } from '../core/license';
+import { createRunningIntentStore } from './runningIntentStore';
+import { isTrustedRunningIntentUrl } from './runningIntentIpcSecurity';
+
+const runningIntentStore = createRunningIntentStore();
 
 const isDev = !app.isPackaged;
 
@@ -268,6 +272,39 @@ function createTray() {
 // IPC handlers
 ipcMain.handle('get-app-version', () => {
   return app.getVersion();
+});
+
+function assertTrustedRunningIntentSender(event: Electron.IpcMainInvokeEvent): void {
+  const senderUrl = event.senderFrame?.url;
+  const webDistPath = path.join(__dirname, '../../web/dist');
+  if (
+    !mainWindow
+    || event.sender !== mainWindow.webContents
+    || !senderUrl
+    || !isTrustedRunningIntentUrl(senderUrl, isDev, webDistPath)
+  ) {
+    throw new Error('Unauthorized running intent IPC sender');
+  }
+}
+
+ipcMain.handle('get-running-intent', (event) => {
+  assertTrustedRunningIntentSender(event);
+  return runningIntentStore.get();
+});
+
+ipcMain.handle('set-running-intent', (event, value: unknown) => {
+  assertTrustedRunningIntentSender(event);
+  return runningIntentStore.set(value);
+});
+
+ipcMain.handle('get-running-session', (event) => {
+  assertTrustedRunningIntentSender(event);
+  return runningIntentStore.getSession();
+});
+
+ipcMain.handle('set-running-session', (event, value: unknown) => {
+  assertTrustedRunningIntentSender(event);
+  return runningIntentStore.setSession(value);
 });
 
 ipcMain.handle('get-adb-path', () => {

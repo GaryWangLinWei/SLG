@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, Fragment } from 'react';
+import { useState, useEffect, useRef, Fragment } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAccount } from '../contexts/AccountContext';
@@ -10,14 +10,19 @@ import { isComboGemActive } from '../utils/comboGemMode';
 // Electron 打包后 HTML 走 file://，相对路径 /api 会失败；必须显式指向本地后端
 const IS_ELECTRON = typeof window !== 'undefined' && 'electronAPI' in window;
 const LOCAL_API_BASE = IS_ELECTRON ? 'http://localhost:3000' : '';
+import { createLoopCancellationPredicate, guardedCreateTask, isCurrentLoopGeneration } from '../utils/loopGeneration';
+import { persistRunningSession, readRunningSession, RunningSession } from '../utils/runningIntent';
+import { deriveRunningControlView, OperationState } from '../utils/runningControlView';
 
 // Module-level loop state — survives component unmount/remount during SPA navigation
+let browserRunningSession: RunningSession = { running: false, accountId: null };
 let loopStopped = false;
 let loopRunning = false;
 // generation counter：每次 handleStop 递增，用于让旧的 loop 感知到"我这一代已经作废"
 // 修复 bug：连点停止→开始，前一次 loop 卡在 `await api.tasks.run` 上，等 stop 让它 resolve 时
 // 新的 loopStopped 已被下一次 handleStartAll 置回 false，旧 loop 继续跑，导致点停止无效。
 let loopGen = 0;
+let killInFlight = false;
 let loopLogs: string[] = [];
 let loopCompletedBuildings: boolean[] = [false, false, false, false, false];
 let loopCompletedTechs: boolean[] = [false, false, false, false, false];
@@ -272,7 +277,14 @@ export function HomePage() {
   const [deviceConnected, setDeviceConnected] = useState(false);
   const [deviceLoading, setDeviceLoading] = useState(false);
   const [loopRunningState, setLoopRunningState] = useState(false);
-  const [taskRunning, setTaskRunning] = useState(false);
+  const [runningIntent, setRunningIntent] = useState(false);
+  const [runningOwnerAccountId, setRunningOwnerAccountId] = useState<string | null>(null);
+  const [intentLoaded, setIntentLoaded] = useState(false);
+  const [intentLoadError, setIntentLoadError] = useState<string | null>(null);
+  const [operationState, setOperationState] = useState<OperationState>('idle');
+  const operationLockRef = useRef(false);
+  const startHandlerRef = useRef<() => Promise<void>>(async () => {});
+  const stopHandlerRef = useRef<() => Promise<void>>(async () => {});
   const runningTaskIdsRef = useRef<string[]>([]);
   const lastPostedLogIndexRef = useRef(0);
   const pendingLogBatchRef = useRef<string[]>([]);
@@ -490,31 +502,51 @@ export function HomePage() {
     } catch { setDeviceConnected(false); }
   };
 
-  // 恢复运行状态：挂载时检查 module-level 变量和 API 确认是否有正在执行的任务
-  useEffect(() => {
-    if (!currentAccountId) return;
-
-    // 如果 module-level loopRunning 已为 true，立即恢复 UI 状态
-    if (loopRunning) {
-      setTaskRunning(true);
-      setLogs(loopLogs);
+  const intentRequestIdRef = useRef(0);
+  const intentMountedRef = useRef(false);
+  const loadRunningIntent = async () => {
+    const requestId = ++intentRequestIdRef.current;
+    setIntentLoaded(false);
+    setIntentLoadError(null);
+    try {
+      const session = await readRunningSession(
+        'electronAPI' in window,
+        window.electronAPI?.getRunningSession,
+        browserRunningSession,
+      );
+      if (!intentMountedRef.current || requestId !== intentRequestIdRef.current) return;
+      setRunningIntent(session.running);
+      setRunningOwnerAccountId(session.accountId);
+      setIntentLoaded(true);
+    } catch (error) {
+      if (!intentMountedRef.current || requestId !== intentRequestIdRef.current) return;
+      setIntentLoadError(error instanceof Error && error.message
+        ? error.message
+        : '无法读取运行状态');
     }
+  };
 
-    // 通过 API 同步 runningTaskIds（用于停止按钮能取消正确的任务）
-    api.tasks.list().then(res => {
-      if (res.success) {
-        const running = res.tasks.filter(t => t.accountId === currentAccountId && t.status === 'running');
-        if (running.length > 0) {
-          loopRunning = true;
-          setLoopRunningState(true);
-          loopStopped = false;
-          runningTaskIdsRef.current = running.map(t => t.id);
-          setTaskRunning(true);
-          setRunningTaskIds(running.map(t => t.id));
-        }
-      }
-    }).catch(() => {});
-  }, [currentAccountId]);
+  const persistSession = async (session: RunningSession): Promise<RunningSession> => {
+    const persisted = await persistRunningSession(
+      'electronAPI' in window,
+      window.electronAPI?.setRunningSession,
+      session,
+    );
+    if (!('electronAPI' in window)) browserRunningSession = persisted;
+    setRunningIntent(persisted.running);
+    setRunningOwnerAccountId(persisted.accountId);
+    return persisted;
+  };
+
+  // Running intent belongs to the Electron/browser session, so restore it once per mount.
+  useEffect(() => {
+    intentMountedRef.current = true;
+    void loadRunningIntent();
+    return () => {
+      intentMountedRef.current = false;
+      intentRequestIdRef.current++;
+    };
+  }, []);
 
   useEffect(() => {
     checkDeviceStatus();
@@ -671,7 +703,6 @@ export function HomePage() {
           try { await api.tasks.stop(id); } catch {}
         }
         runningTaskIdsRef.current = [];
-        setTaskRunning(false);
         setRunningTaskIds([]);
       }
     } catch (e) {
@@ -680,9 +711,13 @@ export function HomePage() {
     setDeviceLoading(false);
   };
 
-  const handleStartAll = async (source: 'local' | 'remote' = 'local') => {
+  const startAllImpl = async (source: 'local' | 'remote' = 'local') => {
     if (!currentAccountId) {
       pushLog(`❌ 未选择账号`);
+      return;
+    }
+    if (!deviceConnected) {
+      await handleConnectDevice();
       return;
     }
     if (deviceLoading) return;  // 连接过程中重复触发防抖
@@ -766,47 +801,53 @@ export function HomePage() {
     }
 
     if (loopRunning) return;
+    if (killInFlight) {
+      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 游戏关闭任务尚未完成，请稍后重试`]);
+      return;
+    }
 
-    // 递增 generation：本次启动属于新的一代
-    // 修 bug：连点停止→开始，前次 loop 若卡在 await api.tasks.run 上，等 stop 让它 resolve 时
-    // 若这里把 isStopped() 直接重置成 false，旧 loop 的 while (!isStopped()) 会以为可以继续跑，
-    // 结果同时存在两套 loop，之后再点停止只 stop 到一套 → 停不下来。
-    loopGen += 1;
-    const myGen = loopGen;
-
+    const myGen = ++loopGen;
     loopRunning = true;
     setLoopRunningState(true);
     loopStopped = false;
+    clearLoopState();
+    try {
+      await persistSession({ running: true, accountId: currentAccountId });
+    } catch (error) {
+      loopStopped = true;
+      loopRunning = false;
+      setLoopRunningState(false);
+      clearLoopState();
+      const message = error instanceof Error && error.message ? error.message : String(error);
+      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 保存运行状态失败: ${message}`]);
+      return;
+    }
     // 清空所有账号的分享矿坐标池（每次开始运行归零）
     try {
-      const cr = await api.tasks.create(currentAccountId, 'com.rok.automation', 'clear-shared-gem-pool');
+      const cr = await guardedCreateTask(
+        () => api.tasks.create(currentAccountId, 'com.rok.automation', 'clear-shared-gem-pool'),
+        taskId => api.tasks.stop(taskId),
+        () => loopStopped || myGen !== loopGen,
+      );
       if (cr.success) await api.tasks.run(cr.task.id);
     } catch {}
-    // 清空所有账号的「已分享坐标」记忆（生命周期 = 开始→下一次开始）
     clearAllSharedGemMemory();
     saveLoopState(currentAccountId);
-    setTaskRunning(true);
-
-    // 本代 loop 是否被抢占/停止：所有子循环用这个 helper 替代裸 isStopped()
-    const isStopped = () => loopStopped || myGen !== loopGen;
 
     pendingAccountSwitch = false;
-    // 若当前 active 不在 switchProfileIds 中，自动填入空位（优先 [0]，其次 [1]）
     if (featuresRef.current.autoSwitchAccount && !isFeatureLocked('autoSwitchAccount')) {
       const cur = featuresRef.current.switchProfileIds || ['', ''];
       const active = activeConfigNameRef.current;
       if (active && cur[0] !== active && cur[1] !== active) {
-        let nextIds: [string, string];
-        if (!cur[0]) nextIds = [active, cur[1] || ''];
-        else if (!cur[1]) nextIds = [cur[0], active];
-        else nextIds = [active, cur[1] || ''];  // 两个都非空：覆盖 [0]
+        const nextIds: [string, string] = !cur[0] ? [active, cur[1] || '']
+          : !cur[1] ? [cur[0], active]
+          : [active, cur[1] || ''];
         const merged = { ...featuresRef.current, switchProfileIds: nextIds } as any;
         featuresRef.current = merged;
         setFeatures(merged);
         pushLog(`🔀 当前账号 ${active} 不在切号列表，自动填入 → [${nextIds.join(', ')}]`);
       }
     }
-    // 初始化下一个切号目标：找 validIds 中不等于当前 active 的位置
     const initialIds = (featuresRef.current.switchProfileIds || []).filter((s: string) => !!s);
     switchTargetIdx = initialIds.findIndex((x: string) => x !== activeConfigNameRef.current);
     if (switchTargetIdx < 0) switchTargetIdx = 0;
@@ -816,26 +857,23 @@ export function HomePage() {
       if (switchTimerId) clearTimeout(switchTimerId);
       const feat = featuresRef.current;
       if (!feat.autoSwitchAccount || isFeatureLocked('autoSwitchAccount') || feat.switchMode !== 'per-time') return;
-      // 按当前 active profile 在 switchProfileIds 中的位置取对应的时长
       const ids = feat.switchProfileIds || ['', ''];
       const curIdx = ids.indexOf(activeConfigNameRef.current);
       const intervals = Array.isArray(feat.switchIntervalMinutes)
         ? feat.switchIntervalMinutes
         : [feat.switchIntervalMinutes as any, feat.switchIntervalMinutes as any];
       const minutes = Math.max(1, intervals[curIdx >= 0 ? curIdx : 0] || 30);
-      const ms = minutes * 60 * 1000;
       pushLog(`⏲️ 切号定时器: ${minutes} 分钟后切号（当前 ${activeConfigNameRef.current}）`);
       switchTimerId = setTimeout(() => {
         pendingAccountSwitch = true;
         scheduleSwitchTimer();
-      }, ms);
+      }, minutes * 60 * 1000);
     };
     scheduleSwitchTimer();
 
+    const isExploreMode = features.autoExplore;
     const isWorldChatMode = features.autoWorldChat;
-    const interval = isWorldChatMode ? features.worldChatInterval : GATHER_LOOP_INTERVAL;
-    clearLoopState();
-    nightStartOffsetMinutes = randomBiasedOffset(NIGHT_START_JITTER_MIN, NIGHT_START_JITTER_MAX);
+    const interval = isExploreMode ? 60 : isWorldChatMode ? features.worldChatInterval : GATHER_LOOP_INTERVAL;    nightStartOffsetMinutes = randomBiasedOffset(NIGHT_START_JITTER_MIN, NIGHT_START_JITTER_MAX);
     nightEndOffsetMinutes = randomBiasedOffset(NIGHT_END_JITTER_MIN, NIGHT_END_JITTER_MAX);
     const modeLabel = isWorldChatMode ? '自动喊话' : '自动循环';
     const initialLogs = [`[${new Date().toLocaleTimeString()}] 🚀 开始${modeLabel} (间隔${interval}秒)`];
@@ -854,6 +892,8 @@ export function HomePage() {
       completedTechs: [false, false, false, false, false],
     }));
 
+    const isStopped = createLoopCancellationPredicate(myGen, () => loopGen, () => loopStopped);
+
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const resetAllCooldowns = () => {
       // 切号后新号所有子任务都要从头跑，等价于重启循环：
@@ -866,6 +906,11 @@ export function HomePage() {
     };
 
     const sleep = async (s: number) => new Promise(r => setTimeout(r, s * 1000));
+    const createTask: typeof api.tasks.create = (...args) => guardedCreateTask(
+      () => api.tasks.create(...args),
+      taskId => api.tasks.stop(taskId),
+      isStopped,
+    );
 
     const acquireLock = async (): Promise<boolean> => {
       while ((deviceBusy || attackPreempt || pendingAccountSwitch) && !isStopped()) { await sleep(0.3); }
@@ -989,7 +1034,7 @@ export function HomePage() {
       console.log(`[ensureGameRunning] waitMin=${waitMin}`);
       if (waitMin === 0) return; // 0 分钟 = 关闭断线重连
       try {
-        const cr = await api.tasks.create(currentAccountId, 'com.rok.automation', 'check-game-running');
+        const cr = await createTask(currentAccountId, 'com.rok.automation', 'check-game-running');
         if (!cr.success) { console.log(`[ensureGameRunning] check-game-running create 失败`); return; }
         const rr = await api.tasks.run(cr.task.id);
         const logs = rr.task?.logs ?? [];
@@ -1012,7 +1057,7 @@ export function HomePage() {
         const msg2 = `🎮 尝试拉起游戏`;
         console.log(`[ensureGameRunning] ${msg2}`);
         pushLog(`${msg2}`);
-        const lr = await api.tasks.create(currentAccountId, 'com.rok.automation', 'launch-game');
+        const lr = await createTask(currentAccountId, 'com.rok.automation', 'launch-game');
         if (lr.success) await api.tasks.run(lr.task.id);
         // 启动后界面变化，强制主循环重新检查底部菜单栏
         bottomBarChecked = false;
@@ -1027,7 +1072,7 @@ export function HomePage() {
 
       // 重置队列速览过滤状态（每次开始运行时重新检查）
       (async () => {
-        const r = await api.tasks.create(currentAccountId, 'com.rok.automation', 'read-queue-overview', { reset: true });
+        const r = await createTask(currentAccountId, 'com.rok.automation', 'read-queue-overview', { reset: true });
         if (r.success) {
           await api.tasks.run(r.task.id);
         }
@@ -1048,7 +1093,7 @@ export function HomePage() {
               if (offlineActive) { releaseLock(); await sleep(30); continue; }
               await ensureGameRunning();
               try {
-                const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'gather-resources', { gatherTasks, teamPage: featuresRef.current.resourceGatherTeamPage });
+                const createResult = await createTask(currentAccountId, 'com.rok.automation', 'gather-resources', { gatherTasks, teamPage: featuresRef.current.resourceGatherTeamPage });
                 if (createResult.success) {
                   runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                   setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1090,7 +1135,7 @@ export function HomePage() {
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
             try {
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'help-teammates');
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'help-teammates');
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1130,7 +1175,7 @@ export function HomePage() {
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
             try {
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'collect-resources');
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'collect-resources');
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1184,7 +1229,7 @@ export function HomePage() {
             } else {
               let ok = false;
               for (let attempt = 1; attempt <= 2 && !isStopped(); attempt++) {
-                const cr = await api.tasks.create(currentAccountId, 'com.rok.automation', 'switch-account', { targetName });
+                const cr = await createTask(currentAccountId, 'com.rok.automation', 'switch-account', { targetName });
                 if (!cr.success) break;
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, cr.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1264,7 +1309,7 @@ export function HomePage() {
             await ensureGameRunning();
             let cd = 600; // 默认 CD，实际根据结果确定
             try {
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'rally-fort', { level: featuresRef.current.rallyFortLevel, team: featuresRef.current.rallyFortTeam, downgrade: featuresRef.current.rallyFortDowngrade, teamPage: featuresRef.current.rallyFortTeamPage, usePotion: featuresRef.current.rallyFortUsePotion, troopType: featuresRef.current.rallyFortTroopType });
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'rally-fort', { level: featuresRef.current.rallyFortLevel, team: featuresRef.current.rallyFortTeam, downgrade: featuresRef.current.rallyFortDowngrade, teamPage: featuresRef.current.rallyFortTeamPage, usePotion: featuresRef.current.rallyFortUsePotion, troopType: featuresRef.current.rallyFortTroopType });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1335,7 +1380,7 @@ export function HomePage() {
             await ensureGameRunning();
             let cd = 300; // 默认 CD 5 分钟
             try {
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'join-rally', {
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'join-rally', {
                 team: featuresRef.current.joinRallyTeam,
                 teamPage: featuresRef.current.joinRallyTeamPage,
                 targetFort: featuresRef.current.joinRallyTargetFort,
@@ -1416,7 +1461,7 @@ export function HomePage() {
               if (offlineActive) { releaseLock(); await sleep(30); continue; }
               await ensureGameRunning();
               try {
-                const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'explore', { maxScouts: featuresRef.current.exploreCount });
+                const createResult = await createTask(currentAccountId, 'com.rok.automation', 'explore', { maxScouts: featuresRef.current.exploreCount });
                 if (createResult.success) {
                   runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                   setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1452,7 +1497,7 @@ export function HomePage() {
         let first = true;
         // 循环开始前重置山洞探索状态
         try {
-          await api.tasks.create(currentAccountId, 'com.rok.automation', 'reset-cave-explore')
+          await createTask(currentAccountId, 'com.rok.automation', 'reset-cave-explore')
             .then(r => { if (r.success) return api.tasks.run(r.task.id); });
         } catch {}
         while (!isStopped()) {
@@ -1466,7 +1511,7 @@ export function HomePage() {
               if (offlineActive) { releaseLock(); await sleep(30); continue; }
               await ensureGameRunning();
               try {
-                const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'cave-explore');
+                const createResult = await createTask(currentAccountId, 'com.rok.automation', 'cave-explore');
                 if (createResult.success) {
                   runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                   setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1519,7 +1564,7 @@ export function HomePage() {
                 : stopCond === 'count15' ? 15
                 : stopCond === 'count100' ? 100
                 : 5;
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'share-gem', {
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'share-gem', {
                 accountId: currentAccountId,
                 poolAccountId: comboGemActive ? COMBO_GEM_POOL_ACCOUNT_ID : currentAccountId,
                 startX: shareFeatures.gemGatherHomeX ?? 0,
@@ -1573,7 +1618,7 @@ export function HomePage() {
           // [1] 纯检测：不抢锁，直接跑 check-attack
           let attacked = false;
           try {
-            const cr = await api.tasks.create(currentAccountId, 'com.rok.automation', 'check-attack');
+            const cr = await createTask(currentAccountId, 'com.rok.automation', 'check-attack');
             if (cr.success) {
               const rr = await api.tasks.run(cr.task.id);
               const logs = rr.task?.logs ?? [];
@@ -1597,7 +1642,7 @@ export function HomePage() {
             if (!await acquireLockForAttack()) break;
             try {
               await ensureGameRunning();
-              const cr2 = await api.tasks.create(currentAccountId, 'com.rok.automation', 'auto-shield');
+              const cr2 = await createTask(currentAccountId, 'com.rok.automation', 'auto-shield');
               if (cr2.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, cr2.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1655,7 +1700,7 @@ export function HomePage() {
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
             try {
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'produce-equip-material', { material: featuresRef.current.produceMaterialType });
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'produce-equip-material', { material: featuresRef.current.produceMaterialType });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1704,7 +1749,7 @@ export function HomePage() {
             lastOfflineState = true;
             if (await acquireLock()) {
               try {
-                const r = await api.tasks.create(currentAccountId, 'com.rok.automation', 'kill-game');
+                const r = await createTask(currentAccountId, 'com.rok.automation', 'kill-game');
                 if (r.success) {
                   runningTaskIdsRef.current = [...runningTaskIdsRef.current, r.task.id];
                   setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1718,7 +1763,7 @@ export function HomePage() {
             pushLog(`☀️ 恢复上线状态`);
             if (await acquireLock()) {
               try {
-                const r = await api.tasks.create(currentAccountId, 'com.rok.automation', 'launch-game');
+                const r = await createTask(currentAccountId, 'com.rok.automation', 'launch-game');
                 if (r.success) {
                   runningTaskIdsRef.current = [...runningTaskIdsRef.current, r.task.id];
                   setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1751,7 +1796,7 @@ export function HomePage() {
 
         const readCount = async (): Promise<number | null> => {
           try {
-            const res = await api.tasks.create(currentAccountId, 'com.rok.automation', 'read-gem-count');
+            const res = await createTask(currentAccountId, 'com.rok.automation', 'read-gem-count');
             if (!res.success) { console.error('[readCount] create failed', res); return null; }
             const run = await api.tasks.run(res.task.id);
             const logs = run.task?.logs ?? [];
@@ -1852,7 +1897,7 @@ export function HomePage() {
                     poolAccountId: comboGemActive ? COMBO_GEM_POOL_ACCOUNT_ID : currentAccountId,
                     skipChatCollect: comboGemActive }
                 : { teams: fNow.gemGatherTeams, teamPage: fNow.gemGatherTeamPage, searchWeights: fNow.gemSearchWeights, maxDistance: fNow.gemGatherMaxDistance, extraSwipePauseSec: fNow.gemGatherExtraSwipePauseSec ?? 0, collectedCoords: memCoords };
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, gemParams);
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', actionId, gemParams);
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1941,7 +1986,7 @@ export function HomePage() {
         const runTask = async (actionId: string, config?: Record<string, any>): Promise<string[]> => {
           if (isStopped()) return [];
           try {
-            const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, config);
+            const createResult = await createTask(currentAccountId, 'com.rok.automation', actionId, config);
             if (createResult.success) {
               runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
               setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -2195,49 +2240,158 @@ export function HomePage() {
         }
       }
       await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, exploreLoop, caveLoop, produceMaterialLoop, offlineLoop, attackLoop, accountSwitchLoop, shareGemLoop]);
-      loopRunning = false;
-      setLoopRunningState(false);
-      clearLoopState();
-      runningTaskIdsRef.current = [];
-      setTaskRunning(false);
-      setRunningTaskIds([]);
-      pushLog(`⏹️ 循环已停止`);
+      if (isCurrentLoopGeneration(myGen, loopGen)) {
+        loopRunning = false;
+        setLoopRunningState(false);
+        clearLoopState();
+        runningTaskIdsRef.current = [];
+        setRunningTaskIds([]);
+        pushLog(`⏹️ 循环已停止`);
+      }
     })();
   };
+  const handleStartAll = async (source: 'local' | 'remote' = 'local') => {
+    if (operationLockRef.current) return;
+    operationLockRef.current = true;
+    setOperationState('starting');
+    try {
+      await startAllImpl(source);
+    } finally {
+      setOperationState('idle');
+      operationLockRef.current = false;
+    }
+  };
 
-  const handleStop = async (source: 'local' | 'remote' = 'local') => {
+  const stopImpl = async () => {
     loopStopped = true;
-    loopGen += 1;  // 让所有旧代 sub-loop 的 isStopped() 立刻为 true，即使随后有 startAll 把 loopStopped 置回 false 也阻挡不住
+    const stopGeneration = ++loopGen;
     loopRunning = false;
     setLoopRunningState(false);
-    clearLoopState();
-    if (switchTimerId) { clearTimeout(switchTimerId); switchTimerId = null; }
-    if (fortModeFallbackTimerId) { clearTimeout(fortModeFallbackTimerId); fortModeFallbackTimerId = null; }
-    if (currentAccountId) {
-      try {
-        const r = await api.tasks.stopByAccount(currentAccountId);
-        if (r.success && r.stopped.length > 0) pushLog(`⏹️ 后端停止 ${r.stopped.length} 个任务`);
-      } catch {}
+
+    const ownerAccountId = runningOwnerAccountId;
+    if (!ownerAccountId) {
+      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 停止失败: 运行账号缺失，请重试或重启应用恢复会话`]);
+      return;
     }
+
+    try {
+      const result = await api.tasks.stopByAccount(ownerAccountId);
+      if (!result.success) throw new Error('后端未能停止账号任务');
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : String(error);
+      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 停止失败: ${message}`]);
+      return;
+    }
+
+    try {
+      await persistSession({ running: false, accountId: null });
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : String(error);
+      setIntentLoaded(false);
+      setIntentLoadError(message || '无法保存运行状态');
+      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 保存停止状态失败: ${message}`]);
+      return;
+    }
+
+    const shouldKillOfflineGame = offlineActive;
+    clearLoopState();
     runningTaskIdsRef.current = [];
-    setTaskRunning(false);
     setRunningTaskIds([]);
     moduleGemInitialCount = null;
     moduleGemCollectedCount = 0;
     setGemInitialCount(null);
     setGemCollectedCount(0);
-    pushLog(`⏹️ 已停止所有任务`);
+    setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ 已停止所有任务`]);
 
-    // 远程触发：停止后杀掉游戏进程
-    if (source === 'remote' && currentAccountId) {
-      try {
-        pushLog(`📱 远程停止：关闭游戏进程`);
-        const r = await api.tasks.create(currentAccountId, 'com.rok.automation', 'kill-game');
-        if (r.success) {
-          await api.tasks.run(r.task.id);
+    // Preserve offline semantics without keeping the stop operation lock while the task runs.
+    if (shouldKillOfflineGame) {
+      killInFlight = true;
+      void (async () => {
+        try {
+          if (!isCurrentLoopGeneration(stopGeneration, loopGen) || loopRunning) return;
+          const result = await api.tasks.create(ownerAccountId, 'com.rok.automation', 'kill-game');
+          if (!result.success) return;
+          if (!isCurrentLoopGeneration(stopGeneration, loopGen) || loopRunning) {
+            await api.tasks.stop(result.task.id).catch(() => {});
+            return;
+          }
+          await api.tasks.run(result.task.id);
+        } catch (error) {
+          const message = error instanceof Error && error.message ? error.message : String(error);
+          setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 关闭游戏失败: ${message}`]);
+        } finally {
+          killInFlight = false;
         }
-      } catch (e: any) {
-        pushLog(`⚠️ killGame 失败: ${e.message || e}`);
+      })();
+    }
+  };
+
+  const handleStop = async () => {
+    if (operationLockRef.current) return;
+    operationLockRef.current = true;
+    setOperationState('stopping');
+    try {
+      await stopImpl();
+    } finally {
+      setOperationState('idle');
+      operationLockRef.current = false;
+    }
+  };
+
+  startHandlerRef.current = handleStartAll;
+  stopHandlerRef.current = handleStop;
+
+  // Local clicks and remote commands share the latest wrappers and synchronous lock.
+  useEffect(() => {
+    const eventSource = new EventSource('/api/remote-control/stream');
+    eventSource.onmessage = event => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.action === 'start_loop') {
+          void startHandlerRef.current();
+        } else if (data.action === 'stop_loop') {
+          void stopHandlerRef.current();
+        }
+      } catch { /* Ignore connected and heartbeat frames. */ }
+    };
+    return () => eventSource.close();
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/remote-control/loop-state', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ running: loopRunningState }),
+    }).catch(() => { /* best effort */ });
+  }, [loopRunningState]);
+
+  const runningControlView = deriveRunningControlView({
+    deviceConnected,
+    intentLoaded,
+    intentError: intentLoadError !== null,
+    operationState,
+    runningIntent,
+  });
+
+  const renderRunningControl = () => {
+    switch (runningControlView.action) {
+      case 'connect':
+        return <button onClick={handleConnectDevice} disabled={deviceLoading} className="px-8 py-3 bg-gradient-to-r from-emerald-500 to-emerald-400 text-white font-bold rounded-full hover:from-emerald-600 hover:to-emerald-500 transition-all disabled:opacity-50 shadow-lg shadow-emerald-500/30">{deviceLoading ? '连接中...' : '连接设备'}</button>;
+      case 'retry':
+        return <button onClick={loadRunningIntent} className="px-8 py-3 bg-amber-500 text-white font-bold rounded-full hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/30">状态读取失败，点击重试</button>;
+      case 'loading':
+        return <button disabled className="px-8 py-3 bg-slate-400 text-white font-bold rounded-full cursor-not-allowed opacity-70">状态读取中...</button>;
+      case 'starting':
+        return <button disabled className="px-8 py-3 bg-slate-400 text-white font-bold rounded-full cursor-not-allowed opacity-70">启动中...</button>;
+      case 'stopping':
+        return <button disabled className="px-8 py-3 bg-red-500 text-white font-bold rounded-full transition-all shadow-lg shadow-red-500/30 disabled:opacity-70 disabled:cursor-not-allowed">停止中...</button>;
+      case 'start':
+        return <button onClick={() => void handleStartAll()} className="px-8 py-3 bg-gradient-to-r from-emerald-500 to-emerald-400 text-white font-bold rounded-full hover:from-emerald-600 hover:to-emerald-500 transition-all shadow-lg shadow-emerald-500/30 flex items-center gap-2"><span>▶</span> 开始运行</button>;
+      case 'stop':
+        return <button onClick={handleStop} className="px-8 py-3 bg-red-500 text-white font-bold rounded-full hover:bg-red-600 transition-all shadow-lg shadow-red-500/30">停止运行</button>;
+      default: {
+        const exhaustiveAction: never = runningControlView.action;
+        return exhaustiveAction;
       }
     }
   };
@@ -2249,9 +2403,9 @@ export function HomePage() {
       try {
         const data = JSON.parse(e.data);
         if (data.action === 'start_loop') {
-          handleStartAll('remote');
+          void handleStartAll('remote');
         } else if (data.action === 'stop_loop') {
-          handleStop('remote');
+          void handleStop();
         }
       } catch { /* connected/heartbeat 帧，忽略 */ }
     };
@@ -2305,7 +2459,7 @@ export function HomePage() {
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center text-white text-xl shadow-lg shadow-emerald-500/30">🎮</div>
             <div>
-              <h3 className="font-semibold text-slate-800">{taskRunning ? '运行中' : '准备就绪'}</h3>
+              <h3 className="font-semibold text-slate-800">{runningControlView.bannerText}</h3>
               <p className="text-sm text-slate-500">{deviceConnected ? '设备已连接' : '未连接设备'}</p>
             </div>
           </div>
@@ -2327,29 +2481,7 @@ export function HomePage() {
                 <span>🌙 夜间下线 02-05点</span>
               </label>
             )}
-            {!deviceConnected ? (
-              <button
-                onClick={handleConnectDevice}
-                disabled={deviceLoading}
-                className="px-8 py-3 bg-gradient-to-r from-emerald-500 to-emerald-400 text-white font-bold rounded-full hover:from-emerald-600 hover:to-emerald-500 transition-all disabled:opacity-50 shadow-lg shadow-emerald-500/30"
-              >
-                {deviceLoading ? '连接中...' : '连接设备'}
-              </button>
-            ) : !taskRunning ? (
-              <button
-                onClick={() => handleStartAll('local')}
-                className="px-8 py-3 bg-gradient-to-r from-emerald-500 to-emerald-400 text-white font-bold rounded-full hover:from-emerald-600 hover:to-emerald-500 transition-all shadow-lg shadow-emerald-500/30 flex items-center gap-2"
-              >
-                <span>▶</span> 开始运行
-              </button>
-            ) : (
-              <button
-                onClick={() => handleStop('local')}
-                className="px-8 py-3 bg-red-500 text-white font-bold rounded-full hover:bg-red-600 transition-all shadow-lg shadow-red-500/30"
-              >
-                停止运行
-              </button>
-            )}
+            {renderRunningControl()}
           </div>
         </div>
 
