@@ -1,4 +1,4 @@
-import { PluginContext } from '../../../core/plugin';
+﻿import { PluginContext } from '../../../core/plugin';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import { ocrService } from '../../../core/ocr/OcrService';
 import { RokConfig } from '../index';
@@ -74,6 +74,10 @@ export interface GatherSharedGemOutcome {
 }
 
 export interface GatherSharedGemParams {
+  /** 组合模式下跨账号共用的池 key；普通模式默认使用 accountId。 */
+  poolAccountId?: string;
+  /** Skip chat box collect (combo mode: coords from small accounts) */
+  skipChatCollect?: boolean;
   accountId: string;
   teams: number[];
   teamPage?: TeamPage;
@@ -92,10 +96,17 @@ async function ensureInWorldLite(ctx: PluginContext): Promise<void> {
   }
 }
 
-async function refillIfNeeded(ctx: PluginContext, accountId: string): Promise<void> {
-  if (sharedGemPool.size(accountId) >= REFILL_THRESHOLD) return;
-  ctx.log(`[池补充] 数量 ${sharedGemPool.size(accountId)} < ${REFILL_THRESHOLD}，触发收集`);
-  await collectSharedGemCoords(ctx, accountId);
+async function refillIfNeeded(
+  ctx: PluginContext,
+  poolAccountId: string,
+  skipChatCollect?: boolean
+): Promise<void> {
+  if (skipChatCollect) {
+    ctx.log(`[pool refill] combo mode, skip chat collect (from small accounts)`);
+    return;
+  }
+  ctx.log(`[pool refill] count ${sharedGemPool.size(poolAccountId)} < ${REFILL_THRESHOLD}，触发收集`);
+  await collectSharedGemCoords(ctx, poolAccountId);
   await ensureInWorldLite(ctx);
 }
 
@@ -145,8 +156,8 @@ async function readCurrentCoord(ctx: PluginContext): Promise<SharedGemCoord | nu
 /**
  * 从池中找到距 anchor 最近的坐标并 pop 出来。空池返回 null。
  */
-function popNearest(accountId: string, anchor: SharedGemCoord): SharedGemCoord | null {
-  const snap = sharedGemPool.snapshot(accountId);
+function popNearest(poolAccountId: string, anchor: SharedGemCoord): SharedGemCoord | null {
+  const snap = sharedGemPool.snapshot(poolAccountId);
   if (snap.length === 0) return null;
   let bestIdx = 0;
   let bestDist2 = Number.POSITIVE_INFINITY;
@@ -159,7 +170,7 @@ function popNearest(accountId: string, anchor: SharedGemCoord): SharedGemCoord |
       bestIdx = i;
     }
   }
-  return sharedGemPool.removeAt(accountId, bestIdx) ?? null;
+  return sharedGemPool.removeAt(poolAccountId, bestIdx) ?? null;
 }
 
 /**
@@ -176,7 +187,7 @@ async function gatherOne(
   config: RokConfig,
   firstTarget: SharedGemCoord,
   anchor: SharedGemCoord,
-  accountId: string,
+  poolAccountId: string,
   teams: number[],
   nextTeamIdx: number,
   hasPaging: boolean | null,
@@ -197,7 +208,7 @@ async function gatherOne(
     if (!verified.found) {
       await saveDebugShot(ctx, 'verify_fail');
       ctx.log(`  ⚠️ (${target.x},${target.y}) 中心未确认宝石，从池找下一个最近矿`);
-      target = popNearest(accountId, anchor);
+      target = popNearest(poolAccountId, anchor);
       continue;
     }
 
@@ -219,7 +230,7 @@ async function gatherOne(
     await saveCaijiDebugShot(ctx, caijiStates.length > 0 ? 'caiji_hit' : 'caiji_miss', caijiRegion, allCaiji);
     if (caijiStates.length > 0) {
       ctx.log(`  ⚠️ (${target.x},${target.y}) 宝石上检测到 caiji 状态（已被采集），从池找下一个最近矿`);
-      target = popNearest(accountId, anchor);
+      target = popNearest(poolAccountId, anchor);
       continue;
     }
 
@@ -230,7 +241,7 @@ async function gatherOne(
     const caijiResult = await ctx.findImageWithLocation(caijiBtnTemplate, 0.7);
     if (!caijiResult.found) {
       ctx.log(`  ❌ (${target.x},${target.y}) 未找到采集按钮 (confidence: ${caijiResult.confidence.toFixed(3)})，从池找下一个最近矿`);
-      target = popNearest(accountId, anchor);
+      target = popNearest(poolAccountId, anchor);
       continue;
     }
     ctx.log(`  点击采集按钮 (${caijiResult.x}, ${caijiResult.y})`);
@@ -304,13 +315,15 @@ export async function gatherSharedGem(
   params: GatherSharedGemParams
 ): Promise<GatherSharedGemOutcome> {
   const { accountId, teams } = params;
+  const poolAccountId = params.poolAccountId ?? accountId;
   const teamPage: TeamPage = params.teamPage ?? 'gather';
-  ctx.log(`=== 采集分享矿（专注模式）account=${accountId} teams=[${teams.join(',')}] ===`);
+  ctx.log(`=== 采集分享矿（专注模式）account=${accountId} pool=${poolAccountId} teams=[${teams.join(',')}] ===`);
 
   ctx.log(`[准备] 确保在城外`);
   await ensureInWorldLite(ctx);
-  await refillIfNeeded(ctx, accountId);
-  if (sharedGemPool.size(accountId) === 0) {
+  await refillIfNeeded(ctx, poolAccountId, params.skipChatCollect);
+  ctx.log(`[准备] skipChatCollect = ${params.skipChatCollect}`);
+  if (sharedGemPool.size(poolAccountId) === 0) {
     ctx.log(`[准备] 池为空，本轮结束`);
     return { result: 'empty', gathered: 0 };
   }
@@ -333,7 +346,7 @@ export async function gatherSharedGem(
   while (true) {
     // === step 1: 循环处理返回/驻扎队伍 ===
     while (true) {
-      if (sharedGemPool.size(accountId) === 0) {
+      if (sharedGemPool.size(poolAccountId) === 0) {
         ctx.log('[step 1] 池空，跳出 step 1');
         break;
       }
@@ -371,7 +384,7 @@ export async function gatherSharedGem(
       }
       ctx.log(`[step 1] 参考坐标 (${anchor.x},${anchor.y})，从池找最近矿`);
 
-      const target = popNearest(accountId, anchor);
+      const target = popNearest(poolAccountId, anchor);
       if (!target) {
         ctx.log('[step 1] 池已空，跳出');
         break;
@@ -379,7 +392,7 @@ export async function gatherSharedGem(
       ctx.log(`[step 1] 最近矿 (${target.x},${target.y})`);
 
       const r = await gatherOne(
-        ctx, config, target, anchor, accountId, teams, nextTeamIdx, hasPaging, collectedCoords, teamPage, 'march'
+        ctx, config, target, anchor, poolAccountId, teams, nextTeamIdx, hasPaging, collectedCoords, teamPage, 'march'
       );
       nextTeamIdx = r.nextTeamIdx;
       hasPaging = r.hasPaging;
@@ -412,24 +425,24 @@ export async function gatherSharedGem(
     }
 
     // === step 3: 无驻扎路径 ===
-    if (sharedGemPool.size(accountId) === 0) {
+    if (sharedGemPool.size(poolAccountId) === 0) {
       ctx.log('[step 3] 池空，退出');
       break;
     }
 
     let target: SharedGemCoord | null;
     if (homeCoord) {
-      target = popNearest(accountId, homeCoord);
+      target = popNearest(poolAccountId, homeCoord);
       ctx.log(`[step 3] 主城堡最近矿 (${target?.x},${target?.y})`);
     } else {
-      target = sharedGemPool.pop(accountId) ?? null;
+      target = sharedGemPool.pop(poolAccountId) ?? null;
       ctx.log(`[step 3] FIFO pop 矿 (${target?.x},${target?.y})`);
     }
     if (!target) break;
 
     const step3Anchor = homeCoord ?? target;
     const r = await gatherOne(
-      ctx, config, target, step3Anchor, accountId, teams, nextTeamIdx, hasPaging, collectedCoords, teamPage, 'dispatch'
+      ctx, config, target, step3Anchor, poolAccountId, teams, nextTeamIdx, hasPaging, collectedCoords, teamPage, 'dispatch'
     );
     nextTeamIdx = r.nextTeamIdx;
     hasPaging = r.hasPaging;

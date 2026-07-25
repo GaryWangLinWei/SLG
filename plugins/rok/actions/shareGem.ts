@@ -1,14 +1,16 @@
-import { PluginContext } from '../../../core/plugin';
+﻿import { PluginContext } from '../../../core/plugin';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import { ocrService } from '../../../core/ocr/OcrService';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import { RokConfig } from '../index';
+import { sharedGemPool } from '../state/sharedGemPool';
 import { GemSearchWeights } from '../utils/gemSearchStrategies';
 import {
   zoomOutToWorld,
   createSpiralState,
   searchAndClickGem,
+  formatCoordForLog,
   parseCoord,
 } from './gatherGem';
 import { ensureInWorld } from '../utils/location';
@@ -30,6 +32,9 @@ const CLOSE_SHARE_LIST   = { x: 1110, y: 102 };
 const FAIL_LIMIT = 3;
 
 export interface ShareGemParams {
+  skipShareClick?: boolean;
+  poolAccountId?: string;
+  accountId?: string;
   startX: number;
   startY: number;
   searchWeights?: GemSearchWeights;
@@ -46,6 +51,21 @@ export interface ShareGemOutcome {
 }
 
 type ShareResult = 'ok' | 'no_share_btn' | 'no_mainrole';
+
+export function addSharedGemCoordToPool(
+  accountId: string,
+  coordText: string,
+  poolAccountId: string = accountId
+): boolean {
+  const formatted = formatCoordForLog(coordText);
+  const match = formatted?.match(/x:\s*(\d+)\s*y:\s*(\d+)/i);
+  if (!match) return false;
+  const coord = {
+    x: parseInt(match[1], 10),
+    y: parseInt(match[2], 10),
+  };
+  return sharedGemPool.addUnique(poolAccountId, coord);
+}
 
 async function shareCurrentGem(ctx: PluginContext): Promise<ShareResult> {
   const shareBtn = await ctx.findImageWithLocation(BTN_SHARE, 0.7);
@@ -91,7 +111,12 @@ async function shareCurrentGem(ctx: PluginContext): Promise<ShareResult> {
   return 'ok';
 }
 
-async function recordCurrentCoord(ctx: PluginContext, sharedCoords: string[]): Promise<void> {
+async function recordCurrentCoord(
+  ctx: PluginContext,
+  sharedCoords: string[],
+  accountId?: string,
+  poolAccountId?: string
+): Promise<void> {
   const coordRegionPath = await ctx.captureRegion(400, 11, 137, 32);
   try {
     try {
@@ -99,7 +124,10 @@ async function recordCurrentCoord(ctx: PluginContext, sharedCoords: string[]): P
       const curCoord = parseCoord(coordText);
       if (curCoord) {
         sharedCoords.push(curCoord);
-        ctx.log(`  [坐标] 记录已分享: ${curCoord}`);
+        ctx.log(`  [坐标] 记录已分享: ${formatCoordForLog(coordText) ?? curCoord}`);
+        if (accountId && addSharedGemCoordToPool(accountId, coordText, poolAccountId)) {
+          ctx.log(`  [pool] 新增坐标，当前 ${sharedGemPool.size(poolAccountId ?? accountId)}`);
+        }
       }
     } catch (e) {
       ctx.log(`  ⚠️ 坐标 OCR 失败，跳过记录: ${(e as Error).message}`);
@@ -137,17 +165,20 @@ export async function shareGem(
   let shared = 0;
 
   while (true) {
-    const gem = await searchAndClickGem(ctx, config, spiralState, sharedCoords, { skipCaijiClick: true });
+    const gem = await searchAndClickGem(ctx, config, spiralState, sharedCoords, {
+      skipCaijiClick: true,
+      skipVerifiedGemClick: params.skipShareClick,
+    });
     if (!gem.found) {
       ctx.log('[step 3] 螺旋步数耗尽');
       break;
     }
 
-    const outcome = await shareCurrentGem(ctx);
+    const outcome = params.skipShareClick ? 'ok' : await shareCurrentGem(ctx);
     if (outcome === 'ok') {
       shared++;
       consecutiveFails = 0;
-      await recordCurrentCoord(ctx, sharedCoords);
+      await recordCurrentCoord(ctx, sharedCoords, params.accountId, params.poolAccountId);
       if (params.targetCount && shared >= params.targetCount) {
         ctx.log(`[早退] 已分享 ${shared} 个 ≥ 目标 ${params.targetCount}，停止`);
         ctx.log(`=== 分享结束: 分享 ${shared} 个 ===`);

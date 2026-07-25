@@ -18,7 +18,7 @@ const MAINROLE_SEARCH_REGION = { x: 20, y: 66, width: 91, height: 754 };
 const CHAT_CLOSE = { x: 1189, y: 447 };
 const SWIPE_TO = { x: 958, y: 783 };
 
-// pin 图标左侧的坐标文字块相对偏移
+// pin 图标左侧的坐标文字块相对偏移（仅坐标行）
 const COORD_TEXT_DX = -340;
 const COORD_TEXT_DY = -18;
 const COORD_TEXT_W = 320;
@@ -35,7 +35,8 @@ export interface CollectOutcome {
 }
 
 function parseCoordText(text: string): SharedGemCoord | null {
-  const m = text.match(/X[:：]\s*(\d+)\s*Y[:：]\s*(\d+)/i);
+  // OCR 常把 Y 识别成 V（形状相似），放宽匹配
+  const m = text.match(/X[:：]?\s*(\d+)\s*[YyVv][:：]?\s*(\d+)/);
   if (!m) return null;
   const x = parseInt(m[1], 10);
   const y = parseInt(m[2], 10);

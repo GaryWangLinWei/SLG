@@ -1,6 +1,6 @@
 {
   "name": "rok-automation",
-  "version": "1.1.7",
+  "version": "1.1.8",
   "description": "万国觉醒自动化助手",
   "main": "dist/electron/main.js",
   "scripts": {
@@ -20,7 +20,7 @@
     "appId": "com.rok.automation",
     "productName": "ROK助手",
     "releaseInfo": {
-      "releaseNotes": "1.1.7更新内容\n1.加入集结新增\"使用系统编队\"选项，方便帮别人集结不混兵\n2.自动攻打城寨新增部队推荐下拉，方便别人加入你的集结不混兵\n3.修复部分情况下无法加入集结的 bug\n4.优化宝石采集滑动搜索"
+      "releaseNotes": "1.1.8更新内容\n1.账号调度新增模式：组合采集。使用场景：小号负责搜索宝石矿，分享给大号；大号通过分享得到的宝石矿进行采集。\n2.增加分享宝石矿和采集分享的宝石矿功能，用于组合采集。\n3.修复宝石出现在右下角时误点邮件的 bug\n4.优化大宝石矿识别精度\n5.宝石采集加入滑动后额外等待时间参数，用于部分机型滑动后游戏画面渲染慢的问题\n6.城外资源采集：资源田等级上限增加到 9 级"
     },
     "directories": {
       "output": "release"

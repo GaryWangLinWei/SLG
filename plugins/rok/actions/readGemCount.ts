@@ -1,9 +1,20 @@
 import { PluginContext } from '../../../core/plugin';
 import { ocrService } from '../../../core/ocr/OcrService';
 import * as fs from 'fs/promises';
+import * as path from 'path';
 
 // 宝石数量显示区域
 const GEM_COUNT_REGION = { x: 1475, y: 12, width: 80, height: 37 };
+const GEM_COUNT_DEBUG_DIR = path.join(process.cwd(), 'temp', 'debug', 'gem_count');
+
+function isDevEnv(): boolean {
+  try {
+    const { app } = require('electron');
+    return !app.isPackaged;
+  } catch {
+    return true;
+  }
+}
 
 export async function readGemCount(ctx: PluginContext): Promise<number | null> {
   const regionPath = await ctx.captureRegion(
@@ -24,6 +35,12 @@ export async function readGemCount(ctx: PluginContext): Promise<number | null> {
       const num = parseInt(raw, 10);
       if (!isNaN(num)) {
         ctx.log(`[GEM-COUNT] ${num}`);
+        if (isDevEnv()) {
+          await fs.mkdir(GEM_COUNT_DEBUG_DIR, { recursive: true });
+          const debugPath = path.join(GEM_COUNT_DEBUG_DIR, `${num}_${Date.now()}.png`);
+          await fs.copyFile(regionPath, debugPath);
+          ctx.log(`[GEM-COUNT] DEV 截图: ${debugPath}`);
+        }
         return num;
       }
     }
