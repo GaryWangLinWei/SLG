@@ -1527,6 +1527,29 @@ export function HomePage() {
     runningIntent,
   });
 
+  const renderRunningControl = () => {
+    switch (runningControlView.action) {
+      case 'connect':
+        return <button onClick={handleConnectDevice} disabled={deviceLoading} className="px-8 py-3 bg-gradient-to-r from-emerald-500 to-emerald-400 text-white font-bold rounded-full hover:from-emerald-600 hover:to-emerald-500 transition-all disabled:opacity-50 shadow-lg shadow-emerald-500/30">{deviceLoading ? '连接中...' : '连接设备'}</button>;
+      case 'retry':
+        return <button onClick={loadRunningIntent} className="px-8 py-3 bg-amber-500 text-white font-bold rounded-full hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/30">状态读取失败，点击重试</button>;
+      case 'loading':
+        return <button disabled className="px-8 py-3 bg-slate-400 text-white font-bold rounded-full cursor-not-allowed opacity-70">状态读取中...</button>;
+      case 'starting':
+        return <button disabled className="px-8 py-3 bg-slate-400 text-white font-bold rounded-full cursor-not-allowed opacity-70">启动中...</button>;
+      case 'stopping':
+        return <button disabled className="px-8 py-3 bg-red-500 text-white font-bold rounded-full transition-all shadow-lg shadow-red-500/30 disabled:opacity-70 disabled:cursor-not-allowed">停止中...</button>;
+      case 'start':
+        return <button onClick={handleStartAll} className="px-8 py-3 bg-gradient-to-r from-emerald-500 to-emerald-400 text-white font-bold rounded-full hover:from-emerald-600 hover:to-emerald-500 transition-all shadow-lg shadow-emerald-500/30 flex items-center gap-2"><span>▶</span> 开始运行</button>;
+      case 'stop':
+        return <button onClick={handleStop} className="px-8 py-3 bg-red-500 text-white font-bold rounded-full hover:bg-red-600 transition-all shadow-lg shadow-red-500/30">停止运行</button>;
+      default: {
+        const exhaustiveAction: never = runningControlView.action;
+        return exhaustiveAction;
+      }
+    }
+  };
+
   if (!currentAccountId) {
     return (
       <div className="max-w-4xl mx-auto p-6 text-center py-20">
@@ -1569,48 +1592,7 @@ export function HomePage() {
                 <span>🌙 夜间下线 02-05点</span>
               </label>
             )}
-            {runningControlView.action === 'connect' ? (
-              <button
-                onClick={handleConnectDevice}
-                disabled={deviceLoading}
-                className="px-8 py-3 bg-gradient-to-r from-emerald-500 to-emerald-400 text-white font-bold rounded-full hover:from-emerald-600 hover:to-emerald-500 transition-all disabled:opacity-50 shadow-lg shadow-emerald-500/30"
-              >
-                {deviceLoading ? '连接中...' : '连接设备'}
-              </button>
-            ) : runningControlView.action === 'retry' ? (
-              <button
-                onClick={loadRunningIntent}
-                className="px-8 py-3 bg-amber-500 text-white font-bold rounded-full hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/30"
-              >
-                状态读取失败，点击重试
-              </button>
-            ) : runningControlView.action === 'loading' ? (
-              <button disabled className="px-8 py-3 bg-slate-400 text-white font-bold rounded-full cursor-not-allowed opacity-70">
-                状态读取中...
-              </button>
-            ) : runningControlView.action === 'starting' ? (
-              <button disabled className="px-8 py-3 bg-slate-400 text-white font-bold rounded-full cursor-not-allowed opacity-70">
-                启动中...
-              </button>
-            ) : runningControlView.action === 'stopping' ? (
-              <button disabled className="px-8 py-3 bg-red-500 text-white font-bold rounded-full transition-all shadow-lg shadow-red-500/30 disabled:opacity-70 disabled:cursor-not-allowed">
-                停止中...
-              </button>
-            ) : runningControlView.action === 'start' ? (
-              <button
-                onClick={handleStartAll}
-                className="px-8 py-3 bg-gradient-to-r from-emerald-500 to-emerald-400 text-white font-bold rounded-full hover:from-emerald-600 hover:to-emerald-500 transition-all shadow-lg shadow-emerald-500/30 flex items-center gap-2"
-              >
-                <span>▶</span> 开始运行
-              </button>
-            ) : (
-              <button
-                onClick={handleStop}
-                className="px-8 py-3 bg-red-500 text-white font-bold rounded-full hover:bg-red-600 transition-all shadow-lg shadow-red-500/30"
-              >
-                停止运行
-              </button>
-            )}
+            {renderRunningControl()}
           </div>
         </div>
 

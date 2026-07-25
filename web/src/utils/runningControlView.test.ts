@@ -20,7 +20,12 @@ describe('deriveRunningControlView', () => {
   });
 
   test.each([
-    [{ ...base, deviceConnected: false, intentError: true }, { action: 'connect', disabled: false }],
+    [{ ...base, deviceConnected: false, intentError: true }, { action: 'retry', disabled: false }],
+    [{ ...base, deviceConnected: false, intentLoaded: false }, { action: 'loading', disabled: true }],
+    [{ ...base, deviceConnected: false, operationState: 'starting' as const }, { action: 'starting', disabled: true }],
+    [{ ...base, deviceConnected: false, operationState: 'stopping' as const }, { action: 'stopping', disabled: true }],
+    [{ ...base, deviceConnected: false, runningIntent: true }, { action: 'stop', disabled: false }],
+    [{ ...base, deviceConnected: false }, { action: 'connect', disabled: false }],
     [{ ...base, intentError: true }, { action: 'retry', disabled: false }],
     [{ ...base, intentLoaded: false }, { action: 'loading', disabled: true }],
     [{ ...base, operationState: 'starting' as const }, { action: 'starting', disabled: true }],

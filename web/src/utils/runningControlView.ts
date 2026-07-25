@@ -34,10 +34,11 @@ export function deriveRunningControlView(state: RunningControlState): RunningCon
           ? '运行中'
           : '准备就绪';
 
-  if (!state.deviceConnected) return { bannerText, action: 'connect', disabled: false };
   if (state.intentError) return { bannerText, action: 'retry', disabled: false };
   if (!state.intentLoaded) return { bannerText, action: 'loading', disabled: true };
   if (state.operationState === 'starting') return { bannerText, action: 'starting', disabled: true };
   if (state.operationState === 'stopping') return { bannerText, action: 'stopping', disabled: true };
-  return { bannerText, action: state.runningIntent ? 'stop' : 'start', disabled: false };
+  if (state.runningIntent) return { bannerText, action: 'stop', disabled: false };
+  if (!state.deviceConnected) return { bannerText, action: 'connect', disabled: false };
+  return { bannerText, action: 'start', disabled: false };
 }
