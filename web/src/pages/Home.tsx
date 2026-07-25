@@ -314,17 +314,23 @@ export function HomePage() {
     } catch { setDeviceConnected(false); }
   };
 
+  const intentRequestIdRef = useRef(0);
+  const intentMountedRef = useRef(false);
   const loadRunningIntent = async () => {
+    const requestId = ++intentRequestIdRef.current;
     setIntentLoaded(false);
     setIntentLoadError(null);
     try {
       const intent = await readRunningIntent(
+        'electronAPI' in window,
         window.electronAPI?.getRunningIntent,
         browserRunningIntent,
       );
+      if (!intentMountedRef.current || requestId !== intentRequestIdRef.current) return;
       setRunningIntent(intent);
       setIntentLoaded(true);
     } catch (error) {
+      if (!intentMountedRef.current || requestId !== intentRequestIdRef.current) return;
       setIntentLoadError(error instanceof Error && error.message
         ? error.message
         : '无法读取运行状态');
@@ -333,7 +339,12 @@ export function HomePage() {
 
   // Running intent belongs to the Electron/browser session, so restore it once per mount.
   useEffect(() => {
+    intentMountedRef.current = true;
     void loadRunningIntent();
+    return () => {
+      intentMountedRef.current = false;
+      intentRequestIdRef.current++;
+    };
   }, []);
 
   useEffect(() => {
