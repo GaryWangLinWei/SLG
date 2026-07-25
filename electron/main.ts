@@ -289,6 +289,16 @@ ipcMain.handle('set-running-intent', (event, value: unknown) => {
   return runningIntentStore.set(value);
 });
 
+ipcMain.handle('get-running-session', (event) => {
+  assertTrustedRunningIntentSender(event);
+  return runningIntentStore.getSession();
+});
+
+ipcMain.handle('set-running-session', (event, value: unknown) => {
+  assertTrustedRunningIntentSender(event);
+  return runningIntentStore.setSession(value);
+});
+
 ipcMain.handle('get-adb-path', () => {
   if (isDev) {
     return path.join(__dirname, '../tools/platform-tools/platform-tools/adb.exe');

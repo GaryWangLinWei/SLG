@@ -5,12 +5,12 @@ import { useAccount } from '../contexts/AccountContext';
 import { useLicense } from '../contexts/LicenseContext';
 import { DEFAULT_HOME_FEATURES, DEFAULT_COLLECT_RESOURCES_INTERVAL_MINUTES, MIN_COLLECT_RESOURCES_INTERVAL_MINUTES, TeamPageChoice, getCollectResourcesIntervalSeconds } from '../../../plugins/rok/homeFeatures';
 import { remoteApi } from '../api/remote';
-import { isCurrentLoopGeneration } from '../utils/loopGeneration';
-import { persistRunningIntent as persistRunningIntentValue, readRunningIntent } from '../utils/runningIntent';
+import { createLoopCancellationPredicate, isCurrentLoopGeneration } from '../utils/loopGeneration';
+import { persistRunningSession, readRunningSession, RunningSession } from '../utils/runningIntent';
 import { deriveRunningControlView, OperationState } from '../utils/runningControlView';
 
 // Module-level loop state — survives component unmount/remount during SPA navigation
-let browserRunningIntent = false;
+let browserRunningSession: RunningSession = { running: false, accountId: null };
 let loopStopped = false;
 let loopRunning = false;
 let loopGen = 0;
@@ -177,6 +177,7 @@ export function HomePage() {
   const [deviceLoading, setDeviceLoading] = useState(false);
   const [loopRunningState, setLoopRunningState] = useState(false);
   const [runningIntent, setRunningIntent] = useState(false);
+  const [runningOwnerAccountId, setRunningOwnerAccountId] = useState<string | null>(null);
   const [intentLoaded, setIntentLoaded] = useState(false);
   const [intentLoadError, setIntentLoadError] = useState<string | null>(null);
   const [operationState, setOperationState] = useState<OperationState>('idle');
@@ -324,13 +325,14 @@ export function HomePage() {
     setIntentLoaded(false);
     setIntentLoadError(null);
     try {
-      const intent = await readRunningIntent(
+      const session = await readRunningSession(
         'electronAPI' in window,
-        window.electronAPI?.getRunningIntent,
-        browserRunningIntent,
+        window.electronAPI?.getRunningSession,
+        browserRunningSession,
       );
       if (!intentMountedRef.current || requestId !== intentRequestIdRef.current) return;
-      setRunningIntent(intent);
+      setRunningIntent(session.running);
+      setRunningOwnerAccountId(session.accountId);
       setIntentLoaded(true);
     } catch (error) {
       if (!intentMountedRef.current || requestId !== intentRequestIdRef.current) return;
@@ -340,14 +342,15 @@ export function HomePage() {
     }
   };
 
-  const persistRunningIntent = async (value: boolean): Promise<boolean> => {
-    const persisted = await persistRunningIntentValue(
+  const persistSession = async (session: RunningSession): Promise<RunningSession> => {
+    const persisted = await persistRunningSession(
       'electronAPI' in window,
-      window.electronAPI?.setRunningIntent,
-      value,
+      window.electronAPI?.setRunningSession,
+      session,
     );
-    if (!('electronAPI' in window)) browserRunningIntent = persisted;
-    setRunningIntent(persisted);
+    if (!('electronAPI' in window)) browserRunningSession = persisted;
+    setRunningIntent(persisted.running);
+    setRunningOwnerAccountId(persisted.accountId);
     return persisted;
   };
 
@@ -510,7 +513,7 @@ export function HomePage() {
     loopStopped = false;
     clearLoopState();
     try {
-      await persistRunningIntent(true);
+      await persistSession({ running: true, accountId: currentAccountId });
     } catch (error) {
       loopStopped = true;
       loopRunning = false;
@@ -542,11 +545,16 @@ export function HomePage() {
       completedTechs: [false, false, false, false, false],
     }));
 
+    const isStopped = createLoopCancellationPredicate(myGen, () => loopGen, () => loopStopped);
     const sleep = async (s: number) => new Promise(r => setTimeout(r, s * 1000));
+    const createTask: typeof api.tasks.create = async (...args) => {
+      if (isStopped()) throw new Error('loop generation cancelled');
+      return api.tasks.create(...args);
+    };
 
     const acquireLock = async (): Promise<boolean> => {
-      while (deviceBusy && !loopStopped) { await sleep(0.3); }
-      if (loopStopped) return false;
+      while (deviceBusy && !isStopped()) { await sleep(0.3); }
+      if (isStopped()) return false;
       deviceBusy = true;
       return true;
     };
@@ -558,7 +566,7 @@ export function HomePage() {
 
       // 重置队列速览过滤状态（每次开始运行时重新检查）
       (async () => {
-        const r = await api.tasks.create(currentAccountId, 'com.rok.automation', 'read-queue-overview', { reset: true });
+        const r = await createTask(currentAccountId, 'com.rok.automation', 'read-queue-overview', { reset: true });
         if (r.success) {
           await api.tasks.run(r.task.id);
         }
@@ -567,7 +575,7 @@ export function HomePage() {
       // 城外采集独立循环 — 按固定间隔执行，不受 OCR 调度影响
       const gatherLoop = (async () => {
         let first = true;
-        while (!loopStopped) {
+        while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (features.gatherResources && !features.autoExplore && !features.autoWorldChat && !(features.gemGatherEnabled && features.gemGatherFocusMode)) {
@@ -578,7 +586,7 @@ export function HomePage() {
               if (!await acquireLock()) break;
               if (offlineActive) { releaseLock(); await sleep(30); continue; }
               try {
-                const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'gather-resources', { gatherTasks, teamPage: features.resourceGatherTeamPage });
+                const createResult = await createTask(currentAccountId, 'com.rok.automation', 'gather-resources', { gatherTasks, teamPage: features.resourceGatherTeamPage });
                 if (createResult.success) {
                   runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                   setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -601,7 +609,7 @@ export function HomePage() {
           }
           const jitteredInterval = GATHER_LOOP_INTERVAL * (0.85 + Math.random() * 0.3);
           const startWait = monotonicNow();
-          while (!loopStopped && (monotonicNow() - startWait) < jitteredInterval * 1000) {
+          while (!isStopped() && (monotonicNow() - startWait) < jitteredInterval * 1000) {
             await sleep(1);
           }
         }
@@ -610,14 +618,14 @@ export function HomePage() {
       // 帮助盟友独立循环 — 每 60s
       const helpLoop = (async () => {
         let first = true;
-        while (!loopStopped) {
+        while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (features.helpTeammates && !features.autoExplore && !features.autoWorldChat && !(features.gemGatherEnabled && features.gemGatherFocusMode)) {
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             try {
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'help-teammates');
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'help-teammates');
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -639,7 +647,7 @@ export function HomePage() {
           }
           const helpInterval = 60 * (0.85 + Math.random() * 0.3); // 51-69s
           const startWait = monotonicNow();
-          while (!loopStopped && (monotonicNow() - startWait) < helpInterval * 1000) {
+          while (!isStopped() && (monotonicNow() - startWait) < helpInterval * 1000) {
             await sleep(1);
           }
         }
@@ -648,14 +656,14 @@ export function HomePage() {
       // 收集资源独立循环 — 按用户设置间隔执行，并叠加随机抖动
       const collectLoop = (async () => {
         let first = true;
-        while (!loopStopped) {
+        while (!isStopped()) {
           if (first) { first = false; continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (features.collectResources && !features.autoExplore && !features.autoWorldChat && !(features.gemGatherEnabled && features.gemGatherFocusMode)) {
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             try {
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'collect-resources');
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'collect-resources');
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -677,7 +685,7 @@ export function HomePage() {
           }
           const collectInterval = getCollectResourcesIntervalSeconds(features.collectResourcesIntervalMinutes);
           const startWait = monotonicNow();
-          while (!loopStopped && (monotonicNow() - startWait) < collectInterval * 1000) {
+          while (!isStopped() && (monotonicNow() - startWait) < collectInterval * 1000) {
             await sleep(1);
           }
         }
@@ -686,16 +694,16 @@ export function HomePage() {
       // 攻打城寨独立循环 — 每 10min
       const rallyLoop = (async () => {
         let first = true;
-        while (!loopStopped) {
+        while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (features.autoRallyFort && features.rallyFortLevel > 0 && !features.autoExplore && !features.autoWorldChat && !(features.gemGatherEnabled && features.gemGatherFocusMode)) {
-            if (loopStopped) break;
+            if (isStopped()) break;
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             let cd = 600; // 默认 CD，实际根据结果确定
             try {
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'rally-fort', { level: features.rallyFortLevel, team: features.rallyFortTeam, downgrade: features.rallyFortDowngrade, teamPage: features.rallyFortTeamPage });
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'rally-fort', { level: features.rallyFortLevel, team: features.rallyFortTeam, downgrade: features.rallyFortDowngrade, teamPage: features.rallyFortTeamPage });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -732,11 +740,11 @@ export function HomePage() {
                 }
               }
             } catch {} finally { releaseLock(); }
-            if (loopStopped) break;
+            if (isStopped()) break;
             const cdJitter = cd * (0.85 + Math.random() * 0.3);
             setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🏰 城寨完成，${cdJitter.toFixed(0)} 秒后下一轮`]);
             const startWait = monotonicNow();
-            while (!loopStopped && (monotonicNow() - startWait) < cdJitter * 1000) {
+            while (!isStopped() && (monotonicNow() - startWait) < cdJitter * 1000) {
               await sleep(1);
             }
           } else {
@@ -750,16 +758,16 @@ export function HomePage() {
       (async () => {
         let first = true;
         let firstRun = true;
-        while (!loopStopped) {
+        while (!isStopped()) {
           if (first) { first = false; await sleep(15); continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (features.joinRallyEnabled && !features.autoExplore && !features.autoWorldChat && !(features.gemGatherEnabled && features.gemGatherFocusMode)) {
-            if (loopStopped) break;
+            if (isStopped()) break;
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             let cd = 300; // 默认 CD 5 分钟
             try {
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'join-rally', {
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'join-rally', {
                 team: features.joinRallyTeam,
                 teamPage: features.joinRallyTeamPage,
                 targetFort: features.joinRallyTargetFort,
@@ -808,11 +816,11 @@ export function HomePage() {
                 firstRun = false; // 首次执行完后标记为非首次
               }
             } catch {} finally { releaseLock(); }
-            if (loopStopped) break;
+            if (isStopped()) break;
             const cdJitter = cd * (0.85 + Math.random() * 0.3);
             setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🤝 加入集结完成，${cdJitter.toFixed(0)} 秒后下一轮`]);
             const startWait = monotonicNow();
-            while (!loopStopped && (monotonicNow() - startWait) < cdJitter * 1000) {
+            while (!isStopped() && (monotonicNow() - startWait) < cdJitter * 1000) {
               await sleep(1);
             }
           } else {
@@ -826,10 +834,10 @@ export function HomePage() {
         let first = true;
         // 循环开始前重置山洞探索状态
         try {
-          await api.tasks.create(currentAccountId, 'com.rok.automation', 'reset-cave-explore')
+          await createTask(currentAccountId, 'com.rok.automation', 'reset-cave-explore')
             .then(r => { if (r.success) return api.tasks.run(r.task.id); });
         } catch {}
-        while (!loopStopped) {
+        while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (features.autoCaveExplore && !features.autoExplore && !features.autoWorldChat && !(features.gemGatherEnabled && features.gemGatherFocusMode)) {
@@ -839,7 +847,7 @@ export function HomePage() {
               if (!await acquireLock()) break;
               if (offlineActive) { releaseLock(); await sleep(30); continue; }
               try {
-                const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'cave-explore');
+                const createResult = await createTask(currentAccountId, 'com.rok.automation', 'cave-explore');
                 if (createResult.success) {
                   runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                   setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -862,7 +870,7 @@ export function HomePage() {
           }
           const caveInterval = 120 * (0.85 + Math.random() * 0.3);
           const startWait = monotonicNow();
-          while (!loopStopped && (monotonicNow() - startWait) < caveInterval * 1000) {
+          while (!isStopped() && (monotonicNow() - startWait) < caveInterval * 1000) {
             await sleep(1);
           }
         }
@@ -870,7 +878,7 @@ export function HomePage() {
 
       // 下线监控独立循环 — 每 30s 检查一次，边沿触发 kill / launch
       const offlineLoop = (async () => {
-        while (!loopStopped) {
+        while (!isStopped()) {
           const f = featuresRef.current;
           const now = new Date();
           const minuteOfDay = now.getHours() * 60 + now.getMinutes();
@@ -886,7 +894,7 @@ export function HomePage() {
             lastOfflineState = true;
             if (await acquireLock()) {
               try {
-                const r = await api.tasks.create(currentAccountId, 'com.rok.automation', 'kill-game');
+                const r = await createTask(currentAccountId, 'com.rok.automation', 'kill-game');
                 if (r.success) {
                   runningTaskIdsRef.current = [...runningTaskIdsRef.current, r.task.id];
                   setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -900,7 +908,7 @@ export function HomePage() {
             setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ☀️ 恢复上线状态`]);
             if (await acquireLock()) {
               try {
-                const r = await api.tasks.create(currentAccountId, 'com.rok.automation', 'launch-game');
+                const r = await createTask(currentAccountId, 'com.rok.automation', 'launch-game');
                 if (r.success) {
                   runningTaskIdsRef.current = [...runningTaskIdsRef.current, r.task.id];
                   setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -920,7 +928,7 @@ export function HomePage() {
 
           // 等 30s 再检查（中途循环停止可立即退出）
           const startWait = monotonicNow();
-          while (!loopStopped && (monotonicNow() - startWait) < 30000) {
+          while (!isStopped() && (monotonicNow() - startWait) < 30000) {
             await sleep(1);
           }
         }
@@ -933,7 +941,7 @@ export function HomePage() {
 
         const readCount = async (): Promise<number | null> => {
           try {
-            const res = await api.tasks.create(currentAccountId, 'com.rok.automation', 'read-gem-count');
+            const res = await createTask(currentAccountId, 'com.rok.automation', 'read-gem-count');
             if (!res.success) { console.error('[readCount] create failed', res); return null; }
             const run = await api.tasks.run(res.task.id);
             const logs = run.task?.logs ?? [];
@@ -944,7 +952,7 @@ export function HomePage() {
           } catch (e) { console.error('[readCount] error:', e); return null; }
         };
 
-        while (!loopStopped) {
+        while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
 
@@ -987,7 +995,7 @@ export function HomePage() {
           setLogs(prev => [...prev,
             `[${new Date().toLocaleTimeString()}] 💎 ${isFocus ? '专注' : '普通'}采集开始，持续 ${activeHours}h`]);
 
-          while (!loopStopped && !relaunchRequested && monotonicNow() < activeEnd) {
+          while (!isStopped() && !relaunchRequested && monotonicNow() < activeEnd) {
             if (offlineActive) { await sleep(30); continue; }
             if (!await acquireLock()) break;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
@@ -1000,7 +1008,7 @@ export function HomePage() {
                 setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 💎 已采集: ${moduleGemCollectedCount} 颗`]);
               }
 
-              const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, { teams: f.gemGatherTeams, teamPage: f.gemGatherTeamPage });
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', actionId, { teams: f.gemGatherTeams, teamPage: f.gemGatherTeamPage });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1020,15 +1028,15 @@ export function HomePage() {
               }
             } catch {} finally { releaseLock(); }
 
-            if (loopStopped) break;
+            if (isStopped()) break;
             if (monotonicNow() >= activeEnd) break;
             const wait = intervalSec * (0.85 + Math.random() * 0.3);
             const startWait = monotonicNow();
-            while (!loopStopped && (monotonicNow() - startWait) < wait * 1000 && monotonicNow() < activeEnd) {
+            while (!isStopped() && (monotonicNow() - startWait) < wait * 1000 && monotonicNow() < activeEnd) {
               await sleep(1);
             }
           }
-          if (loopStopped) break;
+          if (isStopped()) break;
           // 上线重置请求：跳过 rest，回到外层 while 顶部重置状态、重新开始采集
           if (relaunchRequested) continue;
 
@@ -1039,7 +1047,7 @@ export function HomePage() {
           moduleGemRestActive = true;
           setLogs(prev => [...prev,
             `[${new Date().toLocaleTimeString()}] 💤 宝石采集休息 ${restHours}h，${new Date(restEndWall).toLocaleTimeString()} 恢复`]);
-          while (!loopStopped && !relaunchRequested && monotonicNow() < restEnd) {
+          while (!isStopped() && !relaunchRequested && monotonicNow() < restEnd) {
             const remaining = Math.max(0, restEnd - monotonicNow());
             const h = Math.floor(remaining / 3600000);
             const m = Math.floor((remaining % 3600000) / 60000);
@@ -1058,7 +1066,7 @@ export function HomePage() {
       if (!hasMainWork) {
         setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ℹ️ 未启用建筑/科技/训练，主循环跳过`]);
       }
-      while (!loopStopped && hasMainWork) {
+      while (!isStopped() && hasMainWork) {
         round++;
         setLogs(prev => { const next = [...prev, `[${new Date().toLocaleTimeString()}] 🔄 第${round}轮`]; saveLoopState(currentAccountId); return next; });
 
@@ -1071,9 +1079,9 @@ export function HomePage() {
         };
 
         const runTask = async (actionId: string, config?: Record<string, any>): Promise<string[]> => {
-          if (loopStopped) return [];
+          if (isStopped()) return [];
           try {
-            const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, config);
+            const createResult = await createTask(currentAccountId, 'com.rok.automation', actionId, config);
             if (createResult.success) {
               runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
               setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1145,7 +1153,7 @@ export function HomePage() {
               finally { releaseLock(); }
             }
           }
-          if (loopStopped) break;
+          if (isStopped()) break;
           // 探索模式下固定 1 分钟后检查
           const exploreNextWake = 30 + Math.random() * 15;
           setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 🔍 探索模式，下次检查 ${exploreNextWake.toFixed(0)} 秒后`]);
@@ -1154,21 +1162,21 @@ export function HomePage() {
           if (exploreDragWindow > 20 && Math.random() < 0.05) {
             const dragDelay = 5 + Math.random() * (exploreDragWindow * 0.7);
             const exploreStartWait = monotonicNow();
-            while (!loopStopped && (monotonicNow() - exploreStartWait) < dragDelay * 1000) {
+            while (!isStopped() && (monotonicNow() - exploreStartWait) < dragDelay * 1000) {
               await sleep(1);
             }
-            if (!loopStopped) {
+            if (!isStopped()) {
               if (await acquireLock()) {
                 try { if (!offlineActive) await runTask('idle-drag'); } catch {} finally { releaseLock(); }
               }
             }
-            while (!loopStopped && (monotonicNow() - exploreStartWait) < exploreNextWake * 1000) {
+            while (!isStopped() && (monotonicNow() - exploreStartWait) < exploreNextWake * 1000) {
               await sleep(1);
             }
           } else {
             await sleep(exploreNextWake);
           }
-          if (loopStopped) break;
+          if (isStopped()) break;
           continue;
         }
 
@@ -1181,16 +1189,16 @@ export function HomePage() {
             break;
           }
 
-          while (!loopStopped && features.autoWorldChat) {
+          while (!isStopped() && features.autoWorldChat) {
             // 一轮：依次发送所有消息，每条间隔 15s
-            for (let i = 0; i < messages.length && !loopStopped; i++) {
+            for (let i = 0; i < messages.length && !isStopped(); i++) {
               // 第一条不等，后续等 15s
               if (i > 0) {
                 setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] 📢 下一条消息 15 秒后`]);
                 await sleep(15);
               }
 
-              if (loopStopped) break;
+              if (isStopped()) break;
 
               if (await acquireLock()) {
                 try { if (!offlineActive) await runTask('send-world-chat', { message: messages[i], isFirst: i === 0 && true }); }
@@ -1198,7 +1206,7 @@ export function HomePage() {
               }
             }
 
-            if (loopStopped) break;
+            if (isStopped()) break;
 
             // 一轮结束，等 CD
             const cd = features.worldChatInterval || 300;
@@ -1210,22 +1218,22 @@ export function HomePage() {
             const dragWindow = cdJitter - dragSafety;
             if (dragWindow > 20 && Math.random() < 0.05) {
               const dragDelay = 5 + Math.random() * (dragWindow * 0.7);
-              while (!loopStopped && (monotonicNow() - cdStartWait) < dragDelay * 1000) {
+              while (!isStopped() && (monotonicNow() - cdStartWait) < dragDelay * 1000) {
                 await sleep(1);
               }
-              if (!loopStopped) {
+              if (!isStopped()) {
                 if (await acquireLock()) {
                   try { if (!offlineActive) await runTask('idle-drag'); } catch {} finally { releaseLock(); }
                 }
               }
-              while (!loopStopped && (monotonicNow() - cdStartWait) < cdJitter * 1000) {
+              while (!isStopped() && (monotonicNow() - cdStartWait) < cdJitter * 1000) {
                 await sleep(1);
               }
             } else {
               await sleep(cdJitter);
             }
           }
-          if (loopStopped) break;
+          if (isStopped()) break;
           continue;
         }
 
@@ -1233,9 +1241,9 @@ export function HomePage() {
         let dispatchedAny = false;
 
         // 获取设备锁，执行 OCR + 派发
-        if (loopStopped) break;
+        if (isStopped()) break;
         if (!await acquireLock()) {
-          if (loopStopped) break;
+          if (isStopped()) break;
           continue;
         }
         if (offlineActive) { releaseLock(); await sleep(30); continue; }
@@ -1244,7 +1252,7 @@ export function HomePage() {
         const ocrLogs = await runTask('read-queue-overview');
         const timers = parseOcrResult(ocrLogs);
 
-        if (loopStopped) break;
+        if (isStopped()) break;
 
         // Step 2: 执行到期/就绪的 action
         const hasUpgrade = features.upgradeBuildings &&
@@ -1277,7 +1285,7 @@ export function HomePage() {
           }
         }
 
-        if (loopStopped) break;
+        if (isStopped()) break;
 
         if (hasResearch && (timers.research === null || timers.research! <= 0)) {
           if (!buildingOptions.includes('学院')) {
@@ -1307,7 +1315,7 @@ export function HomePage() {
           }
         }
 
-        if (loopStopped) break;
+        if (isStopped()) break;
 
         if (hasTrain) {
           const trainTimerMap: Record<string, number | null> = {
@@ -1332,7 +1340,7 @@ export function HomePage() {
           if (trainQueue.length > 0) { await runTask('train-troops', { trainQueue }); dispatchedAny = true; }
         }
 
-        if (loopStopped) break;
+        if (isStopped()) break;
 
         // Step 3: 有派发任务时才重新 OCR，获取最新倒计时
         if (dispatchedAny) {
@@ -1344,7 +1352,7 @@ export function HomePage() {
 
         } finally { releaseLock(); }
 
-        if (loopStopped) break;
+        if (isStopped()) break;
 
         // Step 4: 计算下次唤醒时间（基于最新 OCR 结果）
         // 建筑/科技队列提前唤醒 (*0.6)，训练队列用原始值
@@ -1375,20 +1383,20 @@ export function HomePage() {
         if (dragWindow > 120 && Math.random() < 0.4) {
           const dragDelay = 5 + Math.random() * (dragWindow * 0.7);
           const startWait = monotonicNow();
-          while (!loopStopped && (monotonicNow() - startWait) < dragDelay * 1000) {
+          while (!isStopped() && (monotonicNow() - startWait) < dragDelay * 1000) {
             await sleep(1);
           }
-          if (!loopStopped) {
+          if (!isStopped()) {
             if (await acquireLock()) {
               try { if (!offlineActive) await runTask('idle-drag'); } catch {} finally { releaseLock(); }
             }
           }
-          while (!loopStopped && (monotonicNow() - startWait) < nextWake * 1000) {
+          while (!isStopped() && (monotonicNow() - startWait) < nextWake * 1000) {
             await sleep(1);
           }
         } else {
           const startWait = monotonicNow();
-          while (!loopStopped && (monotonicNow() - startWait) < nextWake * 1000) {
+          while (!isStopped() && (monotonicNow() - startWait) < nextWake * 1000) {
             await sleep(1);
           }
         }
@@ -1423,13 +1431,14 @@ export function HomePage() {
     loopRunning = false;
     setLoopRunningState(false);
 
-    if (!currentAccountId) {
-      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 停止失败: 当前账号不存在`]);
+    const ownerAccountId = runningOwnerAccountId;
+    if (!ownerAccountId) {
+      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 停止失败: 运行账号缺失，请重试或重启应用恢复会话`]);
       return;
     }
 
     try {
-      const result = await api.tasks.stopByAccount(currentAccountId);
+      const result = await api.tasks.stopByAccount(ownerAccountId);
       if (!result.success) throw new Error('后端未能停止账号任务');
     } catch (error) {
       const message = error instanceof Error && error.message ? error.message : String(error);
@@ -1438,7 +1447,7 @@ export function HomePage() {
     }
 
     try {
-      await persistRunningIntent(false);
+      await persistSession({ running: false, accountId: null });
     } catch (error) {
       const message = error instanceof Error && error.message ? error.message : String(error);
       setIntentLoaded(false);
@@ -1463,7 +1472,7 @@ export function HomePage() {
       void (async () => {
         try {
           if (!isCurrentLoopGeneration(stopGeneration, loopGen) || loopRunning) return;
-          const result = await api.tasks.create(currentAccountId, 'com.rok.automation', 'kill-game');
+          const result = await api.tasks.create(ownerAccountId, 'com.rok.automation', 'kill-game');
           if (!result.success) return;
           if (!isCurrentLoopGeneration(stopGeneration, loopGen) || loopRunning) {
             await api.tasks.stop(result.task.id).catch(() => {});
