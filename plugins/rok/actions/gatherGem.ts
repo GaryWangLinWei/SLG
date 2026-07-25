@@ -21,6 +21,10 @@ const PICKAXE_TEMPLATES = [
   // path.join(TEMPLATE_DIR, '黄色锄头.png'), // 暂时去掉黄色锄头判定
   // path.join(TEMPLATE_DIR, 'state_caiji.png'), // 改用 state.onnx YOLO 检测
 ];
+const GEM_VERIFY_TEMPLATES = [
+  path.join(TEMPLATE_DIR, 'gem', 'gem_old_day.png'),
+  path.join(TEMPLATE_DIR, 'gem', 'gem_old_night.png'),
+];
 
 // 队伍选择坐标（复用 gatherResources）
 const SELECT_TEAM_BUTTON = { x: 1259, y: 180 };
@@ -183,7 +187,22 @@ export async function verifyGemAtCenter(ctx: PluginContext): Promise<{ found: bo
   );
 
   if (centerDetections.length === 0) {
-    ctx.log('  ❌ bigGem 中心附近无宝石，缩地继续螺旋搜索');
+    ctx.log('  [宝石二次确认] bigGem 未命中，尝试宝石模板兜底...');
+    for (const template of GEM_VERIFY_TEMPLATES) {
+      const match = await ctx.findImageWithLocation(template, 0.7);
+      if (
+        match.found &&
+        match.x >= GEM_VERIFY_REGION.x &&
+        match.x <= GEM_VERIFY_REGION.x + GEM_VERIFY_REGION.w &&
+        match.y >= GEM_VERIFY_REGION.y &&
+        match.y <= GEM_VERIFY_REGION.y + GEM_VERIFY_REGION.h
+      ) {
+        ctx.log(`  ✅ 模板确认宝石矿 @ (${Math.round(match.x)}, ${Math.round(match.y)}) conf=${(match.confidence * 100).toFixed(1)}%`);
+        return { found: true, x: Math.round(match.x), y: Math.round(match.y) };
+      }
+    }
+
+    ctx.log('  ❌ bigGem 与模板均未在中心附近确认宝石，缩地继续螺旋搜索');
     if (isDevEnv()) {
       try {
         await fs.mkdir(GEM_VERIFY_FAIL_DIR, { recursive: true });

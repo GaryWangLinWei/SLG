@@ -1,5 +1,5 @@
 import { Vision } from '../../../core/vision/Vision';
-import { searchAndClickGem, selectGemCandidateWithUiAvoidance, SpiralState } from './gatherGem';
+import { searchAndClickGem, selectGemCandidateWithUiAvoidance, SpiralState, verifyGemAtCenter } from './gatherGem';
 
 jest.mock('../utils/teamStateDetection', () => ({
   detectTeamStates: jest.fn().mockResolvedValue([]),
@@ -82,6 +82,26 @@ describe('selectGemCandidateWithUiAvoidance', () => {
     expect(ctx.swipe).toHaveBeenCalledTimes(1);
     expect(ctx.sleep).toHaveBeenCalledTimes(1);
     expect(ctx.detectWithScreenshot).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('verifyGemAtCenter 模板兜底', () => {
+  test('bigGem 未命中时，中心区域模板命中仍确认成功', async () => {
+    const ctx = {
+      log: jest.fn(),
+      detectBigGemWithScreenshot: jest.fn().mockResolvedValue([]),
+      findImageWithLocation: jest.fn()
+        .mockResolvedValueOnce({ found: true, x: 800, y: 450, confidence: 0.82 }),
+    } as any;
+
+    const result = await verifyGemAtCenter(ctx);
+
+    expect(result).toEqual({ found: true, x: 800, y: 450 });
+    expect(ctx.findImageWithLocation).toHaveBeenCalledTimes(1);
+    expect(ctx.findImageWithLocation).toHaveBeenCalledWith(
+      expect.stringContaining('gem_old_day.png'),
+      0.7
+    );
   });
 });
 
