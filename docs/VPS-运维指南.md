@@ -131,86 +131,38 @@ ssh root@106.15.11.158 "pm2 restart slg-auth"
 # http://106.15.11.158:3456/admin/
 ```
 
-## Electron 客户端发布
+## Electron 客户端双版本发布
 
-### OSS 配置（一次性，已完成）
+主版与代理商版共用版本号，一次构建分别输出到 `release/main/` 和 `release/agent/`。发布仅使用 OSS，不再使用 `--oss-only` 或向 VPS SCP 更新文件。
 
-- Bucket: `slg-updates`，区域 **oss-cn-shanghai**（华东 2 / 上海），公共读
-- 默认访问域名（无需备案）：`https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/`
-- RAM 子用户 `slg-oss-uploader`，权限限定 `slg-updates/updates/*` 的 Put/Get/Delete + List
-- AccessKey 存本地 `.env`（已在 .gitignore）：`OSS_KEY_ID` / `OSS_KEY_SECRET`
-- Bucket 内固定目录：`updates/`（latest.yml、exe、blockmap 都放这）
+### 首次启用代理商渠道
 
-### 1. 修改版本号 + 发行说明
-
-编辑 `package.json`（项目根）：
-- `version` 字段递增（如 `1.1.3` → `1.1.4`）
-- `build.releaseInfo.releaseNotes` 更新为本版更新内容
-
-### 2. 一键构建 + 发布
-
-**常规双传（OSS + VPS）：**
 ```bash
+npm run electron:build:win
+node scripts/publish-release.mjs --dry-run
+node scripts/publish-release.mjs --initialize-agent
+# 检查 https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/agent/latest.yml
 npm run electron:publish:win
 ```
 
-**只传 OSS（跳过 VPS，用于测试新版本或活跃用户已全部升到 1.1.3+ 后）：**
-```bash
-npm run electron:publish:win -- --oss-only
-```
+`--initialize-agent` 只初始化代理商渠道，主版 manifest 保持不变。执行前确认 OSS 凭据已通过环境变量配置。
 
-脚本会：
-1. 构建 exe（产物在 `release/`）
-2. 上传 `latest.yml / exe / exe.blockmap` 到阿里云 OSS
-3.（无 --oss-only 时）同步上传一份到 VPS `/root/server-auth/updates/`，供 ≤1.1.2 老客户端使用
+### 日常同步发布
 
-### 3. 验证
+1. 更新根 `package.json` 的 `version` 和 `build.releaseInfo.releaseNotes`。
+2. 运行 `npm run electron:publish:win`。
+3. 检查以下两个 manifest 版本一致：
+   - `https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/latest.yml`
+   - `https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/agent/latest.yml`
 
-```
-https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/latest.yml
-http://106.15.11.158:3456/updates/latest.yml
-```
+正式发布要求两个旧 manifest 均已存在。脚本先上传并验证两版不可变的 exe 与 blockmap，最后按 main、agent 顺序切换 manifest；失败时尝试恢复已切换的旧 manifest。不要手工删除旧 exe 或 blockmap，否则旧客户端无法使用差量更新。
 
-两处 `latest.yml` 内容应一致（用了 --oss-only 时 VPS 保持旧版），`version` 字段为新版。
+发布前可安全运行 `node scripts/publish-release.mjs --dry-run`：它只校验本地产物并列出六个目标文件，不创建 OSS client，也不访问网络。
 
-### 4. 撤回 / 回滚已发版本
+安装包文件名分别为：
 
-**场景**：新版发出去后发现有 bug 或想暂缓推送。**不用重新构建，只需改 `latest.yml` 里的 version 声明**。
-
-只改 VPS（老用户不升，已装新版用户不受影响）：
-```bash
-ssh root@106.15.11.158 "cd /root/server-auth/updates && cp latest.yml latest.yml.bak && \
-  sed -i 's/version: 1.1.4/version: 1.1.3/' latest.yml"
-# 或直接把整个 latest.yml 替换成旧版本内容
-```
-
-只改 OSS（同理）：写一个临时 mjs 脚本用 `ali-oss` 的 `client.put('updates/latest.yml', Buffer.from(oldYml))` 覆盖即可。
-
-**exe 和 blockmap 保留在 OSS/VPS 上不要删**，删了会破坏差量链且已装该版本的客户端会 404。
-
-### 5. 只删某版本 exe（不推荐）
-
-如果一定要删：
-1. OSS/VPS 删对应 `.exe` 和 `.blockmap`
-2. `latest.yml` 里 version 回滚到上一个可用版本
-3. 已装被删版本的机器需要手动卸载重装可用版本，否则升级检查会 404
-
-### 6. 何时停 VPS 上传
-
-`pm2 logs slg-auth` 观察 VPS `/updates/latest.yml` 的 GET 请求：连续 2 周没有 ≤1.1.2 客户端拉取时，改成默认 `--oss-only`，或从 `scripts/publish-release.mjs` 直接删掉 VPS scp 段，VPS `/updates` 目录清空。
-
-### 关于差量更新
-
-electron-updater 用旧版 `.blockmap` 计算 diff，只下载改动的块（几十 MB，不是 300 MB）。**OSS 和 VPS 上的旧版 exe + blockmap 都不要删**，否则新用户升级会变全量。
-
-### 相关文件
-
-| 文件 | 用途 |
-|------|------|
-| `scripts/publish-release.mjs` | 发布脚本（OSS + 可选 VPS） |
-| `.env` | OSS AccessKey，不入 git |
-| `package.json` `build.publish.url` | 客户端内嵌的更新源 URL（改这个要注意向下兼容） |
-| `docs/superpowers/specs/2026-07-11-oss-update-migration-design.md` | 迁移设计文档 |
+- `ROK助手 Setup <version>.exe`
+- `ROK助手-代理商版 Setup <version>.exe`
 
 ## 文件结构（VPS 上）
 
