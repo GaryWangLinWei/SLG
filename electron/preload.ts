@@ -3,6 +3,8 @@ import { contextBridge, ipcRenderer } from 'electron';
 contextBridge.exposeInMainWorld('electronAPI', {
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
   getAdbPath: () => ipcRenderer.invoke('get-adb-path'),
+  getRunningIntent: () => ipcRenderer.invoke('get-running-intent'),
+  setRunningIntent: (value: boolean) => ipcRenderer.invoke('set-running-intent', value),
   minimizeWindow: () => ipcRenderer.send('minimize-window'),
   closeApp: () => ipcRenderer.send('close-app'),
   onUpdateStatus: (callback: (data: { status: string; progress?: number; version?: string; releaseNotes?: string }) => void) => {
@@ -20,6 +22,8 @@ declare global {
     electronAPI: {
       getAppVersion: () => Promise<string>;
       getAdbPath: () => Promise<string>;
+      getRunningIntent: () => Promise<boolean>;
+      setRunningIntent: (value: boolean) => Promise<boolean>;
       minimizeWindow: () => void;
       closeApp: () => void;
       onUpdateStatus: (callback: (data: { status: string; progress?: number; version?: string; releaseNotes?: string }) => void) => () => void;

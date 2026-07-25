@@ -6,6 +6,9 @@ import { initResourcePaths } from '../core/resourcePath';
 import { autoUpdater } from 'electron-updater';
 import { remoteClient } from '../core/remote/RemoteClient';
 import { licenseService } from '../core/license';
+import { createRunningIntentStore } from './runningIntentStore';
+
+const runningIntentStore = createRunningIntentStore();
 
 const isDev = !app.isPackaged;
 
@@ -260,6 +263,14 @@ function createTray() {
 // IPC handlers
 ipcMain.handle('get-app-version', () => {
   return app.getVersion();
+});
+
+ipcMain.handle('get-running-intent', () => {
+  return runningIntentStore.get();
+});
+
+ipcMain.handle('set-running-intent', (_event, value: unknown) => {
+  return runningIntentStore.set(value as boolean);
 });
 
 ipcMain.handle('get-adb-path', () => {

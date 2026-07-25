@@ -1,6 +1,8 @@
 interface ElectronAPI {
   getAppVersion: () => Promise<string>;
   getAdbPath: () => Promise<string>;
+  getRunningIntent: () => Promise<boolean>;
+  setRunningIntent: (value: boolean) => Promise<boolean>;
   minimizeWindow: () => void;
   closeApp: () => void;
   onUpdateStatus: (callback: (data: { status: 'idle' | 'checking' | 'available' | 'downloading' | 'downloaded'; progress?: number; version?: string; releaseNotes?: string }) => void) => () => void;
