@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef, Fragment } from 'react';
+﻿import { useState, useEffect, useRef, Fragment } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAccount } from '../contexts/AccountContext';
 import { useLicense } from '../contexts/LicenseContext';
 import { DEFAULT_HOME_FEATURES, DEFAULT_COLLECT_RESOURCES_INTERVAL_MINUTES, MIN_COLLECT_RESOURCES_INTERVAL_MINUTES, DEFAULT_AUTO_RECONNECT_INTERVAL_MINUTES, TeamPageChoice, getCollectResourcesIntervalSeconds } from '../../../plugins/rok/homeFeatures';
 import { remoteApi } from '../api/remote';
+import { isComboGemActive } from '../utils/comboGemMode';
 
 // Electron 打包后 HTML 走 file://，相对路径 /api 会失败；必须显式指向本地后端
 const IS_ELECTRON = typeof window !== 'undefined' && 'electronAPI' in window;
@@ -32,17 +33,18 @@ const sharedGemCoordMemory: Map<string, Set<string>> = new Map();
 function getSharedGemCoords(accountId: string): string[] {
   return [...(sharedGemCoordMemory.get(accountId) ?? new Set<string>())];
 }
+const COMBO_GEM_POOL_ACCOUNT_ID = 'combo-gem';
+
 function recordSharedGemCoordsFromLogs(accountId: string, logs: string[]): number {
   const set = sharedGemCoordMemory.get(accountId) ?? new Set<string>();
   let added = 0;
   for (const line of logs) {
-    const m = line.match(/\[坐标\]\s*记录已分享:\s*(\S+)/);
-    if (m) {
-      const coord = m[1].replace(/[^0-9]/g, '');
-      if (coord && !set.has(coord)) {
-        set.add(coord);
-        added++;
-      }
+    const tagged = line.match(/\[坐标\]\s*记录已分享:\s*x:\s*(\d+)\s*y:\s*(\d+)/i);
+    const legacy = line.match(/\[坐标\]\s*记录已分享:\s*(\S+)/);
+    const coord = tagged ? `${tagged[1]}${tagged[2]}` : legacy?.[1].replace(/[^0-9]/g, '');
+    if (coord && !set.has(coord)) {
+      set.add(coord);
+      added++;
     }
   }
   if (added > 0) sharedGemCoordMemory.set(accountId, set);
@@ -1191,7 +1193,17 @@ export function HomePage() {
                 setRunningTaskIds([...runningTaskIdsRef.current]);
                 if (isStopped()) break;
                 const logs = rr.task?.logs ?? [];
-                if (logs.some((l: string) => l.includes('切换账号: success'))) { ok = true; break; }
+                const accountSwitched = logs.some((l: string) =>
+                  l.includes('切换账号: success') ||
+                  l.includes('切换账号: switched_load_timeout')
+                );
+                if (accountSwitched) {
+                  ok = true;
+                  if (logs.some((l: string) => l.includes('切换账号: switched_load_timeout'))) {
+                    pushLog(`⚠️ 新账号进城超时，但登录已提交，继续切换配置`);
+                  }
+                  break;
+                }
                 pushLog(`⚠️ 切号第 ${attempt} 次失败`);
               }
               if (isStopped()) { pushLog(`⏹️ 切号被中止`); break; }
@@ -1496,20 +1508,26 @@ export function HomePage() {
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
             try {
+              const shareFeatures = featuresRef.current;
+              const comboGemActive = isComboGemActive(shareFeatures, isFeatureLocked('autoSwitchAccount'));
               const memShared = getSharedGemCoords(currentAccountId);
               if (memShared.length > 0) pushLog(`💎 携带已分享坐标 ${memShared.length} 个`);
-              const stopCond = featuresRef.current.shareGemStopCondition ?? 'spiral';
-              const targetCount = stopCond === 'count5' ? 5
-                : stopCond === 'count10' ? 10
+              const stopCond = shareFeatures.shareGemStopCondition === 'spiral'
+                ? 'count5'
+                : (shareFeatures.shareGemStopCondition ?? 'count5');
+              const targetCount = stopCond === 'count10' ? 10
                 : stopCond === 'count15' ? 15
                 : stopCond === 'count100' ? 100
-                : undefined;
+                : 5;
               const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', 'share-gem', {
-                startX: featuresRef.current.gemGatherHomeX ?? 0,
-                startY: featuresRef.current.gemGatherHomeY ?? 0,
+                accountId: currentAccountId,
+                poolAccountId: comboGemActive ? COMBO_GEM_POOL_ACCOUNT_ID : currentAccountId,
+                startX: shareFeatures.gemGatherHomeX ?? 0,
+                startY: shareFeatures.gemGatherHomeY ?? 0,
                 recordedCoords: memShared,
                 searchWeights: { spiral: 100, reverseSpiral: 0, randomWalk: 0, snake: 0 },
                 targetCount,
+                skipShareClick: comboGemActive,
               });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
@@ -1828,8 +1846,11 @@ export function HomePage() {
               pushLog(`💎 [DEBUG] maxDistance=${fNow.gemGatherMaxDistance}`);
               const memCoords = getFreshGemCoords(currentAccountId);
               if (memCoords.length > 0) pushLog(`💎 携带跨轮记忆坐标 ${memCoords.length} 个`);
+              const comboGemActive = isComboGemActive(fNow, isFeatureLocked('autoSwitchAccount'));
               const gemParams = useShared
-                ? { accountId: currentAccountId, teams: fNow.gemGatherTeams, teamPage: fNow.gemGatherTeamPage, homeX: fNow.gemGatherHomeX, homeY: fNow.gemGatherHomeY }
+                ? { teams: fNow.gemGatherTeams, teamPage: fNow.gemGatherTeamPage, homeX: fNow.gemGatherHomeX, homeY: fNow.gemGatherHomeY, accountId: currentAccountId,
+                    poolAccountId: comboGemActive ? COMBO_GEM_POOL_ACCOUNT_ID : currentAccountId,
+                    skipChatCollect: comboGemActive }
                 : { teams: fNow.gemGatherTeams, teamPage: fNow.gemGatherTeamPage, searchWeights: fNow.gemSearchWeights, maxDistance: fNow.gemGatherMaxDistance, extraSwipePauseSec: fNow.gemGatherExtraSwipePauseSec ?? 0, collectedCoords: memCoords };
               const createResult = await api.tasks.create(currentAccountId, 'com.rok.automation', actionId, gemParams);
               if (createResult.success) {
@@ -2733,12 +2754,11 @@ export function HomePage() {
                   <div className="flex items-center gap-2 mt-2">
                     <span className="text-xs text-slate-500 whitespace-nowrap">搜索停止条件</span>
                     <select
-                      value={features.shareGemStopCondition ?? 'spiral'}
+                      value={features.shareGemStopCondition === 'spiral' ? 'count5' : (features.shareGemStopCondition ?? 'count5')}
                       disabled={!features.gemGatherEnabled || !features.shareGemEnabled || isFeatureLocked('gemGather') || isFeatureLocked('shareGem')}
-                      onChange={(e) => setFeatures({ ...features, shareGemStopCondition: e.target.value as 'spiral' | 'count5' | 'count10' | 'count15' | 'count100' })}
+                      onChange={(e) => setFeatures({ ...features, shareGemStopCondition: e.target.value as 'count5' | 'count10' | 'count15' | 'count100' })}
                       className="px-2 py-1 border border-slate-300 rounded text-xs bg-white disabled:opacity-50"
                     >
-                      <option value="spiral">搜索步数耗尽(81步)</option>
                       <option value="count5">分享 5 个矿</option>
                       <option value="count10">分享 10 个矿</option>
                       <option value="count15">分享 15 个矿</option>

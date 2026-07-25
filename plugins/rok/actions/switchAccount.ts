@@ -5,13 +5,16 @@ import { ocrService } from '../../../core/ocr/OcrService';
 import { getCurrentLocation } from '../utils/location';
 import { TAP_REGION } from './launchGame';
 
-export type SwitchAccountResult = 'success' | 'not_found' | 'settings_failed' | 'load_timeout';
+const ROK_PACKAGE = 'com.lilithgames.rok.offical.cn';
+const DROPDOWN_OCR_MAX_TRIES = 5;
+
+export type SwitchAccountResult = 'success' | 'not_found' | 'settings_failed' | 'load_timeout' | 'switched_load_timeout' | 'dropdown_ocr_failed';
 
 const AVATAR_TAP = { x: 58, y: 48 };          // (34,23)-(83,73) 中心
 const SETTINGS_BTN = { x: 1358, y: 747 };     // (1329,719)-(1388,775) 中心
 const SWITCH_BTN = { x: 727, y: 97 };
 const DROPDOWN_BTN = { x: 994, y: 408 };
-const LOGIN_BTN = { x: 802, y: 487 };
+const SURE_SWITCH_TEMPLATE = path.join(getTemplatesDir(), 'btn_sureswitch.png');
 
 const REGION1 = { x: 676, y: 495, w: 862 - 676, h: 520 - 495, tap: { x: 769, y: 508 } };
 const REGION2 = { x: 676, y: 569, w: 862 - 676, h: 594 - 569, tap: { x: 769, y: 582 } };
@@ -27,6 +30,40 @@ function randInt(min: number, max: number): number {
 export async function switchAccount(ctx: PluginContext, targetName: string): Promise<SwitchAccountResult> {
   ctx.log(`=== 切换账号 target=${targetName} ===`);
 
+  const first = await switchAccountOnce(ctx, targetName);
+  if (first !== 'dropdown_ocr_failed') return first;
+
+  // 下拉 OCR 5 次都空 → 重启游戏再来一遍
+  ctx.log(`  ⚠️ 下拉 OCR 连续失败 ${DROPDOWN_OCR_MAX_TRIES} 次，重启游戏后重试切号`);
+  await ctx.execShell(`am force-stop ${ROK_PACKAGE}`);
+  ctx.log(`  [KILL] force-stop ${ROK_PACKAGE}`);
+  await ctx.sleep(2);
+  await ctx.execShell(`"monkey -p ${ROK_PACKAGE} -c android.intent.category.LAUNCHER 1"`);
+  ctx.log(`  [LAUNCH] monkey 拉起 ${ROK_PACKAGE}，等 25s 进入开始界面`);
+  await ctx.sleep(25);
+  const tx = randInt(TAP_REGION.x1, TAP_REGION.x2);
+  const ty = randInt(TAP_REGION.y1, TAP_REGION.y2);
+  ctx.log(`  点击 (${tx}, ${ty}) 进入游戏`);
+  await ctx.tap(tx, ty);
+  ctx.log(`  等待 25s 加载...`);
+  await ctx.sleep(25);
+
+  // 轮询回到城内后再执行切号
+  const pollStart = Date.now();
+  let inCity = false;
+  while (Date.now() - pollStart < 60_000) {
+    await ctx.sleep(2);
+    if ((await getCurrentLocation(ctx)) === 'city') { inCity = true; break; }
+  }
+  if (!inCity) {
+    ctx.log(`  ❌ 重启后 60s 内未回到城内，放弃切号`);
+    return 'load_timeout';
+  }
+  ctx.log(`  ✅ 重启后回到城内，重试切号`);
+  return await switchAccountOnce(ctx, targetName);
+}
+
+async function switchAccountOnce(ctx: PluginContext, targetName: string): Promise<SwitchAccountResult> {
   // 1. 点头像 → 打开用户中心边栏
   ctx.log(`  [1/6] 点头像 (${AVATAR_TAP.x}, ${AVATAR_TAP.y})`);
   await ctx.tap(AVATAR_TAP.x, AVATAR_TAP.y);
@@ -53,23 +90,35 @@ export async function switchAccount(ctx: PluginContext, targetName: string): Pro
   await ctx.tap(SWITCH_BTN.x, SWITCH_BTN.y);
   await ctx.sleep(1);
 
-  // 5. 展开下拉 + OCR 匹配
-  ctx.log(`  [5/6] 展开下拉 (${DROPDOWN_BTN.x}, ${DROPDOWN_BTN.y})`);
-  await ctx.tap(DROPDOWN_BTN.x, DROPDOWN_BTN.y);
-  await ctx.sleep(1);
-
-  const region1Img = await ctx.captureRegion(REGION1.x, REGION1.y, REGION1.w, REGION1.h);
-  const region2Img = await ctx.captureRegion(REGION2.x, REGION2.y, REGION2.w, REGION2.h);
-  const [text1, text2] = await Promise.all([
-    ocrService.readDigits(region1Img),
-    ocrService.readDigits(region2Img),
-  ]);
-  ctx.log(`  [OCR] 区域1="${text1.trim()}" 区域2="${text2.trim()}"`);
-
+  // 5. 展开下拉 + OCR 匹配（最多 5 次，全空视为异常）
   let tap: { x: number; y: number } | null = null;
-  if (text1.includes(targetName)) tap = REGION1.tap;
-  else if (text2.includes(targetName)) tap = REGION2.tap;
+  let lastText1 = '', lastText2 = '';
+  for (let attempt = 1; attempt <= DROPDOWN_OCR_MAX_TRIES; attempt++) {
+    ctx.log(`  [5/6] 展开下拉 (${DROPDOWN_BTN.x}, ${DROPDOWN_BTN.y}) attempt ${attempt}/${DROPDOWN_OCR_MAX_TRIES}`);
+    await ctx.tap(DROPDOWN_BTN.x, DROPDOWN_BTN.y);
+    await ctx.sleep(1);
 
+    const region1Img = await ctx.captureRegion(REGION1.x, REGION1.y, REGION1.w, REGION1.h);
+    const region2Img = await ctx.captureRegion(REGION2.x, REGION2.y, REGION2.w, REGION2.h);
+    const [text1, text2] = await Promise.all([
+      ocrService.readDigits(region1Img),
+      ocrService.readDigits(region2Img),
+    ]);
+    lastText1 = text1.trim(); lastText2 = text2.trim();
+    ctx.log(`  [OCR] 区域1="${lastText1}" 区域2="${lastText2}"`);
+
+    // 两区都空 → 下拉未展开，重点一次
+    if (lastText1 === '' && lastText2 === '') continue;
+
+    if (text1.includes(targetName)) tap = REGION1.tap;
+    else if (text2.includes(targetName)) tap = REGION2.tap;
+    break; // OCR 有结果就跳出，成功匹配走下面点击，不匹配 → not_found
+  }
+
+  if (lastText1 === '' && lastText2 === '') {
+    ctx.log(`  ⚠️ 下拉 OCR 连续 ${DROPDOWN_OCR_MAX_TRIES} 次为空`);
+    return 'dropdown_ocr_failed';
+  }
   if (!tap) {
     ctx.log(`  ⚠️ 未匹配到目标账号 ${targetName}`);
     return 'not_found';
@@ -79,9 +128,16 @@ export async function switchAccount(ctx: PluginContext, targetName: string): Pro
   await ctx.tap(tap.x, tap.y);
   await ctx.sleep(0.5);
 
-  // 6. 点登录 + 等加载（与 launchGame 一致）
-  ctx.log(`  [6/6] 点登录 (${LOGIN_BTN.x}, ${LOGIN_BTN.y})`);
-  await ctx.tap(LOGIN_BTN.x, LOGIN_BTN.y);
+  // 6. 识别并点击确认切换按钮 + 等加载（与 launchGame 一致）
+  const sureSwitch = await ctx.findImageWithLocation(SURE_SWITCH_TEMPLATE, 0.7);
+  ctx.log(`  [6/6] btn_sureswitch.png found=${sureSwitch.found} conf=${sureSwitch.confidence.toFixed(3)}`);
+  if (!sureSwitch.found) {
+    ctx.log('  ❌ 未找到确认切换按钮，账号尚未切换');
+    return 'settings_failed';
+  }
+  ctx.log(`  [6/6] 点登录 (${sureSwitch.x}, ${sureSwitch.y})`);
+  await ctx.tap(sureSwitch.x, sureSwitch.y);
+  ctx.log(`  ✅ 已点击登录，账号切换完成；继续等待新账号进入城内`);
 
   ctx.log(`  等待 15s 进入开始界面`);
   await ctx.sleep(15);
@@ -105,6 +161,6 @@ export async function switchAccount(ctx: PluginContext, targetName: string): Pro
       return 'success';
     }
   }
-  ctx.log(`  ❌ 60s 内未检测到城内界面`);
-  return 'load_timeout';
+  ctx.log(`  ❌ 账号已切换，但 60s 内未检测到城内界面`);
+  return 'switched_load_timeout';
 }

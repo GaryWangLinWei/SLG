@@ -1,4 +1,4 @@
-import { PluginContext } from '../../../core/plugin';
+﻿import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import { ensureInWorld } from '../utils/location';
@@ -67,6 +67,23 @@ export function parseCoord(text: string): string | null {
   return digits || null;
 }
 
+/** 将 OCR 坐标转换为便于阅读的日志格式，避免 X/Y 连成一个数字串。 */
+export function formatCoordForLog(text: string): string | null {
+  const tagged = text.match(/x\s*[:：]?\s*(\d+)\D+y\s*[:：]?\s*(\d+)/i);
+  if (tagged) return `x: ${tagged[1]} y: ${tagged[2]}`;
+
+  const digits = text.replace(/\D/g, '');
+  if (!digits) return null;
+  const splitAt = Math.ceil(digits.length / 2);
+  return `x: ${digits.slice(0, splitAt)} y: ${digits.slice(splitAt)}`;
+}
+
+export function shouldClickVerifiedGem(
+  options?: { skipVerifiedGemClick?: boolean }
+): boolean {
+  return !options?.skipVerifiedGemClick;
+}
+
 /** 检查坐标是否已采集（精确字符串匹配，容错 ±1 位误差） */
 function isCoordRecorded(
   coordStr: string,
@@ -100,6 +117,50 @@ export function nextGemSearchPauseSeconds(): number {
 
 function isInChatZone(x: number, y: number): boolean {
   return x >= 0 && x <= 814 && y >= 794 && y <= 900;
+}
+
+// Right side UI area (hero avatar, multi-select buttons)
+function isInRightUI(x: number, y: number): boolean {
+  return x >= 1250 && y < 550;
+}
+
+// Bottom right mail area (mail icon, shields)
+function isInBottomRightUI(x: number, y: number): boolean {
+  return x >= 1350 && y >= 775;
+}
+
+// Check if coordinate is in UI overlay area
+function isInUIArea(x: number, y: number): boolean {
+  return isInChatZone(x, y) || isInRightUI(x, y) || isInBottomRightUI(x, y);
+}
+
+export interface GemCandidate {
+  x: number;
+  y: number;
+  confidence: number;
+}
+
+/**
+ * 优先返回非 UI 区候选；仅当所有候选都在 UI 区时，执行一次避让并原地重检。
+ * 重检结果不会再次触发避让。
+ */
+export async function selectGemCandidateWithUiAvoidance(
+  ctx: PluginContext,
+  detections: GemCandidate[]
+): Promise<GemCandidate | undefined> {
+  const visible = detections.find(d => !isInUIArea(d.x, d.y));
+  if (visible || detections.length === 0) return visible;
+
+  const blocked = detections[0];
+  const midX = Math.floor((blocked.x + 800) / 2);
+  const midY = Math.floor((blocked.y + 450) / 2);
+  ctx.log(`  [UI gem] swipe from (${midX}, ${midY}) to center`);
+  await ctx.swipe(midX, midY, 800, 450, 500, false);
+  await ctx.sleep(0.8);
+
+  const redetected = await ctx.detectWithScreenshot(0.35);
+  ctx.log(`  [UI gem] 原地重检找到 ${redetected.length} 个宝石候选`);
+  return redetected.find(d => !isInUIArea(d.x, d.y));
 }
 
 /**
@@ -328,7 +389,7 @@ export async function searchAndClickGem(
   config: RokConfig,
   spiralState: SpiralState,
   collectedCoords: string[],
-  options?: { skipCaijiClick?: boolean }
+  options?: { skipCaijiClick?: boolean; skipVerifiedGemClick?: boolean }
 ): Promise<{ found: true; x: number; y: number } | { found: false }> {
   const gg = config.gemGather;
   const caijiBtnTemplate = path.join(TEMPLATE_DIR, gg.caijiBtnTemplate);
@@ -342,7 +403,7 @@ export async function searchAndClickGem(
       spiralState.checkedCenter = true;
       const initDets = await ctx.detectWithScreenshot(0.35);
       ctx.log(`  [搜索] 中心(5) 找到 ${initDets.length} 个宝石候选`);
-      const initValid = initDets.find(d => !isInChatZone(d.x, d.y));
+      const initValid = await selectGemCandidateWithUiAvoidance(ctx, initDets);
       if (initValid) {
         if (await isGemOccupied(ctx, initValid.x, initValid.y)) {
           ctx.log(`  宝石 (${initValid.x}, ${initValid.y}) 已被占用，继续搜索`);
@@ -375,7 +436,7 @@ export async function searchAndClickGem(
 
         const detections = await ctx.detectWithScreenshot(0.35);
         ctx.log(`  [搜索] ${SPIRAL_DIR_NAMES[spiralState.dirIndex % 4]}(${spiralState.moveCount}) 找到 ${detections.length} 个宝石候选`);
-        const validDet = detections.find(d => !isInChatZone(d.x, d.y));
+        const validDet = await selectGemCandidateWithUiAvoidance(ctx, detections);
         if (validDet) {
           if (await isGemOccupied(ctx, validDet.x, validDet.y)) {
             ctx.log(`  宝石 (${validDet.x}, ${validDet.y}) 已被占用，继续搜索`);
@@ -447,9 +508,11 @@ export async function searchAndClickGem(
       }
     }
 
-    ctx.log(`  点击二次确认后的宝石位置 (${verified.x}, ${verified.y})`);
-    await ctx.tap(verified.x!, verified.y!);
-    await ctx.sleep(1);
+    if (shouldClickVerifiedGem(options)) {
+      ctx.log(`  点击二次确认后的宝石位置 (${verified.x}, ${verified.y})`);
+      await ctx.tap(verified.x!, verified.y!);
+      await ctx.sleep(1);
+    }
 
     if (options?.skipCaijiClick) {
       return { found: true, x: gemX, y: gemY };
