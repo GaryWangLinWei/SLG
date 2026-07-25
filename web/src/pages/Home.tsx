@@ -180,6 +180,8 @@ export function HomePage() {
   const operationLockRef = useRef(false);
   void runningIntent;
   void operationState;
+  const startHandlerRef = useRef<() => Promise<void>>(async () => {});
+  const stopHandlerRef = useRef<() => Promise<void>>(async () => {});
   const runningTaskIdsRef = useRef<string[]>([]);
   const [_runningTaskIds, setRunningTaskIds] = useState<string[]>([]);
   const [logs, setLogs] = useState<string[]>(loopLogs);
@@ -1463,22 +1465,23 @@ export function HomePage() {
     }
   };
 
-  // Local clicks and remote commands share the same wrappers and synchronous lock.
+  startHandlerRef.current = handleStartAll;
+  stopHandlerRef.current = handleStop;
+
+  // Local clicks and remote commands share the latest wrappers and synchronous lock.
   useEffect(() => {
     const eventSource = new EventSource('/api/remote-control/stream');
     eventSource.onmessage = event => {
       try {
         const data = JSON.parse(event.data);
         if (data.action === 'start_loop') {
-          void handleStartAll();
+          void startHandlerRef.current();
         } else if (data.action === 'stop_loop') {
-          void handleStop();
+          void stopHandlerRef.current();
         }
       } catch { /* Ignore connected and heartbeat frames. */ }
     };
     return () => eventSource.close();
-    // Handlers intentionally use the mount-time render; operationLockRef prevents stale-state races.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!currentAccountId) {

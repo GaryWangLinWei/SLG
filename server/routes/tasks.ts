@@ -38,6 +38,13 @@ router.get('/summary', async (ctx) => {
   ctx.body = { success: true, summary, taskCount: tasks.length };
 });
 
+router.post('/stop-by-account/:accountId', async (ctx) => {
+  ctx.body = {
+    success: true,
+    stopped: taskService.stopTasksByAccount(ctx.params.accountId)
+  };
+});
+
 router.get('/:id', async (ctx) => {
   const task = taskService.getTask(ctx.params.id);
   if (!task) {

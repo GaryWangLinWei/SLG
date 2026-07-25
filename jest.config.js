@@ -5,6 +5,7 @@ module.exports = {
     '<rootDir>/core',
     '<rootDir>/plugins',
     '<rootDir>/electron',
+    '<rootDir>/server',
     '<rootDir>/web/src/utils',
   ],
   testMatch: ['**/*.test.ts'],

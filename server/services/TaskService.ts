@@ -1,3 +1,4 @@
+import { stopTasksByAccount } from './stopTasksByAccount';
 import { pluginService } from './PluginService';
 import { configService } from './ConfigService';
 import { licenseService } from '../../core/license';
@@ -112,6 +113,10 @@ class TaskService {
     task.endTime = new Date();
     task.logs.push(`[${new Date().toLocaleTimeString()}] 任务已手动停止`);
     return { success: true, message: '任务已停止' };
+  }
+
+  stopTasksByAccount(accountId: string): string[] {
+    return stopTasksByAccount(this.listTasks(), accountId, taskId => this.stopTask(taskId));
   }
 
   async runTask(taskId: string): Promise<Task> {
