@@ -1388,6 +1388,10 @@ export function HomePage() {
       }
       await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, caveLoop, offlineLoop]);
       loopRunning = false;
+      clearLoopState();
+      runningTaskIdsRef.current = [];
+      setRunningTaskIds([]);
+      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ 循环已停止`]);
     })();
   };
 
@@ -1421,17 +1425,6 @@ export function HomePage() {
       return;
     }
 
-    // Keep the backend stop authoritative. Optional game cleanup must not block intent persistence.
-    if (offlineActive) {
-      try {
-        const result = await api.tasks.create(currentAccountId, 'com.rok.automation', 'kill-game');
-        if (result.success) await api.tasks.run(result.task.id);
-      } catch (error) {
-        const message = error instanceof Error && error.message ? error.message : String(error);
-        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 关闭游戏失败: ${message}`]);
-      }
-    }
-
     try {
       await persistRunningIntent(false);
     } catch (error) {
@@ -1442,6 +1435,7 @@ export function HomePage() {
       return;
     }
 
+    const shouldKillOfflineGame = offlineActive;
     clearLoopState();
     runningTaskIdsRef.current = [];
     setTaskRunning(false);
@@ -1451,6 +1445,19 @@ export function HomePage() {
     setGemInitialCount(null);
     setGemCollectedCount(0);
     setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ 已停止所有任务`]);
+
+    // Preserve offline semantics without keeping the stop operation lock while the task runs.
+    if (shouldKillOfflineGame) {
+      void (async () => {
+        try {
+          const result = await api.tasks.create(currentAccountId, 'com.rok.automation', 'kill-game');
+          if (result.success) await api.tasks.run(result.task.id);
+        } catch (error) {
+          const message = error instanceof Error && error.message ? error.message : String(error);
+          setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 关闭游戏失败: ${message}`]);
+        }
+      })();
+    }
   };
 
   const handleStop = async () => {
