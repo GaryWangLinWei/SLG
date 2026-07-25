@@ -1,4 +1,4 @@
-import { readRunningIntent } from './runningIntent';
+import { persistRunningIntent, readRunningIntent } from './runningIntent';
 
 describe('readRunningIntent', () => {
   test('reads the Electron session intent when the API is available', async () => {
@@ -26,5 +26,38 @@ describe('readRunningIntent', () => {
     const getRunningIntent = jest.fn().mockRejectedValue(error);
 
     await expect(readRunningIntent(true, getRunningIntent, false)).rejects.toBe(error);
+  });
+});
+
+describe('persistRunningIntent', () => {
+  test('persists and returns the requested Electron intent', async () => {
+    const setRunningIntent = jest.fn().mockResolvedValue(true);
+
+    await expect(persistRunningIntent(true, setRunningIntent, true)).resolves.toBe(true);
+    expect(setRunningIntent).toHaveBeenCalledWith(true);
+  });
+
+  test('rejects when Electron does not expose the running intent API', async () => {
+    await expect(persistRunningIntent(true, undefined, true)).rejects.toThrow(
+      'Electron 运行状态 API 不可用',
+    );
+  });
+
+  test.each([undefined, 'true', 1, false])(
+    'rejects an invalid Electron acknowledgement: %p',
+    async acknowledgement => {
+      const setRunningIntent = jest.fn().mockResolvedValue(acknowledgement);
+
+      await expect(persistRunningIntent(true, setRunningIntent, true)).rejects.toThrow(
+        'Electron 运行状态写入验证失败',
+      );
+    },
+  );
+
+  test('uses the requested value outside Electron without calling IPC', async () => {
+    const setRunningIntent = jest.fn().mockResolvedValue(false);
+
+    await expect(persistRunningIntent(false, setRunningIntent, true)).resolves.toBe(true);
+    expect(setRunningIntent).not.toHaveBeenCalled();
   });
 });

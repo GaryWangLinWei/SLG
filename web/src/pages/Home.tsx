@@ -5,7 +5,7 @@ import { useAccount } from '../contexts/AccountContext';
 import { useLicense } from '../contexts/LicenseContext';
 import { DEFAULT_HOME_FEATURES, DEFAULT_COLLECT_RESOURCES_INTERVAL_MINUTES, MIN_COLLECT_RESOURCES_INTERVAL_MINUTES, TeamPageChoice, getCollectResourcesIntervalSeconds } from '../../../plugins/rok/homeFeatures';
 import { remoteApi } from '../api/remote';
-import { readRunningIntent } from '../utils/runningIntent';
+import { persistRunningIntent as persistRunningIntentValue, readRunningIntent } from '../utils/runningIntent';
 
 // Module-level loop state — survives component unmount/remount during SPA navigation
 export type OperationState = 'idle' | 'starting' | 'stopping';
@@ -177,9 +177,9 @@ export function HomePage() {
   const [intentLoaded, setIntentLoaded] = useState(false);
   const [intentLoadError, setIntentLoadError] = useState<string | null>(null);
   const [operationState, setOperationState] = useState<OperationState>('idle');
+  const operationLockRef = useRef(false);
   void runningIntent;
   void operationState;
-  void setOperationState;
   const runningTaskIdsRef = useRef<string[]>([]);
   const [_runningTaskIds, setRunningTaskIds] = useState<string[]>([]);
   const [logs, setLogs] = useState<string[]>(loopLogs);
@@ -337,6 +337,17 @@ export function HomePage() {
     }
   };
 
+  const persistRunningIntent = async (value: boolean): Promise<boolean> => {
+    const persisted = await persistRunningIntentValue(
+      'electronAPI' in window,
+      window.electronAPI?.setRunningIntent,
+      value,
+    );
+    if (!('electronAPI' in window)) browserRunningIntent = persisted;
+    setRunningIntent(persisted);
+    return persisted;
+  };
+
   // Running intent belongs to the Electron/browser session, so restore it once per mount.
   useEffect(() => {
     intentMountedRef.current = true;
@@ -458,7 +469,7 @@ export function HomePage() {
     setDeviceLoading(false);
   };
 
-  const handleStartAll = async () => {
+  const startAllImpl = async () => {
     if (!currentAccountId) return;
     if (!deviceConnected) {
       await handleConnectDevice();
@@ -488,12 +499,22 @@ export function HomePage() {
 
     loopRunning = true;
     loopStopped = false;
+    clearLoopState();
+    try {
+      await persistRunningIntent(true);
+    } catch (error) {
+      loopStopped = true;
+      loopRunning = false;
+      clearLoopState();
+      const message = error instanceof Error && error.message ? error.message : String(error);
+      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 保存运行状态失败: ${message}`]);
+      return;
+    }
     saveLoopState(currentAccountId);
     setTaskRunning(true);
     const isExploreMode = features.autoExplore;
     const isWorldChatMode = features.autoWorldChat;
     const interval = isExploreMode ? 60 : isWorldChatMode ? features.worldChatInterval : GATHER_LOOP_INTERVAL;
-    clearLoopState();
     nightStartOffsetMinutes = randomBiasedOffset(NIGHT_START_JITTER_MIN, NIGHT_START_JITTER_MAX);
     nightEndOffsetMinutes = randomBiasedOffset(NIGHT_END_JITTER_MIN, NIGHT_END_JITTER_MAX);
     const modeLabel = isExploreMode ? '迷雾探索' : isWorldChatMode ? '自动喊话' : '自动循环';
@@ -1365,21 +1386,61 @@ export function HomePage() {
       }
       await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, caveLoop, offlineLoop]);
       loopRunning = false;
-      clearLoopState();
-      runningTaskIdsRef.current = [];
-      setTaskRunning(false);
-      setRunningTaskIds([]);
-      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ 循环已停止`]);
     })();
   };
 
-  const handleStop = async () => {
+  const handleStartAll = async () => {
+    if (operationLockRef.current) return;
+    operationLockRef.current = true;
+    setOperationState('starting');
+    try {
+      await startAllImpl();
+    } finally {
+      setOperationState('idle');
+      operationLockRef.current = false;
+    }
+  };
+
+  const stopImpl = async () => {
     loopStopped = true;
     loopRunning = false;
-    clearLoopState();
-    if (runningTaskIdsRef.current.length > 0) {
-      await Promise.all(runningTaskIdsRef.current.map(id => api.tasks.stop(id).catch(() => {})));
+
+    if (!currentAccountId) {
+      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 停止失败: 当前账号不存在`]);
+      return;
     }
+
+    try {
+      const result = await api.tasks.stopByAccount(currentAccountId);
+      if (!result.success) throw new Error('后端未能停止账号任务');
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : String(error);
+      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 停止失败: ${message}`]);
+      return;
+    }
+
+    // Keep the backend stop authoritative. Optional game cleanup must not block intent persistence.
+    if (offlineActive) {
+      try {
+        const result = await api.tasks.create(currentAccountId, 'com.rok.automation', 'kill-game');
+        if (result.success) await api.tasks.run(result.task.id);
+      } catch (error) {
+        const message = error instanceof Error && error.message ? error.message : String(error);
+        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 关闭游戏失败: ${message}`]);
+      }
+    }
+
+    try {
+      await persistRunningIntent(false);
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : String(error);
+      setIntentLoaded(false);
+      setIntentLoadError(message || '无法保存运行状态');
+      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 保存停止状态失败: ${message}`]);
+      return;
+    }
+
+    clearLoopState();
     runningTaskIdsRef.current = [];
     setTaskRunning(false);
     setRunningTaskIds([]);
@@ -1389,6 +1450,36 @@ export function HomePage() {
     setGemCollectedCount(0);
     setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ 已停止所有任务`]);
   };
+
+  const handleStop = async () => {
+    if (operationLockRef.current) return;
+    operationLockRef.current = true;
+    setOperationState('stopping');
+    try {
+      await stopImpl();
+    } finally {
+      setOperationState('idle');
+      operationLockRef.current = false;
+    }
+  };
+
+  // Local clicks and remote commands share the same wrappers and synchronous lock.
+  useEffect(() => {
+    const eventSource = new EventSource('/api/remote-control/stream');
+    eventSource.onmessage = event => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.action === 'start_loop') {
+          void handleStartAll();
+        } else if (data.action === 'stop_loop') {
+          void handleStop();
+        }
+      } catch { /* Ignore connected and heartbeat frames. */ }
+    };
+    return () => eventSource.close();
+    // Handlers intentionally use the mount-time render; operationLockRef prevents stale-state races.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   if (!currentAccountId) {
     return (
