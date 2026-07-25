@@ -1,57 +1,37 @@
-import OSS from 'ali-oss';
-import { execSync } from 'child_process';
-import fs from 'fs';
-import path from 'path';
-import 'dotenv/config';
+#!/usr/bin/env node
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { getEdition } from './edition-config.mjs';
+import { initializeAgent, publishRelease, validateRelease } from './release-publisher.mjs';
 
-const RELEASE_DIR = 'release';
-const VERSION = JSON.parse(fs.readFileSync('package.json', 'utf8')).version;
-const OSS_ONLY = process.argv.includes('--oss-only');
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
+const editions = await Promise.all(['main', 'agent'].map((id) => getEdition(id)));
+const args = new Set(process.argv.slice(2));
 
-const files = [
-  'latest.yml',
-  `ROK助手 Setup ${VERSION}.exe`,
-  `ROK助手 Setup ${VERSION}.exe.blockmap`,
-];
-
-if (!process.env.OSS_KEY_ID || !process.env.OSS_KEY_SECRET) {
-  console.error('✗ 缺 .env: OSS_KEY_ID / OSS_KEY_SECRET');
-  process.exit(1);
-}
-
-// ─── 1. 上传 OSS ─────────────────────────────
-const client = new OSS({
-  region: 'oss-cn-shanghai',
-  accessKeyId: process.env.OSS_KEY_ID,
-  accessKeySecret: process.env.OSS_KEY_SECRET,
-  bucket: 'slg-updates',
-});
-
-for (const f of files) {
-  const local = path.join(RELEASE_DIR, f);
-  if (!fs.existsSync(local)) {
-    console.error(`✗ 缺文件: ${local}`);
-    process.exit(1);
+function printDryRun(items) {
+  console.log(`Dry run: version ${pkg.version}; no OSS client created`);
+  for (const item of items) {
+    console.log(`${item.edition.id}: ${item.edition.updateUrl}`);
+    for (const artifact of item.artifacts) console.log(`  ${artifact.localPath} -> ${artifact.key}`);
+    console.log(`  ${item.manifestPath} -> ${item.manifestKey}`);
   }
-  console.log(`↑ OSS: ${f}`);
-  await client.put(`updates/${f}`, local, { timeout: 10 * 60 * 1000 });
-}
-console.log('✓ OSS 上传完成');
-
-// ─── 2. 上传 VPS（过渡期，兼容 <=1.1.2）──────
-if (OSS_ONLY) {
-  console.log('⏭ 跳过 VPS 上传 (--oss-only)');
-} else {
-  const scpTargets = files.map(f => `"${path.join(RELEASE_DIR, f)}"`).join(' ');
-  console.log(`↑ VPS: ${files.join(', ')}`);
-  execSync(
-    `scp ${scpTargets} root@106.15.11.158:/root/server-auth/updates/`,
-    { stdio: 'inherit' }
-  );
-  console.log('✓ VPS 上传完成');
 }
 
-console.log(`\n发布完成: v${VERSION}${OSS_ONLY ? ' (仅 OSS)' : ''}`);
-console.log('验证:');
-console.log(`  OSS:  https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/latest.yml`);
-if (!OSS_ONLY) console.log(`  VPS:  http://106.15.11.158:3456/updates/latest.yml`);
+try {
+  if (args.has('--dry-run')) {
+    printDryRun(validateRelease({ rootDir, version: pkg.version, editions }));
+  } else {
+    if (args.size > 1 || (args.size === 1 && !args.has('--initialize-agent'))) throw new Error('Usage: publish-release.mjs [--dry-run|--initialize-agent]');
+    if (!process.env.OSS_KEY_ID || !process.env.OSS_KEY_SECRET) throw new Error('OSS_KEY_ID and OSS_KEY_SECRET are required');
+    const { default: OSS } = await import('ali-oss');
+    const client = new OSS({ region: 'oss-cn-shanghai', bucket: 'slg-updates', accessKeyId: process.env.OSS_KEY_ID, accessKeySecret: process.env.OSS_KEY_SECRET });
+    const options = { client, rootDir, version: pkg.version, editions, logger: console };
+    if (args.has('--initialize-agent')) await initializeAgent(options);
+    else await publishRelease(options);
+  }
+} catch (error) {
+  console.error(`Release failed: ${error instanceof Error ? error.message : error}`);
+  process.exitCode = 1;
+}

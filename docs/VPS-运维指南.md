@@ -131,86 +131,137 @@ ssh root@106.15.11.158 "pm2 restart slg-auth"
 # http://106.15.11.158:3456/admin/
 ```
 
-## Electron 客户端发布
+## Electron 客户端双版本构建与发布
 
-### OSS 配置（一次性，已完成）
+主版与代理商版共用根 `package.json` 中的版本号、应用 ID、安装目录和用户数据。一次构建会生成两套独立产物：
 
-- Bucket: `slg-updates`，区域 **oss-cn-shanghai**（华东 2 / 上海），公共读
-- 默认访问域名（无需备案）：`https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/`
-- RAM 子用户 `slg-oss-uploader`，权限限定 `slg-updates/updates/*` 的 Put/Get/Delete + List
-- AccessKey 存本地 `.env`（已在 .gitignore）：`OSS_KEY_ID` / `OSS_KEY_SECRET`
-- Bucket 内固定目录：`updates/`（latest.yml、exe、blockmap 都放这）
+- 主版：`release/main/ROK助手 Setup <version>.exe`
+- 代理商版：`release/agent/ROK助手-代理商版 Setup <version>.exe`
 
-### 1. 修改版本号 + 发行说明
+两版只通过 OSS 发布，不再向 VPS 上传更新文件，也不再使用 `--oss-only`。主版更新目录为 `/updates`，代理商版为 `/updates/agent`。
 
-编辑 `package.json`（项目根）：
-- `version` 字段递增（如 `1.1.3` → `1.1.4`）
-- `build.releaseInfo.releaseNotes` 更新为本版更新内容
+### 1. 发布前修改版本信息
 
-### 2. 一键构建 + 发布
+编辑项目根目录的 `package.json`：
 
-**常规双传（OSS + VPS）：**
+- 修改 `version`，例如 `1.1.8` → `1.1.9`；
+- 修改 `build.releaseInfo.releaseNotes`；
+- 确认 `package-lock.json` 根版本同步更新。
+
+构建脚本会在每个版本开始前清理对应的 `release/main|agent` 和临时 `dist`，避免旧模型备份、重复 OCR 文件等历史残留进入安装包。
+
+### 2. 构建两个安装包
+
+在项目根目录 `D:\SLG` 执行：
+
+```bash
+npm run electron:build:win
+```
+
+该命令依次构建 main 和 agent，任意一版失败都会以非零状态退出。构建完成后应存在：
+
+```text
+release/main/latest.yml
+release/main/ROK助手 Setup <version>.exe
+release/main/ROK助手 Setup <version>.exe.blockmap
+
+release/agent/latest.yml
+release/agent/ROK助手-代理商版 Setup <version>.exe
+release/agent/ROK助手-代理商版 Setup <version>.exe.blockmap
+```
+
+如果在 Claude 隔离 worktree 中执行，产物会生成在该 worktree 的 `release/`；正式打包应在 `D:\SLG` 项目根目录执行，或将上述六个文件复制到 `D:\SLG\release\main|agent`。
+
+### 3. 上传前本地预检
+
+```bash
+node scripts/publish-release.mjs --dry-run
+```
+
+`--dry-run` 只检查本地文件、版本号、manifest 文件名和六个 OSS 目标路径，不创建 OSS client，也不会访问或修改 OSS。确认输出中的两个版本号相同，并分别指向：
+
+- `https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates`
+- `https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/agent`
+
+### 4. 首次启用代理商渠道
+
+首次发布代理商版时，先准备 OSS 凭据：
+
+```text
+OSS_KEY_ID
+OSS_KEY_SECRET
+```
+
+然后执行：
+
+```bash
+npm run electron:build:win
+node scripts/publish-release.mjs --dry-run
+node scripts/publish-release.mjs --initialize-agent
+```
+
+`--initialize-agent` 只创建代理商渠道的基线，不修改主版 manifest。完成后检查：
+
+```text
+https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/agent/latest.yml
+```
+
+确认代理商基线存在后，再执行正式双端发布：
+
+```bash
+node scripts/publish-release.mjs
+```
+
+### 5. 日常双端同步发布
+
+推荐分开构建、预检和上传，便于在写入 OSS 前人工确认：
+
+```bash
+npm run electron:build:win
+node scripts/publish-release.mjs --dry-run
+node scripts/publish-release.mjs
+```
+
+也可以使用一键命令（会重新构建后立即上传）：
+
 ```bash
 npm run electron:publish:win
 ```
 
-**只传 OSS（跳过 VPS，用于测试新版本或活跃用户已全部升到 1.1.3+ 后）：**
-```bash
-npm run electron:publish:win -- --oss-only
-```
+发布器会：
 
-脚本会：
-1. 构建 exe（产物在 `release/`）
-2. 上传 `latest.yml / exe / exe.blockmap` 到阿里云 OSS
-3.（无 --oss-only 时）同步上传一份到 VPS `/root/server-auth/updates/`，供 ≤1.1.2 老客户端使用
+1. 校验两个 `latest.yml` 的版本均等于根 `package.json.version`；
+2. 校验 manifest 中的安装包文件名与 edition 配置精确一致；
+3. 先上传两版 exe 和 blockmap，并逐个执行 OSS `head` 验证；
+4. 最后按 main、agent 顺序切换两份 `latest.yml`；
+5. agent manifest 上传失败时，尝试恢复已切换的 main manifest；
+6. 回滚失败时同时报告发布错误和回滚错误。
 
-### 3. 验证
+正常双端发布要求 OSS 上已有两份旧 manifest。不要手工删除旧 exe 或 blockmap，否则旧客户端的差量更新可能失败。
 
-```
+### 6. 发布后验证
+
+检查两份 manifest 的 `version` 均为本次版本：
+
+```text
 https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/latest.yml
-http://106.15.11.158:3456/updates/latest.yml
+https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/agent/latest.yml
 ```
 
-两处 `latest.yml` 内容应一致（用了 --oss-only 时 VPS 保持旧版），`version` 字段为新版。
+同时确认 OSS 中存在：
 
-### 4. 撤回 / 回滚已发版本
-
-**场景**：新版发出去后发现有 bug 或想暂缓推送。**不用重新构建，只需改 `latest.yml` 里的 version 声明**。
-
-只改 VPS（老用户不升，已装新版用户不受影响）：
-```bash
-ssh root@106.15.11.158 "cd /root/server-auth/updates && cp latest.yml latest.yml.bak && \
-  sed -i 's/version: 1.1.4/version: 1.1.3/' latest.yml"
-# 或直接把整个 latest.yml 替换成旧版本内容
+```text
+updates/ROK助手 Setup <version>.exe
+updates/ROK助手 Setup <version>.exe.blockmap
+updates/agent/ROK助手-代理商版 Setup <version>.exe
+updates/agent/ROK助手-代理商版 Setup <version>.exe.blockmap
 ```
 
-只改 OSS（同理）：写一个临时 mjs 脚本用 `ali-oss` 的 `client.put('updates/latest.yml', Buffer.from(oldYml))` 覆盖即可。
+客户端验证：
 
-**exe 和 blockmap 保留在 OSS/VPS 上不要删**，删了会破坏差量链且已装该版本的客户端会 404。
-
-### 5. 只删某版本 exe（不推荐）
-
-如果一定要删：
-1. OSS/VPS 删对应 `.exe` 和 `.blockmap`
-2. `latest.yml` 里 version 回滚到上一个可用版本
-3. 已装被删版本的机器需要手动卸载重装可用版本，否则升级检查会 404
-
-### 6. 何时停 VPS 上传
-
-`pm2 logs slg-auth` 观察 VPS `/updates/latest.yml` 的 GET 请求：连续 2 周没有 ≤1.1.2 客户端拉取时，改成默认 `--oss-only`，或从 `scripts/publish-release.mjs` 直接删掉 VPS scp 段，VPS `/updates` 目录清空。
-
-### 关于差量更新
-
-electron-updater 用旧版 `.blockmap` 计算 diff，只下载改动的块（几十 MB，不是 300 MB）。**OSS 和 VPS 上的旧版 exe + blockmap 都不要删**，否则新用户升级会变全量。
-
-### 相关文件
-
-| 文件 | 用途 |
-|------|------|
-| `scripts/publish-release.mjs` | 发布脚本（OSS + 可选 VPS） |
-| `.env` | OSS AccessKey，不入 git |
-| `package.json` `build.publish.url` | 客户端内嵌的更新源 URL（改这个要注意向下兼容） |
-| `docs/superpowers/specs/2026-07-11-oss-update-migration-design.md` | 迁移设计文档 |
+- 主版显示“在线购买”和“续费”，更新日志使用 `/updates`；
+- 代理商版隐藏“在线购买”和“续费”，其他授权功能保持不变，更新日志使用 `/updates/agent`；
+- 两版互相覆盖安装后，许可证和现有配置仍可使用。
 
 ## 文件结构（VPS 上）
 

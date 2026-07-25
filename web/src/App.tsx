@@ -11,6 +11,7 @@ import RemoteAccessPage from './pages/RemoteAccess';
 import MobilePage from './pages/Mobile';
 import { AccountProvider } from './contexts/AccountContext';
 import { LicenseProvider, useLicense } from './contexts/LicenseContext';
+import { editionCapabilities } from './edition';
 
 function RemainingTime({ expiresAt }: { expiresAt: number }) {
   const [now, setNow] = useState(Date.now());
@@ -213,7 +214,7 @@ function NavBar() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
             </button>
-            <RenewButton />
+            {editionCapabilities.showRenewEntry && <RenewButton />}
             {status?.activated && (
               <button
                 onClick={() => { loadInviteCode(); setShowInvite(true); }}
