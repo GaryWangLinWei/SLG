@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLicense } from '../contexts/LicenseContext';
+import { editionCapabilities } from '../edition';
 
 export default function ActivationPage() {
   const { status, activate, loading, activateError, clearActivateError, expiredMessage, setExpiredMessage } = useLicense();
@@ -171,13 +172,15 @@ export default function ActivationPage() {
               {loading ? '激活中...' : '激活'}
             </button>
 
-            <p className="mt-4 text-center text-xs text-slate-400">
-              还没有激活码？
-              <a href="https://pay.ldxp.cn/shop/LVBXLAH4" target="_blank" rel="noopener noreferrer"
-                className="text-emerald-600 hover:text-emerald-500 ml-1">
-                在线购买
-              </a>
-            </p>
+            {editionCapabilities.showPurchaseEntry && (
+              <p className="mt-4 text-center text-xs text-slate-400">
+                还没有激活码？
+                <a href="https://pay.ldxp.cn/shop/LVBXLAH4" target="_blank" rel="noopener noreferrer"
+                  className="text-emerald-600 hover:text-emerald-500 ml-1">
+                  在线购买
+                </a>
+              </p>
+            )}
           </form>
 
           <div className="mt-6 pt-6 border-t border-slate-100">

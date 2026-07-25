@@ -24,9 +24,15 @@ describe('getEditionCapabilities', () => {
   })
 
   it('disables commercial capabilities for agent', () => {
-    expect(getEditionCapabilities('agent')).toEqual({
+    const capabilities = getEditionCapabilities('agent')
+
+    expect(capabilities).toEqual({
       showPurchaseEntry: false,
       showRenewEntry: false,
     })
+    expect(Object.keys(capabilities).sort()).toEqual([
+      'showPurchaseEntry',
+      'showRenewEntry',
+    ])
   })
 })
