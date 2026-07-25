@@ -7,9 +7,9 @@ import { DEFAULT_HOME_FEATURES, DEFAULT_COLLECT_RESOURCES_INTERVAL_MINUTES, MIN_
 import { remoteApi } from '../api/remote';
 import { isCurrentLoopGeneration } from '../utils/loopGeneration';
 import { persistRunningIntent as persistRunningIntentValue, readRunningIntent } from '../utils/runningIntent';
+import { deriveRunningControlView, OperationState } from '../utils/runningControlView';
 
 // Module-level loop state — survives component unmount/remount during SPA navigation
-export type OperationState = 'idle' | 'starting' | 'stopping';
 let browserRunningIntent = false;
 let loopStopped = false;
 let loopRunning = false;
@@ -175,14 +175,12 @@ export function HomePage() {
   const [activeConfigName, setActiveConfigName] = useState('');
   const [deviceConnected, setDeviceConnected] = useState(false);
   const [deviceLoading, setDeviceLoading] = useState(false);
-  const [taskRunning, setTaskRunning] = useState(false);
+  const [loopRunningState, setLoopRunningState] = useState(false);
   const [runningIntent, setRunningIntent] = useState(false);
   const [intentLoaded, setIntentLoaded] = useState(false);
   const [intentLoadError, setIntentLoadError] = useState<string | null>(null);
   const [operationState, setOperationState] = useState<OperationState>('idle');
   const operationLockRef = useRef(false);
-  void runningIntent;
-  void operationState;
   const startHandlerRef = useRef<() => Promise<void>>(async () => {});
   const stopHandlerRef = useRef<() => Promise<void>>(async () => {});
   const runningTaskIdsRef = useRef<string[]>([]);
@@ -460,12 +458,12 @@ export function HomePage() {
         // 新连接 → 重置运行状态
         loopStopped = true;
         loopRunning = false;
+        setLoopRunningState(false);
         clearLoopState();
         for (const id of runningTaskIdsRef.current) {
           try { await api.tasks.stop(id); } catch {}
         }
         runningTaskIdsRef.current = [];
-        setTaskRunning(false);
         setRunningTaskIds([]);
       }
     } catch (e) {
@@ -508,6 +506,7 @@ export function HomePage() {
 
     const myGen = ++loopGen;
     loopRunning = true;
+    setLoopRunningState(true);
     loopStopped = false;
     clearLoopState();
     try {
@@ -515,13 +514,13 @@ export function HomePage() {
     } catch (error) {
       loopStopped = true;
       loopRunning = false;
+      setLoopRunningState(false);
       clearLoopState();
       const message = error instanceof Error && error.message ? error.message : String(error);
       setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 保存运行状态失败: ${message}`]);
       return;
     }
     saveLoopState(currentAccountId);
-    setTaskRunning(true);
     const isExploreMode = features.autoExplore;
     const isWorldChatMode = features.autoWorldChat;
     const interval = isExploreMode ? 60 : isWorldChatMode ? features.worldChatInterval : GATHER_LOOP_INTERVAL;
@@ -1397,6 +1396,7 @@ export function HomePage() {
       await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, caveLoop, offlineLoop]);
       if (isCurrentLoopGeneration(myGen, loopGen)) {
         loopRunning = false;
+        setLoopRunningState(false);
         clearLoopState();
         runningTaskIdsRef.current = [];
         setRunningTaskIds([]);
@@ -1421,6 +1421,7 @@ export function HomePage() {
     loopStopped = true;
     const stopGeneration = ++loopGen;
     loopRunning = false;
+    setLoopRunningState(false);
 
     if (!currentAccountId) {
       setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ❌ 停止失败: 当前账号不存在`]);
@@ -1449,7 +1450,6 @@ export function HomePage() {
     const shouldKillOfflineGame = offlineActive;
     clearLoopState();
     runningTaskIdsRef.current = [];
-    setTaskRunning(false);
     setRunningTaskIds([]);
     moduleGemInitialCount = null;
     moduleGemCollectedCount = 0;
@@ -1511,6 +1511,22 @@ export function HomePage() {
     return () => eventSource.close();
   }, []);
 
+  useEffect(() => {
+    fetch('/api/remote-control/loop-state', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ running: loopRunningState }),
+    }).catch(() => { /* best effort */ });
+  }, [loopRunningState]);
+
+  const runningControlView = deriveRunningControlView({
+    deviceConnected,
+    intentLoaded,
+    intentError: intentLoadError !== null,
+    operationState,
+    runningIntent,
+  });
+
   if (!currentAccountId) {
     return (
       <div className="max-w-4xl mx-auto p-6 text-center py-20">
@@ -1531,7 +1547,7 @@ export function HomePage() {
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center text-white text-xl shadow-lg shadow-emerald-500/30">🎮</div>
             <div>
-              <h3 className="font-semibold text-slate-800">{taskRunning ? '运行中' : '准备就绪'}</h3>
+              <h3 className="font-semibold text-slate-800">{runningControlView.bannerText}</h3>
               <p className="text-sm text-slate-500">{deviceConnected ? '设备已连接' : '未连接设备'}</p>
             </div>
           </div>
@@ -1553,7 +1569,7 @@ export function HomePage() {
                 <span>🌙 夜间下线 02-05点</span>
               </label>
             )}
-            {!deviceConnected ? (
+            {runningControlView.action === 'connect' ? (
               <button
                 onClick={handleConnectDevice}
                 disabled={deviceLoading}
@@ -1561,21 +1577,26 @@ export function HomePage() {
               >
                 {deviceLoading ? '连接中...' : '连接设备'}
               </button>
-            ) : intentLoadError ? (
+            ) : runningControlView.action === 'retry' ? (
               <button
                 onClick={loadRunningIntent}
                 className="px-8 py-3 bg-amber-500 text-white font-bold rounded-full hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/30"
               >
                 状态读取失败，点击重试
               </button>
-            ) : !intentLoaded ? (
-              <button
-                disabled
-                className="px-8 py-3 bg-slate-400 text-white font-bold rounded-full cursor-not-allowed opacity-70"
-              >
+            ) : runningControlView.action === 'loading' ? (
+              <button disabled className="px-8 py-3 bg-slate-400 text-white font-bold rounded-full cursor-not-allowed opacity-70">
                 状态读取中...
               </button>
-            ) : !taskRunning ? (
+            ) : runningControlView.action === 'starting' ? (
+              <button disabled className="px-8 py-3 bg-slate-400 text-white font-bold rounded-full cursor-not-allowed opacity-70">
+                启动中...
+              </button>
+            ) : runningControlView.action === 'stopping' ? (
+              <button disabled className="px-8 py-3 bg-red-500 text-white font-bold rounded-full transition-all shadow-lg shadow-red-500/30 disabled:opacity-70 disabled:cursor-not-allowed">
+                停止中...
+              </button>
+            ) : runningControlView.action === 'start' ? (
               <button
                 onClick={handleStartAll}
                 className="px-8 py-3 bg-gradient-to-r from-emerald-500 to-emerald-400 text-white font-bold rounded-full hover:from-emerald-600 hover:to-emerald-500 transition-all shadow-lg shadow-emerald-500/30 flex items-center gap-2"
