@@ -1,6 +1,6 @@
 {
   "name": "rok-automation",
-  "version": "1.1.8",
+  "version": "1.2.0",
   "description": "万国觉醒自动化助手",
   "main": "dist/electron/main.js",
   "scripts": {
@@ -12,15 +12,16 @@
     "lint": "eslint src/**/*.ts",
     "electron:dev": "concurrently \"cd web && npm run dev\" \"wait-on http://localhost:5173 && tsc && electron .\"",
     "electron:build": "cd web && npm run build && cd .. && tsc && node -e \"const f=require('fs');f.cpSync('assets','dist/assets',{recursive:true});f.cpSync('plugins/rok/templates','dist/plugins/rok/templates',{recursive:true});f.cpSync('plugins/rok/models','dist/plugins/rok/models',{recursive:true})\" && electron-builder",
-    "electron:build:win": "cd web && npm run build && cd .. && tsc && node -e \"const f=require('fs');f.cpSync('assets/vcredist','node_modules/onnxruntime-node/bin/napi-v6/win32/x64',{recursive:true});f.cpSync('assets','dist/assets',{recursive:true});f.cpSync('plugins/rok/templates','dist/plugins/rok/templates',{recursive:true});f.cpSync('plugins/rok/models','dist/plugins/rok/models',{recursive:true})\" && electron-builder --win",
-    "electron:publish:win": "npm run electron:build:win && node scripts/publish-release.mjs",
+    "electron:build:win": "node scripts/build-editions.mjs",
+    "electron:publish:win": "node scripts/build-editions.mjs && node scripts/publish-release.mjs",
+    "test:release": "node --test scripts/*.test.mjs",
     "postinstall": "electron-builder install-app-deps"
   },
   "build": {
     "appId": "com.rok.automation",
     "productName": "ROK助手",
     "releaseInfo": {
-      "releaseNotes": "1.1.8更新内容\n1.账号调度新增模式：组合采集。使用场景：小号负责搜索宝石矿，分享给大号；大号通过分享得到的宝石矿进行采集。\n2.增加分享宝石矿和采集分享的宝石矿功能，用于组合采集。\n3.修复宝石出现在右下角时误点邮件的 bug\n4.优化大宝石矿识别精度\n5.宝石采集加入滑动后额外等待时间参数，用于部分机型滑动后游戏画面渲染慢的问题\n6.城外资源采集：资源田等级上限增加到 9 级"
+      "releaseNotes": "1.1.0更新内容\n1. 宝石坐标识别改回Tesseract OCR，解决模板匹配截断识别导致的重复采集问题。\n2. 科技研究支持多尺度模板匹配，解决滑动后图标缩放导致的识别不稳定问题。\n3. 山洞探索状态持久化，循环间不再重复探索已探索山洞。\n4. 城寨图标遮挡自动避让，缩放点击点被遮挡时自动滑动避让。\n5. 修复迷雾探索/世界喊话开启时，自动攻打城寨仍可勾选的互斥逻辑问题。\n6. 倒计时解析移除h/m/s格式支持，只识别冒号格式，避免空闲状态误判。"
     },
     "directories": {
       "output": "release"
@@ -69,7 +70,8 @@
           ]
         }
       ],
-      "icon": "icon.png"
+      "icon": "icon.png",
+      "artifactName": "ROK助手 Setup ${version}.exe"
     },
     "nsis": {
       "oneClick": false,
@@ -99,10 +101,8 @@
     "@types/koa-router": "^7.4.0",
     "@types/koa-static": "^4.0.2",
     "@types/node": "^20.0.0",
-    "ali-oss": "^6.23.0",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
-    "dotenv": "^17.4.2",
     "electron": "^42.0.1",
     "electron-builder": "^26.8.1",
     "electron-is-dev": "^3.0.1",
@@ -111,11 +111,13 @@
     "ts-jest": "^29.1.0",
     "ts-node": "^10.9.0",
     "typescript": "^5.0.0",
-    "wait-on": "^9.0.10"
+    "wait-on": "^9.0.10",
+    "yaml": "^2.8.1"
   },
   "dependencies": {
     "@koa/cors": "^4.0.0",
     "@types/ws": "^8.18.1",
+    "ali-oss": "^6.23.0",
     "electron-updater": "^6.8.3",
     "koa": "^2.14.0",
     "koa-bodyparser": "^4.4.0",
