@@ -1,6 +1,9 @@
+import { readFile } from 'fs/promises';
+import path from 'path';
 import { detectTeamStates, detectStatusRegionTeamStates } from './gatherGemFocus';
 
 jest.mock('fs/promises', () => ({
+  ...jest.requireActual('fs/promises'),
   unlink: jest.fn(async () => {}),
   mkdir: jest.fn(async () => {}),
 }));
@@ -64,5 +67,14 @@ describe('gatherGemFocus 状态检测（state.onnx）', () => {
     expect(results.map((r: any) => `${r.state}:${r.confidence}`)).toEqual([
       'zhuzha:0.44', 'caiji:0.66',
     ]);
+  });
+});
+
+describe('gatherGemFocus 已采集坐标契约', () => {
+  it('使用与共享搜矿和派队 helper 一致的字符串坐标键', async () => {
+    const source = await readFile(path.join(__dirname, 'gatherGemFocus.ts'), 'utf8');
+
+    expect(source).toContain('const collectedCoords: string[] = []');
+    expect(source).not.toContain('const collectedCoords: Array<{ x: number; y: number }> = []');
   });
 });
