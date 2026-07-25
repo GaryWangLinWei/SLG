@@ -5,8 +5,11 @@ import { useAccount } from '../contexts/AccountContext';
 import { useLicense } from '../contexts/LicenseContext';
 import { DEFAULT_HOME_FEATURES, DEFAULT_COLLECT_RESOURCES_INTERVAL_MINUTES, MIN_COLLECT_RESOURCES_INTERVAL_MINUTES, TeamPageChoice, getCollectResourcesIntervalSeconds } from '../../../plugins/rok/homeFeatures';
 import { remoteApi } from '../api/remote';
+import { readRunningIntent } from '../utils/runningIntent';
 
 // Module-level loop state — survives component unmount/remount during SPA navigation
+export type OperationState = 'idle' | 'starting' | 'stopping';
+let browserRunningIntent = false;
 let loopStopped = false;
 let loopRunning = false;
 let loopLogs: string[] = [];
@@ -170,6 +173,13 @@ export function HomePage() {
   const [deviceConnected, setDeviceConnected] = useState(false);
   const [deviceLoading, setDeviceLoading] = useState(false);
   const [taskRunning, setTaskRunning] = useState(false);
+  const [runningIntent, setRunningIntent] = useState(false);
+  const [intentLoaded, setIntentLoaded] = useState(false);
+  const [intentLoadError, setIntentLoadError] = useState<string | null>(null);
+  const [operationState, setOperationState] = useState<OperationState>('idle');
+  void runningIntent;
+  void operationState;
+  void setOperationState;
   const runningTaskIdsRef = useRef<string[]>([]);
   const [_runningTaskIds, setRunningTaskIds] = useState<string[]>([]);
   const [logs, setLogs] = useState<string[]>(loopLogs);
@@ -304,30 +314,27 @@ export function HomePage() {
     } catch { setDeviceConnected(false); }
   };
 
-  // 恢复运行状态：挂载时检查 module-level 变量和 API 确认是否有正在执行的任务
-  useEffect(() => {
-    if (!currentAccountId) return;
-
-    // 如果 module-level loopRunning 已为 true，立即恢复 UI 状态
-    if (loopRunning) {
-      setTaskRunning(true);
-      setLogs(loopLogs);
+  const loadRunningIntent = async () => {
+    setIntentLoaded(false);
+    setIntentLoadError(null);
+    try {
+      const intent = await readRunningIntent(
+        window.electronAPI?.getRunningIntent,
+        browserRunningIntent,
+      );
+      setRunningIntent(intent);
+      setIntentLoaded(true);
+    } catch (error) {
+      setIntentLoadError(error instanceof Error && error.message
+        ? error.message
+        : '无法读取运行状态');
     }
+  };
 
-    // 通过 API 同步 runningTaskIds（用于停止按钮能取消正确的任务）
-    api.tasks.list().then(res => {
-      if (res.success) {
-        const running = res.tasks.filter(t => t.accountId === currentAccountId && t.status === 'running');
-        if (running.length > 0) {
-          loopRunning = true;
-          loopStopped = false;
-          runningTaskIdsRef.current = running.map(t => t.id);
-          setTaskRunning(true);
-          setRunningTaskIds(running.map(t => t.id));
-        }
-      }
-    }).catch(() => {});
-  }, [currentAccountId]);
+  // Running intent belongs to the Electron/browser session, so restore it once per mount.
+  useEffect(() => {
+    void loadRunningIntent();
+  }, []);
 
   useEffect(() => {
     checkDeviceStatus();
@@ -1421,6 +1428,20 @@ export function HomePage() {
                 className="px-8 py-3 bg-gradient-to-r from-emerald-500 to-emerald-400 text-white font-bold rounded-full hover:from-emerald-600 hover:to-emerald-500 transition-all disabled:opacity-50 shadow-lg shadow-emerald-500/30"
               >
                 {deviceLoading ? '连接中...' : '连接设备'}
+              </button>
+            ) : intentLoadError ? (
+              <button
+                onClick={loadRunningIntent}
+                className="px-8 py-3 bg-amber-500 text-white font-bold rounded-full hover:bg-amber-600 transition-all shadow-lg shadow-amber-500/30"
+              >
+                状态读取失败，点击重试
+              </button>
+            ) : !intentLoaded ? (
+              <button
+                disabled
+                className="px-8 py-3 bg-slate-400 text-white font-bold rounded-full cursor-not-allowed opacity-70"
+              >
+                状态读取中...
               </button>
             ) : !taskRunning ? (
               <button
