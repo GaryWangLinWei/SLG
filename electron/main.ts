@@ -270,7 +270,7 @@ ipcMain.handle('get-running-intent', () => {
 });
 
 ipcMain.handle('set-running-intent', (_event, value: unknown) => {
-  return runningIntentStore.set(value as boolean);
+  return runningIntentStore.set(value);
 });
 
 ipcMain.handle('get-adb-path', () => {

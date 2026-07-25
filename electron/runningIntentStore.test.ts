@@ -22,7 +22,7 @@ describe('createRunningIntentStore', () => {
 
     let thrown: unknown;
     try {
-      store.set('false' as unknown as boolean);
+      store.set('false');
     } catch (error) {
       thrown = error;
     }

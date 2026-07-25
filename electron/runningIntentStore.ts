@@ -1,6 +1,6 @@
 export interface RunningIntentStore {
   get(): boolean;
-  set(value: boolean): boolean;
+  set(value: unknown): boolean;
 }
 
 export function createRunningIntentStore(): RunningIntentStore {
@@ -8,7 +8,7 @@ export function createRunningIntentStore(): RunningIntentStore {
 
   return {
     get: () => runningIntent,
-    set: (value: boolean) => {
+    set: (value: unknown) => {
       if (typeof value !== 'boolean') {
         throw new TypeError('running intent must be a boolean');
       }
