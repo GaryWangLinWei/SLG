@@ -5,6 +5,7 @@ import { useAccount } from '../contexts/AccountContext';
 import { useLicense } from '../contexts/LicenseContext';
 import { DEFAULT_HOME_FEATURES, DEFAULT_COLLECT_RESOURCES_INTERVAL_MINUTES, MIN_COLLECT_RESOURCES_INTERVAL_MINUTES, TeamPageChoice, getCollectResourcesIntervalSeconds } from '../../../plugins/rok/homeFeatures';
 import { remoteApi } from '../api/remote';
+import { isCurrentLoopGeneration } from '../utils/loopGeneration';
 import { persistRunningIntent as persistRunningIntentValue, readRunningIntent } from '../utils/runningIntent';
 
 // Module-level loop state — survives component unmount/remount during SPA navigation
@@ -12,6 +13,8 @@ export type OperationState = 'idle' | 'starting' | 'stopping';
 let browserRunningIntent = false;
 let loopStopped = false;
 let loopRunning = false;
+let loopGen = 0;
+let killInFlight = false;
 let loopLogs: string[] = [];
 let loopCompletedBuildings: boolean[] = [false, false, false, false, false];
 let loopCompletedTechs: boolean[] = [false, false, false, false, false];
@@ -498,7 +501,12 @@ export function HomePage() {
     }
 
     if (loopRunning) return;
+    if (killInFlight) {
+      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 游戏关闭任务尚未完成，请稍后重试`]);
+      return;
+    }
 
+    const myGen = ++loopGen;
     loopRunning = true;
     loopStopped = false;
     clearLoopState();
@@ -1387,11 +1395,13 @@ export function HomePage() {
         }
       }
       await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, caveLoop, offlineLoop]);
-      loopRunning = false;
-      clearLoopState();
-      runningTaskIdsRef.current = [];
-      setRunningTaskIds([]);
-      setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ 循环已停止`]);
+      if (isCurrentLoopGeneration(myGen, loopGen)) {
+        loopRunning = false;
+        clearLoopState();
+        runningTaskIdsRef.current = [];
+        setRunningTaskIds([]);
+        setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⏹️ 循环已停止`]);
+      }
     })();
   };
 
@@ -1409,6 +1419,7 @@ export function HomePage() {
 
   const stopImpl = async () => {
     loopStopped = true;
+    const stopGeneration = ++loopGen;
     loopRunning = false;
 
     if (!currentAccountId) {
@@ -1448,13 +1459,22 @@ export function HomePage() {
 
     // Preserve offline semantics without keeping the stop operation lock while the task runs.
     if (shouldKillOfflineGame) {
+      killInFlight = true;
       void (async () => {
         try {
+          if (!isCurrentLoopGeneration(stopGeneration, loopGen) || loopRunning) return;
           const result = await api.tasks.create(currentAccountId, 'com.rok.automation', 'kill-game');
-          if (result.success) await api.tasks.run(result.task.id);
+          if (!result.success) return;
+          if (!isCurrentLoopGeneration(stopGeneration, loopGen) || loopRunning) {
+            await api.tasks.stop(result.task.id).catch(() => {});
+            return;
+          }
+          await api.tasks.run(result.task.id);
         } catch (error) {
           const message = error instanceof Error && error.message ? error.message : String(error);
           setLogs(prev => [...prev, `[${new Date().toLocaleTimeString()}] ⚠️ 关闭游戏失败: ${message}`]);
+        } finally {
+          killInFlight = false;
         }
       })();
     }
