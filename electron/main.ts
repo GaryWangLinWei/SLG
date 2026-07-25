@@ -6,8 +6,12 @@ import { initResourcePaths } from '../core/resourcePath';
 import { autoUpdater } from 'electron-updater';
 import { remoteClient } from '../core/remote/RemoteClient';
 import { licenseService } from '../core/license';
+import { loadPackagedEdition } from './edition';
 
 const isDev = !app.isPackaged;
+const edition = isDev
+  ? { id: 'main' as const, updateUrl: 'https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates' }
+  : loadPackagedEdition(path.join(__dirname, '..', 'app-edition.json'));
 
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
@@ -286,6 +290,7 @@ ipcMain.on('close-app', () => {
 });
 
 ipcMain.handle('check-update', () => {
+  console.log(`[Electron] manual update check edition=${edition.id}`);
   autoUpdater.checkForUpdatesAndNotify();
 });
 
@@ -321,6 +326,8 @@ if (!gotTheLock) {
     createTray();
 
     // 自动更新：仅生产环境下生效
+    console.log(`[Electron] edition=${edition.id} updateUrl=${edition.updateUrl}`);
+    autoUpdater.setFeedURL({ provider: 'generic', url: edition.updateUrl });
     autoUpdater.autoDownload = true;
     autoUpdater.autoInstallOnAppQuit = true;
 
@@ -352,14 +359,17 @@ if (!gotTheLock) {
       });
     });
 
-    autoUpdater.on('error', (_err) => {
+    autoUpdater.on('error', (err) => {
+      console.error(`[Electron] updater error edition=${edition.id}: ${err.message}`);
       mainWindow?.webContents.send('update-status', { status: 'idle' });
     });
 
     // 启动时检查 + 每 2 小时定时检查（仅生产环境）
     if (!isDev) {
+      console.log(`[Electron] startup update check edition=${edition.id}`);
       autoUpdater.checkForUpdatesAndNotify();
       setInterval(() => {
+        console.log(`[Electron] scheduled update check edition=${edition.id}`);
         autoUpdater.checkForUpdatesAndNotify();
       }, 2 * 3600 * 1000);
     }
