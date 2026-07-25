@@ -5,7 +5,7 @@ import { useAccount } from '../contexts/AccountContext';
 import { useLicense } from '../contexts/LicenseContext';
 import { DEFAULT_HOME_FEATURES, DEFAULT_COLLECT_RESOURCES_INTERVAL_MINUTES, MIN_COLLECT_RESOURCES_INTERVAL_MINUTES, TeamPageChoice, getCollectResourcesIntervalSeconds } from '../../../plugins/rok/homeFeatures';
 import { remoteApi } from '../api/remote';
-import { createLoopCancellationPredicate, isCurrentLoopGeneration } from '../utils/loopGeneration';
+import { createLoopCancellationPredicate, guardedCreateTask, isCurrentLoopGeneration } from '../utils/loopGeneration';
 import { persistRunningSession, readRunningSession, RunningSession } from '../utils/runningIntent';
 import { deriveRunningControlView, OperationState } from '../utils/runningControlView';
 
@@ -547,10 +547,11 @@ export function HomePage() {
 
     const isStopped = createLoopCancellationPredicate(myGen, () => loopGen, () => loopStopped);
     const sleep = async (s: number) => new Promise(r => setTimeout(r, s * 1000));
-    const createTask: typeof api.tasks.create = async (...args) => {
-      if (isStopped()) throw new Error('loop generation cancelled');
-      return api.tasks.create(...args);
-    };
+    const createTask: typeof api.tasks.create = (...args) => guardedCreateTask(
+      () => api.tasks.create(...args),
+      taskId => api.tasks.stop(taskId),
+      isStopped,
+    );
 
     const acquireLock = async (): Promise<boolean> => {
       while (deviceBusy && !isStopped()) { await sleep(0.3); }
