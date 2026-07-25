@@ -20,7 +20,15 @@ describe('createRunningIntentStore', () => {
     const store = createRunningIntentStore();
     store.set(true);
 
-    expect(() => store.set('false' as unknown as boolean)).toThrow(
+    let thrown: unknown;
+    try {
+      store.set('false' as unknown as boolean);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(TypeError);
+    expect((thrown as TypeError).message).toBe(
       'running intent must be a boolean',
     );
     expect(store.get()).toBe(true);
