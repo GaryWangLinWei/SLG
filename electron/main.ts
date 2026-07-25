@@ -7,6 +7,7 @@ import { autoUpdater } from 'electron-updater';
 import { remoteClient } from '../core/remote/RemoteClient';
 import { licenseService } from '../core/license';
 import { createRunningIntentStore } from './runningIntentStore';
+import { isTrustedRunningIntentUrl } from './runningIntentIpcSecurity';
 
 const runningIntentStore = createRunningIntentStore();
 
@@ -265,11 +266,26 @@ ipcMain.handle('get-app-version', () => {
   return app.getVersion();
 });
 
-ipcMain.handle('get-running-intent', () => {
+function assertTrustedRunningIntentSender(event: Electron.IpcMainInvokeEvent): void {
+  const senderUrl = event.senderFrame?.url;
+  const webDistPath = path.join(__dirname, '../../web/dist');
+  if (
+    !mainWindow
+    || event.sender !== mainWindow.webContents
+    || !senderUrl
+    || !isTrustedRunningIntentUrl(senderUrl, isDev, webDistPath)
+  ) {
+    throw new Error('Unauthorized running intent IPC sender');
+  }
+}
+
+ipcMain.handle('get-running-intent', (event) => {
+  assertTrustedRunningIntentSender(event);
   return runningIntentStore.get();
 });
 
-ipcMain.handle('set-running-intent', (_event, value: unknown) => {
+ipcMain.handle('set-running-intent', (event, value: unknown) => {
+  assertTrustedRunningIntentSender(event);
   return runningIntentStore.set(value);
 });
 
