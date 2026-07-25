@@ -47,6 +47,7 @@ function verify(step) {
 export async function buildEditions(version) {
   for (const step of await createBuildPlan(version)) {
     safeClean(step.outputDir);
+    fs.rmSync(path.join(rootDir, 'dist'), { recursive: true, force: true });
     run('npm', ['--prefix', 'web', 'run', 'build'], step.env);
     run('npx', ['tsc'], step.env);
     fs.cpSync(path.join(rootDir, 'assets', 'vcredist'), path.join(rootDir, 'node_modules', 'onnxruntime-node', 'bin', 'napi-v6', 'win32', 'x64'), { recursive: true });

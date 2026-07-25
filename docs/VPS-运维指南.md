@@ -131,38 +131,137 @@ ssh root@106.15.11.158 "pm2 restart slg-auth"
 # http://106.15.11.158:3456/admin/
 ```
 
-## Electron 客户端双版本发布
+## Electron 客户端双版本构建与发布
 
-主版与代理商版共用版本号，一次构建分别输出到 `release/main/` 和 `release/agent/`。发布仅使用 OSS，不再使用 `--oss-only` 或向 VPS SCP 更新文件。
+主版与代理商版共用根 `package.json` 中的版本号、应用 ID、安装目录和用户数据。一次构建会生成两套独立产物：
 
-### 首次启用代理商渠道
+- 主版：`release/main/ROK助手 Setup <version>.exe`
+- 代理商版：`release/agent/ROK助手-代理商版 Setup <version>.exe`
+
+两版只通过 OSS 发布，不再向 VPS 上传更新文件，也不再使用 `--oss-only`。主版更新目录为 `/updates`，代理商版为 `/updates/agent`。
+
+### 1. 发布前修改版本信息
+
+编辑项目根目录的 `package.json`：
+
+- 修改 `version`，例如 `1.1.8` → `1.1.9`；
+- 修改 `build.releaseInfo.releaseNotes`；
+- 确认 `package-lock.json` 根版本同步更新。
+
+构建脚本会在每个版本开始前清理对应的 `release/main|agent` 和临时 `dist`，避免旧模型备份、重复 OCR 文件等历史残留进入安装包。
+
+### 2. 构建两个安装包
+
+在项目根目录 `D:\SLG` 执行：
+
+```bash
+npm run electron:build:win
+```
+
+该命令依次构建 main 和 agent，任意一版失败都会以非零状态退出。构建完成后应存在：
+
+```text
+release/main/latest.yml
+release/main/ROK助手 Setup <version>.exe
+release/main/ROK助手 Setup <version>.exe.blockmap
+
+release/agent/latest.yml
+release/agent/ROK助手-代理商版 Setup <version>.exe
+release/agent/ROK助手-代理商版 Setup <version>.exe.blockmap
+```
+
+如果在 Claude 隔离 worktree 中执行，产物会生成在该 worktree 的 `release/`；正式打包应在 `D:\SLG` 项目根目录执行，或将上述六个文件复制到 `D:\SLG\release\main|agent`。
+
+### 3. 上传前本地预检
+
+```bash
+node scripts/publish-release.mjs --dry-run
+```
+
+`--dry-run` 只检查本地文件、版本号、manifest 文件名和六个 OSS 目标路径，不创建 OSS client，也不会访问或修改 OSS。确认输出中的两个版本号相同，并分别指向：
+
+- `https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates`
+- `https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/agent`
+
+### 4. 首次启用代理商渠道
+
+首次发布代理商版时，先准备 OSS 凭据：
+
+```text
+OSS_KEY_ID
+OSS_KEY_SECRET
+```
+
+然后执行：
 
 ```bash
 npm run electron:build:win
 node scripts/publish-release.mjs --dry-run
 node scripts/publish-release.mjs --initialize-agent
-# 检查 https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/agent/latest.yml
+```
+
+`--initialize-agent` 只创建代理商渠道的基线，不修改主版 manifest。完成后检查：
+
+```text
+https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/agent/latest.yml
+```
+
+确认代理商基线存在后，再执行正式双端发布：
+
+```bash
+node scripts/publish-release.mjs
+```
+
+### 5. 日常双端同步发布
+
+推荐分开构建、预检和上传，便于在写入 OSS 前人工确认：
+
+```bash
+npm run electron:build:win
+node scripts/publish-release.mjs --dry-run
+node scripts/publish-release.mjs
+```
+
+也可以使用一键命令（会重新构建后立即上传）：
+
+```bash
 npm run electron:publish:win
 ```
 
-`--initialize-agent` 只初始化代理商渠道，主版 manifest 保持不变。执行前确认 OSS 凭据已通过环境变量配置。
+发布器会：
 
-### 日常同步发布
+1. 校验两个 `latest.yml` 的版本均等于根 `package.json.version`；
+2. 校验 manifest 中的安装包文件名与 edition 配置精确一致；
+3. 先上传两版 exe 和 blockmap，并逐个执行 OSS `head` 验证；
+4. 最后按 main、agent 顺序切换两份 `latest.yml`；
+5. agent manifest 上传失败时，尝试恢复已切换的 main manifest；
+6. 回滚失败时同时报告发布错误和回滚错误。
 
-1. 更新根 `package.json` 的 `version` 和 `build.releaseInfo.releaseNotes`。
-2. 运行 `npm run electron:publish:win`。
-3. 检查以下两个 manifest 版本一致：
-   - `https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/latest.yml`
-   - `https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/agent/latest.yml`
+正常双端发布要求 OSS 上已有两份旧 manifest。不要手工删除旧 exe 或 blockmap，否则旧客户端的差量更新可能失败。
 
-正式发布要求两个旧 manifest 均已存在。脚本先上传并验证两版不可变的 exe 与 blockmap，最后按 main、agent 顺序切换 manifest；失败时尝试恢复已切换的旧 manifest。不要手工删除旧 exe 或 blockmap，否则旧客户端无法使用差量更新。
+### 6. 发布后验证
 
-发布前可安全运行 `node scripts/publish-release.mjs --dry-run`：它只校验本地产物并列出六个目标文件，不创建 OSS client，也不访问网络。
+检查两份 manifest 的 `version` 均为本次版本：
 
-安装包文件名分别为：
+```text
+https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/latest.yml
+https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/agent/latest.yml
+```
 
-- `ROK助手 Setup <version>.exe`
-- `ROK助手-代理商版 Setup <version>.exe`
+同时确认 OSS 中存在：
+
+```text
+updates/ROK助手 Setup <version>.exe
+updates/ROK助手 Setup <version>.exe.blockmap
+updates/agent/ROK助手-代理商版 Setup <version>.exe
+updates/agent/ROK助手-代理商版 Setup <version>.exe.blockmap
+```
+
+客户端验证：
+
+- 主版显示“在线购买”和“续费”，更新日志使用 `/updates`；
+- 代理商版隐藏“在线购买”和“续费”，其他授权功能保持不变，更新日志使用 `/updates/agent`；
+- 两版互相覆盖安装后，许可证和现有配置仍可使用。
 
 ## 文件结构（VPS 上）
 
