@@ -1,6 +1,6 @@
 {
   "name": "rok-automation",
-  "version": "1.1.9",
+  "version": "1.2.0",
   "description": "万国觉醒自动化助手",
   "main": "dist/electron/main.js",
   "scripts": {
@@ -21,7 +21,7 @@
     "appId": "com.rok.automation",
     "productName": "ROK助手",
     "releaseInfo": {
-      "releaseNotes": "1.1.9更新内容\n1.优化组合采集流程：\n步骤1：大号勾选采集分享矿，小号勾选分享宝石矿。\n步骤2：都填入大号城堡位置。\n不需要修改头像了\n2.优化宝石出现在UI遮挡区域时的处理逻辑。不再跳过，而是补一次滑动后再识别。\n3.修复切号时，账号与游戏不一致bug。"
+      "releaseNotes": "1.2.0更新内容\n1.修复经典模式，宝石矿识别失败问题\n2.修复开始运行不同步问题"
     },
     "directories": {
       "output": "release"
