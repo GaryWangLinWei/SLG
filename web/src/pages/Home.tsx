@@ -2501,7 +2501,21 @@ export function HomePage() {
               className="w-full px-4 py-3 flex items-center gap-2 text-left hover:bg-amber-100/40 transition-colors rounded-xl"
             >
               <span className={`w-7 h-7 rounded-lg flex items-center justify-center text-white text-sm shadow ${isFeatureLocked('autoSwitchAccount') ? 'bg-amber-300' : 'bg-amber-400'}`}>🔀</span>
-              <span className="font-semibold text-sm text-slate-800">账号调度：{features.autoSwitchAccount && !isFeatureLocked('autoSwitchAccount') ? '开启' : '关闭'}</span>
+              <span className="flex items-center gap-1.5 font-semibold text-sm text-slate-800">
+                <span>账号调度：{features.autoSwitchAccount && !isFeatureLocked('autoSwitchAccount') ? '开启' : '关闭'}</span>
+                <span
+                  role="img"
+                  aria-label="账号调度说明"
+                  title="在两个账号配置方案之间自动切换。按时间轮换：到达设定时长后切号；按轮次轮换：完成设定轮数后切号；寨子模式：根据城寨任务结果切号；组合采集：小号分享宝石矿、大号采集分享矿。"
+                  className="inline-flex h-4 w-4 cursor-pointer items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold leading-none text-slate-500 transition-colors hover:bg-cyan-100 hover:text-cyan-700"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.open('http://106.15.11.158:3456/help#qa-account-schedule-modes', '_blank', 'noopener,noreferrer');
+                  }}
+                >
+                  ?
+                </span>
+              </span>
               <span className="ml-auto text-amber-600 text-2xl leading-none">▸</span>
             </button>
           ) : (
@@ -2510,7 +2524,18 @@ export function HomePage() {
               <div className="flex items-center gap-3 mb-3">
                 <span className={`w-8 h-8 rounded-lg flex items-center justify-center text-white text-base shadow ${isFeatureLocked('autoSwitchAccount') ? 'bg-amber-300' : 'bg-amber-400'}`}>🔀</span>
                 <div>
-                  <h3 className="font-bold text-sm text-slate-800">账号调度</h3>
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="font-bold text-sm text-slate-800">账号调度</h3>
+                    <span
+                      role="img"
+                      aria-label="账号调度说明"
+                      title="在两个账号配置方案之间自动切换。按时间轮换：到达设定时长后切号；按轮次轮换：完成设定轮数后切号；寨子模式：根据城寨任务结果切号；组合采集：小号分享宝石矿、大号采集分享矿。"
+                      onClick={() => window.open('http://106.15.11.158:3456/help#qa-account-schedule-modes', '_blank', 'noopener,noreferrer')}
+                      className="inline-flex h-4 w-4 cursor-pointer items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold leading-none text-slate-500 transition-colors hover:bg-cyan-100 hover:text-cyan-700"
+                    >
+                      ?
+                    </span>
+                  </div>
                   <p className="text-xs text-amber-700">请先在坐标配置页中添加账号，填入账号编号</p>
                 </div>
                 <div className="flex-1"></div>
@@ -2840,7 +2865,18 @@ export function HomePage() {
 
                   {/* 组合采集 */}
                   <div className="mt-3">
-                    <div className="text-xs text-slate-500 font-semibold">组合采集</div>
+                    <div className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold">
+                      <span>组合采集</span>
+                      <span
+                        role="img"
+                        aria-label="组合采集说明"
+                        title="大号勾选“采集分享矿”，从聊天中读取并采集小号分享的宝石矿；小号勾选“分享宝石矿”，只搜索并把宝石矿坐标分享给大号。两项互斥。"
+                        onClick={() => window.open('http://106.15.11.158:3456/help#qa-account-schedule-modes', '_blank', 'noopener,noreferrer')}
+                        className="inline-flex h-4 w-4 cursor-pointer items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold leading-none text-slate-500 transition-colors hover:bg-cyan-100 hover:text-cyan-700"
+                      >
+                        ?
+                      </span>
+                    </div>
                   </div>
 
                   <div className="flex items-center gap-3 mt-2">

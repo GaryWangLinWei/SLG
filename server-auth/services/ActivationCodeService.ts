@@ -91,15 +91,18 @@ export function revokeCode(id: number): boolean {
   return result.changes > 0;
 }
 
-const TRIAL_CODE = 'TRIAL-3DAYS';
-const TRIAL_DAYS = 3;
+const TRIAL_CODES: Record<string, { days: number; tier: 'basic' | 'pro' }> = {
+  'TRIAL-3DAYS': { days: 3, tier: 'basic' },
+  'TRIAL-PRO-1DAY': { days: 1, tier: 'pro' },
+};
 
 export function useCode(code: string, deviceFingerprint: string): { success: boolean; expiresAt?: number; error?: string; renewType?: string; tier?: 'basic' | 'pro'; code?: string } {
   const db = getDb();
   const now = Date.now();
+  const trial = TRIAL_CODES[code];
 
   // 试用码处理（仅限新用户）
-  if (code === TRIAL_CODE) {
+  if (trial) {
     // 检查设备是否已有任何激活（新用户才能试用）
     const hasAnyActivation = db.prepare(
       'SELECT id FROM device_bindings WHERE device_fingerprint = ?'
@@ -126,16 +129,17 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
       VALUES (?, ?, ?, ?)
     `);
     const trialCode = `TRIAL-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const expiresAt = now + TRIAL_DAYS * 24 * 60 * 60 * 1000;
+    const expiresAt = now + trial.days * 24 * 60 * 60 * 1000;
 
     const transaction = db.transaction(() => {
-      const result = insertCode.run(trialCode, TRIAL_DAYS, now, deviceFingerprint, expiresAt);
+      const result = insertCode.run(trialCode, trial.days, now, deviceFingerprint, expiresAt);
+      db.prepare('UPDATE activation_codes SET tier = ? WHERE id = ?').run(trial.tier, result.lastInsertRowid);
       insertBinding.run(result.lastInsertRowid, deviceFingerprint, now, now);
     });
 
     try {
       transaction();
-      return { success: true, expiresAt, tier: 'basic', code: trialCode };
+      return { success: true, expiresAt, tier: trial.tier, code: trialCode };
     } catch (e: any) {
       return { success: false, error: e.message };
     }

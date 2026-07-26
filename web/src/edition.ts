@@ -12,7 +12,7 @@ const EDITION_CAPABILITIES: Readonly<Record<AppEdition, EditionCapabilities>> = 
   }),
   agent: Object.freeze({
     showPurchaseEntry: false,
-    showRenewEntry: false,
+    showRenewEntry: true,
   }),
 })
 

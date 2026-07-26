@@ -6,6 +6,6 @@ export default defineConfig({
   },
   test: {
     environment: 'node',
-    include: ['src/edition.test.ts'],
+    include: ['src/edition.test.ts', 'src/pages/HomeHelpIcons.test.ts'],
   },
 })

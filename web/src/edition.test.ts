@@ -23,12 +23,12 @@ describe('getEditionCapabilities', () => {
     })
   })
 
-  it('disables commercial capabilities for agent', () => {
+  it('hides purchase but keeps renewal available for agent', () => {
     const capabilities = getEditionCapabilities('agent')
 
     expect(capabilities).toEqual({
       showPurchaseEntry: false,
-      showRenewEntry: false,
+      showRenewEntry: true,
     })
     expect(Object.keys(capabilities).sort()).toEqual([
       'showPurchaseEntry',
