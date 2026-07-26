@@ -3,9 +3,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getEdition } from './edition-config.mjs';
+import { loadEnvFile } from './env-file.mjs';
 import { initializeAgent, publishRelease, validateRelease } from './release-publisher.mjs';
 
 const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+loadEnvFile(path.join(rootDir, '.env'));
 const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, 'package.json'), 'utf8'));
 const editions = await Promise.all(['main', 'agent'].map((id) => getEdition(id)));
 const args = new Set(process.argv.slice(2));
