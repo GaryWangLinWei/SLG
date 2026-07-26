@@ -22,6 +22,8 @@ const PICKAXE_TEMPLATES = [
   // path.join(TEMPLATE_DIR, 'state_caiji.png'), // 改用 state.onnx YOLO 检测
 ];
 const GEM_VERIFY_TEMPLATES = [
+  path.join(TEMPLATE_DIR, 'gem', 'gem_day_center.png'),
+  path.join(TEMPLATE_DIR, 'gem', 'gem_night_center.png'),
   path.join(TEMPLATE_DIR, 'gem', 'gem_old_day.png'),
   path.join(TEMPLATE_DIR, 'gem', 'gem_old_night.png'),
 ];

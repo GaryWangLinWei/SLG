@@ -99,7 +99,7 @@ describe('verifyGemAtCenter 模板兜底', () => {
     expect(result).toEqual({ found: true, x: 800, y: 450 });
     expect(ctx.findImageWithLocation).toHaveBeenCalledTimes(1);
     expect(ctx.findImageWithLocation).toHaveBeenCalledWith(
-      expect.stringContaining('gem_old_day.png'),
+      expect.stringContaining('gem_day_center.png'),
       0.7
     );
   });
