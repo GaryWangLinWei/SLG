@@ -12,6 +12,7 @@ import { join } from 'node:path';
 
 import { createRedactor, writeLog } from './log.mjs';
 import { buildObjectKey, runBackup, runRestoreVerification } from './workflow.mjs';
+import { buildCliRedactorSecrets } from './cli-support.mjs';
 
 const FAKE_KEY = Buffer.alloc(32, 5);
 const FAKE_SECRET = 'SEC-fake-workflow-test';
@@ -573,3 +574,107 @@ test('runRestoreVerification cleans up its temp dir on both success and failure'
     }
   });
 });
+
+// ---------- Minor fixes ----------
+
+test('runBackup daily failure notification includes the actual failing stage (not "unknown")', async () => {
+  await withTempRoot(async (root) => {
+    const t = makeDailyFakes(root, { encryptError: new Error('encrypt boom') });
+    await assert.rejects(runBackup(t.deps, {}), /encrypt boom/);
+    assert.equal(t.dingtalkCalls.length, 1);
+    const text = t.dingtalkCalls[0].text;
+    assert.match(text, /stage=encrypt/);
+    assert.doesNotMatch(text, /stage=unknown/);
+  });
+});
+
+test('runRestoreVerification monthly failure notification includes the actual failing stage', async () => {
+  await withTempRoot(async (root) => {
+    const t = makeDailyFakes(root, {
+      listResponses: [{
+        objects: [{ name: 'daily/2026/07/auth-20260701T031500+0800.db.enc', size: 100 }],
+        isTruncated: false,
+      }],
+      decryptError: new Error('decrypt boom'),
+    });
+    t.deps.ossClient.head = async () => ({
+      meta: {
+        'format-version': '1',
+        'sha256': 'c'.repeat(64),
+        'snapshot-size': '4096',
+        'created-at': '2026-07-01T03:15:00.000+0800',
+        'run-id': 'daily-runid-42',
+      },
+      res: { headers: { 'content-length': '100' } },
+    });
+    await assert.rejects(runRestoreVerification(t.deps, {}), /decrypt boom/);
+    assert.equal(t.dingtalkCalls.length, 1);
+    const text = t.dingtalkCalls[0].text;
+    assert.match(text, /stage=decrypt/);
+    assert.doesNotMatch(text, /stage=unknown/);
+  });
+});
+
+// ---------- CLI redactor secrets ----------
+
+test('buildCliRedactorSecrets includes the decoded 32-byte encryption key Buffer for full-encoding redaction', () => {
+  const rawKey = Buffer.alloc(32, 0xab);
+  const env = {
+    BACKUP_ENCRYPTION_KEY: rawKey.toString('base64'),
+    DINGTALK_WEBHOOK: 'https://example.com/hook?access_token=fake-token',
+    DINGTALK_SECRET: 'SEC-fake-cli',
+  };
+  const secrets = buildCliRedactorSecrets(env);
+  const hasBuffer = secrets.some(
+    (s) => Buffer.isBuffer(s) && s.length === 32 && s.equals(rawKey),
+  );
+  assert.ok(hasBuffer, 'expected decoded 32-byte key Buffer in secrets');
+  assert.ok(secrets.includes(env.BACKUP_ENCRYPTION_KEY));
+  assert.ok(secrets.includes(env.DINGTALK_WEBHOOK));
+  assert.ok(secrets.includes(env.DINGTALK_SECRET));
+});
+
+test('buildCliRedactorSecrets skips the Buffer entry when key is invalid base64 or wrong length', () => {
+  const shortKey = Buffer.alloc(16, 0xcd).toString('base64');
+  const s1 = buildCliRedactorSecrets({
+    BACKUP_ENCRYPTION_KEY: shortKey,
+    DINGTALK_WEBHOOK: 'https://x',
+    DINGTALK_SECRET: 'y',
+  });
+  assert.ok(!s1.some((s) => Buffer.isBuffer(s)), 'no Buffer for wrong-length key');
+  const s2 = buildCliRedactorSecrets({
+    BACKUP_ENCRYPTION_KEY: 'not base64!!!',
+    DINGTALK_WEBHOOK: 'https://x',
+    DINGTALK_SECRET: 'y',
+  });
+  assert.ok(!s2.some((s) => Buffer.isBuffer(s)), 'no Buffer for invalid base64 key');
+});
+
+test('buildCliRedactorSecrets omits missing fields cleanly and skips missing key', () => {
+  const secrets = buildCliRedactorSecrets({});
+  assert.deepEqual(secrets, []);
+});
+
+test('a redactor built from buildCliRedactorSecrets hides raw key bytes in every encoding', async () => {
+  const { createRedactor: cr } = await import('./log.mjs');
+  const rawKey = Buffer.alloc(32, 0x5a);
+  const env = {
+    BACKUP_ENCRYPTION_KEY: rawKey.toString('base64'),
+    DINGTALK_WEBHOOK: 'https://example.com/hook?access_token=fake-token',
+    DINGTALK_SECRET: 'SEC-fake-cli',
+  };
+  const redact = cr(buildCliRedactorSecrets(env));
+  const message = [
+    `key-utf8=${rawKey.toString('utf8')}`,
+    `key-base64=${rawKey.toString('base64')}`,
+    `key-hex=${rawKey.toString('hex')}`,
+    `webhook=${env.DINGTALK_WEBHOOK}`,
+    `secret=${env.DINGTALK_SECRET}`,
+  ].join(' ');
+  const redacted = redact(message);
+  assert.doesNotMatch(redacted, new RegExp(rawKey.toString('base64').replace(/[+/=]/g, (c) => `\\${c}`)));
+  assert.doesNotMatch(redacted, new RegExp(rawKey.toString('hex')));
+  assert.doesNotMatch(redacted, /SEC-fake-cli/);
+  assert.doesNotMatch(redacted, /access_token=fake-token/);
+});
+

@@ -63,6 +63,13 @@ function attachAdditional(primary, secondary) {
   if (!primary.cause) primary.cause = secondary;
 }
 
+function tagStage(error, stage) {
+  if (error && typeof error === 'object' && !('stage' in error)) {
+    try { error.stage = stage; } catch { /* frozen error: ignore */ }
+  }
+  return error;
+}
+
 async function safeLog(deps, event, redact) {
   try {
     deps.log.writeLog(deps.logStream, event, redact);
@@ -143,6 +150,7 @@ export async function runBackup(deps, env) {
       await deps.assertSafeDatabasePath(config.dbPath);
       await safeLog(deps, { runId, stage: 'preflight', status: 'ok' }, redact);
     } catch (error) {
+      tagStage(error, 'preflight');
       primaryError = error;
       await safeLog(deps, { runId, stage: 'preflight', status: 'fail', error }, redact);
       throw error;
@@ -153,6 +161,7 @@ export async function runBackup(deps, env) {
       await deps.sqlite.createOnlineSnapshot(config.dbPath, snapshotPath);
       await safeLog(deps, { runId, stage: 'snapshot', status: 'ok' }, redact);
     } catch (error) {
+      tagStage(error, 'snapshot');
       primaryError = error;
       await safeLog(deps, { runId, stage: 'snapshot', status: 'fail', error }, redact);
       throw error;
@@ -165,6 +174,7 @@ export async function runBackup(deps, env) {
       snapshotSize = integrity.size;
       await safeLog(deps, { runId, stage: 'integrity', status: 'ok', size: snapshotSize }, redact);
     } catch (error) {
+      tagStage(error, 'integrity');
       primaryError = error;
       await safeLog(deps, { runId, stage: 'integrity', status: 'fail', error }, redact);
       throw error;
@@ -176,6 +186,7 @@ export async function runBackup(deps, env) {
       sha256 = await deps.crypto.encryptFile(snapshotPath, encryptedPath, config.encryptionKey);
       await safeLog(deps, { runId, stage: 'encrypt', status: 'ok' }, redact);
     } catch (error) {
+      tagStage(error, 'encrypt');
       primaryError = error;
       await safeLog(deps, { runId, stage: 'encrypt', status: 'fail', error }, redact);
       throw error;
@@ -194,6 +205,7 @@ export async function runBackup(deps, env) {
       await deps.ossClient.put(objectKey, encryptedPath, { meta: { ...metadata } });
       await safeLog(deps, { runId, stage: 'upload', status: 'ok', objectKey }, redact);
     } catch (error) {
+      tagStage(error, 'upload');
       primaryError = error;
       await safeLog(deps, { runId, stage: 'upload', status: 'fail', error, objectKey }, redact);
       throw error;
@@ -206,6 +218,7 @@ export async function runBackup(deps, env) {
       verifyRemoteHead(head, metadata, encryptedStat.size);
       await safeLog(deps, { runId, stage: 'verify-upload', status: 'ok', objectKey }, redact);
     } catch (error) {
+      tagStage(error, 'verify-upload');
       primaryError = error;
       await safeLog(
         deps,
@@ -271,6 +284,7 @@ export async function runRestoreVerification(deps, env) {
         redact,
       );
     } catch (error) {
+      tagStage(error, 'list');
       primaryError = error;
       await safeLog(deps, { runId, stage: 'list', status: 'fail', error }, redact);
       throw error;
@@ -302,6 +316,7 @@ export async function runRestoreVerification(deps, env) {
       expectedSha = meta['sha256'];
       await safeLog(deps, { runId, stage: 'head', status: 'ok', objectKey: latest.name }, redact);
     } catch (error) {
+      tagStage(error, 'head');
       primaryError = error;
       await safeLog(deps, { runId, stage: 'head', status: 'fail', error }, redact);
       throw error;
@@ -313,6 +328,7 @@ export async function runRestoreVerification(deps, env) {
       downloadInfo = await deps.oss.downloadAndVerify(deps.ossClient, latest, downloadPath, expectedSha);
       await safeLog(deps, { runId, stage: 'download', status: 'ok', size: downloadInfo.size }, redact);
     } catch (error) {
+      tagStage(error, 'download');
       primaryError = error;
       await safeLog(deps, { runId, stage: 'download', status: 'fail', error }, redact);
       throw error;
@@ -323,6 +339,7 @@ export async function runRestoreVerification(deps, env) {
       await deps.crypto.decryptFile(downloadPath, decryptedPath, config.encryptionKey);
       await safeLog(deps, { runId, stage: 'decrypt', status: 'ok' }, redact);
     } catch (error) {
+      tagStage(error, 'decrypt');
       primaryError = error;
       await safeLog(deps, { runId, stage: 'decrypt', status: 'fail', error }, redact);
       throw error;
@@ -341,6 +358,7 @@ export async function runRestoreVerification(deps, env) {
         redact,
       );
     } catch (error) {
+      tagStage(error, 'verify-restore');
       primaryError = error;
       await safeLog(deps, { runId, stage: 'verify-restore', status: 'fail', error }, redact);
       throw error;
@@ -365,7 +383,7 @@ export async function runRestoreVerification(deps, env) {
 
   if (primaryError) {
     const text = redact(
-      `[SLG-AUTH-BACKUP] monthly VERIFY FAIL runId=${runId} error=${primaryError.message ?? String(primaryError)}`,
+      `[SLG-AUTH-BACKUP] monthly VERIFY FAIL runId=${runId} stage=${primaryError.stage ?? 'unknown'} error=${primaryError.message ?? String(primaryError)}`,
     );
     const notifyError = await safeNotify(deps, config, text, redact, runId);
     if (notifyError) attachAdditional(primaryError, notifyError);

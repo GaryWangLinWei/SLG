@@ -7,6 +7,7 @@ import OSS from 'ali-oss';
 
 import { assertSafeDatabasePath, loadConfig } from './config.mjs';
 import { createRedactor, writeLog } from './log.mjs';
+import { buildCliRedactorSecrets } from './cli-support.mjs';
 import { createOnlineSnapshot, verifySnapshot } from './sqlite.mjs';
 import { decryptFile, encryptFile } from './crypto.mjs';
 import {
@@ -54,12 +55,7 @@ function main() {
 }
 
 main().catch((error) => {
-  const secrets = [
-    process.env.BACKUP_ENCRYPTION_KEY,
-    process.env.DINGTALK_WEBHOOK,
-    process.env.DINGTALK_SECRET,
-  ].filter(Boolean);
-  const redact = createRedactor(secrets);
+  const redact = createRedactor(buildCliRedactorSecrets(process.env));
   const payload = redact({
     level: 'error',
     entry: 'backup.mjs',
