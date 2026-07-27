@@ -12,3 +12,17 @@ test('config rejects invalid base64 and non-32-byte keys', () => { assert.throws
 test('config rejects non-HTTPS webhook and blank bucket or region', () => { assert.throws(() => loadConfig({...valid(), DINGTALK_WEBHOOK:'http://example.com'}), /HTTPS/i); assert.throws(() => loadConfig({...valid(), BACKUP_OSS_BUCKET:' '}), /BACKUP_OSS_BUCKET/); assert.throws(() => loadConfig({...valid(), BACKUP_OSS_REGION:' '}), /BACKUP_OSS_REGION/); });
 test('config normalizes prefix and returns all fields', () => { const c=loadConfig(valid()); assert.equal(c.ossPrefix,'daily/'); assert.equal(c.encryptionKey.length,32); assert.equal(c.instanceId,'node-1'); assert.deepEqual(Object.keys(c), ['dbPath','ossRegion','ossBucket','ossPrefix','encryptionKey','dingtalkWebhook','dingtalkSecret','instanceId']); });
 test('config database path rejects non-files and symbolic links', async () => { const dir=await mkdtemp(join(tmpdir(),'backup-config-')); const file=join(dir,'auth.db'); await writeFile(file,'db'); await assert.doesNotReject(assertSafeDatabasePath(file)); await assert.rejects(assertSafeDatabasePath(dir),/regular file/i); const target=await mkdtemp(join(tmpdir(),'backup-target-')); const link=join(dir,'link'); await symlink(target,link,'junction'); await assert.rejects(assertSafeDatabasePath(link),/symbolic link/i); });
+
+test('config rejects unsafe normalized OSS prefixes', () => {
+  const prefixes = ['/', '////', '  /  ', '.', '..', 'daily/../private', 'daily/./data', `daily${String.fromCharCode(10)}backup`, `daily${String.fromCharCode(0)}backup`];
+  for (const prefix of prefixes) assert.throws(() => loadConfig({...valid(), BACKUP_OSS_PREFIX: prefix}), /BACKUP_OSS_PREFIX/);
+});
+test('config database path rejects a regular file symbolic link', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'backup-file-link-'));
+  const file = join(dir, 'auth.db'); const link = join(dir, 'auth-link.db'); await writeFile(file, 'db');
+  try { await symlink(file, link, 'file'); } catch (error) {
+    if (error?.code === 'EPERM' || error?.code === 'EACCES') { t.skip(`file symlink unavailable: ${error.code}`); return; }
+    throw error;
+  }
+  await assert.rejects(assertSafeDatabasePath(link), /symbolic link/i);
+});
