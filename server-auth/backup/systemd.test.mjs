@@ -14,6 +14,7 @@ const FILES = {
   verifyService: resolve(UNIT_DIR, 'slg-auth-verify.service'),
   verifyTimer: resolve(UNIT_DIR, 'slg-auth-verify.timer'),
   envExample: resolve(UNIT_DIR, 'slg-auth-backup.env.example'),
+  opsDoc: resolve(REPO_ROOT, 'docs', 'server-auth-backup-operations.md'),
 };
 
 async function readUnit(path) {
@@ -224,3 +225,85 @@ test('env.example contains no real credentials — placeholders only', async () 
   assert.doesNotMatch(text, /(^|\n)\s*(?:export\s+)?BACKUP_OSS_ACCESS_KEY_SECRET\s*=/,
     'env.example must not export a static OSS access key secret');
 });
+
+// ---------- I-1: service units must NOT be enable-able on their own ----------
+
+// Only the timers should be enabled with `systemctl enable --now`. The
+// services are pure oneshot payloads that the timer pulls in via
+// `[Timer] Unit=`. Giving them an `[Install]` section would let an
+// operator enable the service directly, which bypasses the schedule and
+// creates a boot-time run.
+for (const [name, path] of [
+  ['slg-auth-backup.service', FILES.backupService],
+  ['slg-auth-verify.service', FILES.verifyService],
+]) {
+  test(`${name} declares no [Install] section (timer is the entry point)`, async () => {
+    const text = await readUnit(path);
+    const unit = parseUnit(text);
+    assert.ok(!unit.has('Install'),
+      `${name} must not declare an [Install] section — the timer pulls it in via [Timer] Unit=`);
+    // Also guard against a stray WantedBy anywhere in the file.
+    assert.doesNotMatch(text, /(^|\n)\s*WantedBy\s*=/,
+      `${name} must not contain WantedBy= anywhere`);
+  });
+}
+
+// The timers, in contrast, must keep their [Install] WantedBy=timers.target
+// so `systemctl enable --now slg-auth-backup.timer` activates the schedule.
+for (const [name, path] of [
+  ['slg-auth-backup.timer', FILES.backupTimer],
+  ['slg-auth-verify.timer', FILES.verifyTimer],
+]) {
+  test(`${name} keeps [Install] WantedBy=timers.target for enable`, async () => {
+    const unit = parseUnit(await readUnit(path));
+    assert.equal(firstValue(unit, 'Install', 'WantedBy'), 'timers.target',
+      `${name} must remain enable-able through timers.target`);
+  });
+}
+
+// ---------- M-3: timers must not force-couple to the service ----------
+
+// The dependency graph should be: enabling the timer schedules runs; each
+// scheduled run activates the service via [Timer] Unit=. A `Requires=` in
+// the timer's [Unit] section forces the service to start whenever the
+// timer starts, defeating the whole point of scheduling.
+for (const [name, path] of [
+  ['slg-auth-backup.timer', FILES.backupTimer],
+  ['slg-auth-verify.timer', FILES.verifyTimer],
+]) {
+  test(`${name} has no Requires= that would force-start the service`, async () => {
+    const unit = parseUnit(await readUnit(path));
+    const requires = unit.get('Unit')?.get('Requires');
+    assert.equal(requires, undefined,
+      `${name} must not declare [Unit] Requires= (schedule owns the trigger)`);
+  });
+}
+
+// ---------- M-5: ops doc §5 step 12 language matches implementation ----------
+
+test('ops doc §5 step 12 lists the concrete leak categories, not just "any full object path"', async () => {
+  const text = await readUnit(FILES.opsDoc);
+  const lines = text.split(/\r?\n/);
+  const stepMatches = lines.filter((l) => /12\..*钉钉|钉钉群收到.*monthly VERIFY OK/.test(l));
+  assert.ok(stepMatches.length > 0, 'ops doc §5 step 12 must exist and mention the monthly success line');
+  const stepContext = stepMatches.join('\n');
+  // The old wording was "不含任何完整对象路径"; the fix must instead
+  // enumerate the categories actually enforced by sanitizeErrorForLog +
+  // createRedactor: bucket name, full object key, AK/SK, Signature, STS token.
+  for (const keyword of ['bucket', '完整', 'AK/SK', 'Signature', 'STS']) {
+    assert.match(stepContext, new RegExp(keyword),
+      `ops doc §5 step 12 must mention ${keyword}`);
+  }
+});
+
+// ---------- M-6: ops doc §8 find command uses explicit grouping ----------
+
+test('ops doc §8 uses grouped find for the stray WAL/SHM sweep', async () => {
+  const text = await readUnit(FILES.opsDoc);
+  // Explicit \( ... \) grouping avoids -maxdepth applying only to the
+  // first branch when POSIX operator precedence is applied.
+  assert.match(text,
+    /find\s+\/root\/server-auth\s+-maxdepth\s+1\s+\\\(\s*-name\s+'auth\.db-wal'\s+-o\s+-name\s+'auth\.db-shm'\s*\\\)\s+-print/,
+    'ops doc §8 must group the -name predicates and end with -print');
+});
+

@@ -1,7 +1,6 @@
 [Unit]
 Description=SLG auth SQLite encrypted backup (daily) — timer
 Documentation=file:///root/server-auth/docs/server-auth-backup-operations.md
-Requires=slg-auth-backup.service
 
 [Timer]
 # Every day at 03:15 Asia/Shanghai (UTC+8, no DST).

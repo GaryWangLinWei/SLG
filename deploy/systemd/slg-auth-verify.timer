@@ -1,7 +1,6 @@
 [Unit]
 Description=SLG auth SQLite backup — monthly restore verification — timer
 Documentation=file:///root/server-auth/docs/server-auth-backup-operations.md
-Requires=slg-auth-verify.service
 
 [Timer]
 # Day 1 of every month at 04:15 Asia/Shanghai (one hour after the daily backup).

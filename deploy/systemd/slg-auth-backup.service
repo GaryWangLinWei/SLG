@@ -37,5 +37,7 @@ SystemCallArchitectures=native
 # Network is required for OSS (HTTPS) and IMDS (169.254.169.254 style host).
 IPAddressAllow=any
 
-[Install]
-WantedBy=multi-user.target
+# No [Install] section. The timer is the only entry point; it pulls this
+# service in via [Timer] Unit=. Enabling the service directly (`systemctl
+# enable slg-auth-backup.service`) would run a spurious backup at boot and
+# bypass the schedule.

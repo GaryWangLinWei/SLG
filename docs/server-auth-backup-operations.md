@@ -169,7 +169,7 @@ systemctl status slg-auth-backup.timer slg-auth-verify.timer
 9. 钉钉群没有失败告警（成功不发通知）。
 10. `sudo -u root -- /usr/bin/flock -n /run/lock/slg-auth-backup.lock /usr/bin/node /root/server-auth/backup/verify-restore.mjs` — 手工同步跑一次恢复演练。
 11. 输出应依次出现 `list`、`head`、`download`、`decrypt`、`verify-restore`、`cleanup`、`notify` 全为 `status=ok`。
-12. 钉钉群收到 `[SLG-AUTH-BACKUP] monthly VERIFY OK object=auth-...db.enc integrity=ok created-at=... verified-at=... duration=...ms` 单条消息；内容中不含任何完整对象路径、密钥、Signature、AK/SK。
+12. 钉钉群收到 `[SLG-AUTH-BACKUP] monthly VERIFY OK object=auth-...db.enc integrity=ok created-at=... verified-at=... duration=...ms` 单条消息；内容中不含 bucket 名、完整对象 key、AK/SK、Signature、STS token（object 字段只暴露对象文件名 basename，其余敏感字段由 `sanitizeErrorForLog` + `createRedactor` 双层脱敏）。
 13. `sudo journalctl -u slg-auth-backup.service -u slg-auth-verify.service --since '10 minutes ago' --no-pager` — 逐条检查，无 `[REDACTED]` 之外的敏感字符串。
 14. `sudo systemctl start slg-auth-backup.service; sudo systemctl status slg-auth-backup.service` — 由 systemd 触发一次，重复上面 6–8 项检查。
 15. **主动断网测试可选**：临时把 IMDS 或钉钉 DNS 阻塞，手工触发一次备份，确认失败通知（若能发出）与日志都不泄露 stsToken、access_token、Authorization 头。
@@ -251,7 +251,7 @@ systemctl status slg-auth-backup.timer slg-auth-verify.timer
    数据规模与业务预期相符。
 8. **隔离剩余 WAL/SHM** — 步骤 2 已经搬走，但如果 pm2 stop 之后仍观察到新的 `auth.db-wal`（例如内核缓存刷新）：
    ```bash
-   sudo find /root/server-auth -maxdepth 1 -name 'auth.db-wal' -o -name 'auth.db-shm' | \
+   sudo find /root/server-auth -maxdepth 1 \( -name 'auth.db-wal' -o -name 'auth.db-shm' \) -print | \
      xargs -r -I{} sudo mv {} /root/server-auth/incident/$TS/
    ```
    这一步的目的：**新库上线前，禁止任何旧 WAL/SHM 出现**，否则 SQLite 会认为它们与新 db 属于同一事务日志并按旧内容重放，导致再次损坏。

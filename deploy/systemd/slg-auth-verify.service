@@ -34,5 +34,6 @@ RestrictNamespaces=true
 SystemCallArchitectures=native
 IPAddressAllow=any
 
-[Install]
-WantedBy=multi-user.target
+# No [Install] section. The timer is the only entry point; it pulls this
+# service in via [Timer] Unit=. Enabling the service directly would run a
+# spurious verify at boot and bypass the monthly schedule.
