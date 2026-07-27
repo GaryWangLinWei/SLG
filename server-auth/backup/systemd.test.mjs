@@ -306,4 +306,3 @@ test('ops doc §8 uses grouped find for the stray WAL/SHM sweep', async () => {
     /find\s+\/root\/server-auth\s+-maxdepth\s+1\s+\\\(\s*-name\s+'auth\.db-wal'\s+-o\s+-name\s+'auth\.db-shm'\s*\\\)\s+-print/,
     'ops doc §8 must group the -name predicates and end with -print');
 });
-

@@ -677,4 +677,3 @@ test('a redactor built from buildCliRedactorSecrets hides raw key bytes in every
   assert.doesNotMatch(redacted, /SEC-fake-cli/);
   assert.doesNotMatch(redacted, /access_token=fake-token/);
 });
-
