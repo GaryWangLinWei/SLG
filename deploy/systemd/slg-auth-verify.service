@@ -1,0 +1,39 @@
+[Unit]
+Description=SLG auth SQLite backup — monthly restore verification
+Documentation=file:///root/server-auth/docs/server-auth-backup-operations.md
+After=network-online.target
+Wants=network-online.target
+ConditionPathExists=/root/server-auth/backup/verify-restore.mjs
+ConditionPathExists=/etc/slg-auth-backup.env
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+# Share the same flock as the daily backup so the two never contend for
+# the working directory or overlap network/CPU with the production DB.
+ExecStart=/usr/bin/flock -n /run/lock/slg-auth-backup.lock /usr/bin/node /root/server-auth/backup/verify-restore.mjs
+EnvironmentFile=/etc/slg-auth-backup.env
+TimeoutStartSec=15min
+
+# --- Hardening ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/root/server-auth
+ReadWritePaths=/tmp /run/lock
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+IPAddressAllow=any
+
+# No [Install] section. The timer is the only entry point; it pulls this
+# service in via [Timer] Unit=. Enabling the service directly would run a
+# spurious verify at boot and bypass the monthly schedule.

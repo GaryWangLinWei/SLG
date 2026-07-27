@@ -1,0 +1,85 @@
+import { lstat } from 'node:fs/promises';
+import { isAbsolute } from 'node:path';
+
+const REQUIRED = [
+  'BACKUP_DB_PATH',
+  'BACKUP_OSS_REGION',
+  'BACKUP_OSS_BUCKET',
+  'BACKUP_OSS_PREFIX',
+  'BACKUP_ENCRYPTION_KEY',
+  'DINGTALK_WEBHOOK',
+  'DINGTALK_SECRET',
+];
+
+function requireEnvironment(env) {
+  for (const name of REQUIRED) {
+    if (typeof env[name] !== 'string' || env[name].trim() === '') {
+      throw new Error(`Missing required environment variable: ${name}`);
+    }
+  }
+}
+
+function decodeEncryptionKey(encoded) {
+  const base64 = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+  if (!base64.test(encoded) || Buffer.from(encoded, 'base64').toString('base64') !== encoded) {
+    throw new Error('BACKUP_ENCRYPTION_KEY must be valid Base64');
+  }
+
+  const key = Buffer.from(encoded, 'base64');
+  if (key.length !== 32) {
+    throw new Error('BACKUP_ENCRYPTION_KEY must decode to 32 bytes');
+  }
+  return key;
+}
+
+function normalizeOssPrefix(value) {
+  const prefix = value.trim().replace(/^\/+/, '').replace(/\/+$/, '');
+  const segments = prefix.split('/');
+  if (!prefix || /[\x00-\x1f\x7f]/.test(prefix) || segments.some((part) => part === '.' || part === '..')) {
+    throw new Error('BACKUP_OSS_PREFIX must be a non-empty safe path prefix');
+  }
+  return `${prefix}/`;
+}
+
+function validateWebhook(value) {
+  let webhook;
+  try {
+    webhook = new URL(value);
+  } catch {
+    throw new Error('DINGTALK_WEBHOOK must be a valid HTTPS URL');
+  }
+  if (webhook.protocol !== 'https:') {
+    throw new Error('DINGTALK_WEBHOOK must use HTTPS');
+  }
+}
+
+export function loadConfig(env) {
+  requireEnvironment(env);
+  if (!isAbsolute(env.BACKUP_DB_PATH)) {
+    throw new Error('BACKUP_DB_PATH must be absolute');
+  }
+
+  const encryptionKey = decodeEncryptionKey(env.BACKUP_ENCRYPTION_KEY);
+  validateWebhook(env.DINGTALK_WEBHOOK);
+
+  return {
+    dbPath: env.BACKUP_DB_PATH,
+    ossRegion: env.BACKUP_OSS_REGION.trim(),
+    ossBucket: env.BACKUP_OSS_BUCKET.trim(),
+    ossPrefix: normalizeOssPrefix(env.BACKUP_OSS_PREFIX),
+    encryptionKey,
+    dingtalkWebhook: env.DINGTALK_WEBHOOK,
+    dingtalkSecret: env.DINGTALK_SECRET,
+    instanceId: env.INSTANCE_ID || '',
+  };
+}
+
+export async function assertSafeDatabasePath(path) {
+  const stat = await lstat(path);
+  if (stat.isSymbolicLink()) {
+    throw new Error('Database path must not be a symbolic link');
+  }
+  if (!stat.isFile()) {
+    throw new Error('Database path must be a regular file');
+  }
+}

@@ -1,0 +1,73 @@
+#!/usr/bin/env node
+import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import OSS from 'ali-oss';
+
+import { assertSafeDatabasePath, loadConfig } from './config.mjs';
+import { createRedactor, writeLog } from './log.mjs';
+import { buildCliRedactorSecrets, resolveStsRefreshIntervalMs } from './cli-support.mjs';
+import { sanitizeErrorForLog } from './sanitize-error.mjs';
+import { createOnlineSnapshot, verifySnapshot } from './sqlite.mjs';
+import { decryptFile, encryptFile } from './crypto.mjs';
+import {
+  createOssClient,
+  downloadAndVerify,
+  fetchStsCredentialsFromImds,
+  listLatestBackup,
+} from './oss.mjs';
+import { sendDingtalk } from './dingtalk.mjs';
+import { runBackup } from './workflow.mjs';
+
+function tempRoot(name) {
+  return mkdtemp(join(tmpdir(), name));
+}
+
+function main() {
+  return (async () => {
+    const config = loadConfig(process.env);
+    const refreshMs = resolveStsRefreshIntervalMs(process.env);
+    const ossClient = await createOssClient(
+      {
+        region: config.ossRegion,
+        bucket: config.ossBucket,
+        credentialsProvider: fetchStsCredentialsFromImds,
+        refreshSTSTokenIntervalMs: refreshMs,
+      },
+      OSS,
+    );
+    const deps = {
+      loadConfig: () => config,
+      assertSafeDatabasePath,
+      ossClient,
+      sqlite: { createOnlineSnapshot, verifySnapshot },
+      crypto: { encryptFile, decryptFile },
+      oss: { listLatestBackup, downloadAndVerify },
+      dingtalk: { sendDingtalk },
+      log: { writeLog, createRedactor },
+      sanitizeErrorForLog,
+      logStream: process.stdout,
+      clock: () => new Date(),
+      randomUUID,
+      mkdtemp: (prefix) => tempRoot(prefix),
+      rm,
+      stat,
+    };
+    return runBackup(deps, process.env);
+  })();
+}
+
+main().catch((error) => {
+  const redact = createRedactor(buildCliRedactorSecrets(process.env));
+  const safe = sanitizeErrorForLog(error);
+  const payload = redact({
+    level: 'error',
+    entry: 'backup.mjs',
+    message: safe?.message ?? String(safe),
+    name: safe?.name ?? 'Error',
+    stack: safe?.stack,
+  });
+  process.stderr.write(`${JSON.stringify(payload)}\n`);
+  process.exitCode = 1;
+});
