@@ -1,5 +1,7 @@
 import { basename, join } from 'node:path';
 
+import { sanitizeErrorForLog as defaultSanitize } from './sanitize-error.mjs';
+
 /** Fixed daily-backup stages, evaluated in order. `cleanup` always runs. */
 export const DAILY_STAGES = Object.freeze([
   'preflight', 'snapshot', 'integrity', 'encrypt', 'upload', 'verify-upload',
@@ -72,7 +74,11 @@ function tagStage(error, stage) {
 
 async function safeLog(deps, event, redact) {
   try {
-    deps.log.writeLog(deps.logStream, event, redact);
+    const sanitize = deps.sanitizeErrorForLog ?? defaultSanitize;
+    const outbound = event?.error !== undefined
+      ? { ...event, error: sanitize(event.error) }
+      : event;
+    deps.log.writeLog(deps.logStream, outbound, redact);
   } catch {
     // Never let logging kill the workflow.
   }
@@ -246,9 +252,11 @@ export async function runBackup(deps, env) {
   }
 
   if (primaryError) {
+    const sanitize = deps.sanitizeErrorForLog ?? defaultSanitize;
+    const safeErr = sanitize(primaryError);
     const text = redact(
       `[SLG-AUTH-BACKUP] daily FAIL runId=${runId} stage=${primaryError.stage ?? 'unknown'} ` +
-      `error=${primaryError.message ?? String(primaryError)}`,
+      `error=${safeErr?.message ?? String(safeErr)}`,
     );
     const notifyError = await safeNotify(deps, config, text, redact, runId);
     if (notifyError) attachAdditional(primaryError, notifyError);
@@ -382,8 +390,10 @@ export async function runRestoreVerification(deps, env) {
   }
 
   if (primaryError) {
+    const sanitize = deps.sanitizeErrorForLog ?? defaultSanitize;
+    const safeErr = sanitize(primaryError);
     const text = redact(
-      `[SLG-AUTH-BACKUP] monthly VERIFY FAIL runId=${runId} stage=${primaryError.stage ?? 'unknown'} error=${primaryError.message ?? String(primaryError)}`,
+      `[SLG-AUTH-BACKUP] monthly VERIFY FAIL runId=${runId} stage=${primaryError.stage ?? 'unknown'} error=${safeErr?.message ?? String(safeErr)}`,
     );
     const notifyError = await safeNotify(deps, config, text, redact, runId);
     if (notifyError) attachAdditional(primaryError, notifyError);

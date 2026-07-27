@@ -1,0 +1,41 @@
+[Unit]
+Description=SLG auth SQLite encrypted backup (daily)
+Documentation=file:///root/server-auth/docs/server-auth-backup-operations.md
+After=network-online.target
+Wants=network-online.target
+# Make the failure of the monthly verify not block this timer.
+ConditionPathExists=/root/server-auth/backup/backup.mjs
+ConditionPathExists=/etc/slg-auth-backup.env
+
+[Service]
+Type=oneshot
+User=root
+UMask=0077
+# Non-overlapping runs across daily+monthly are enforced by flock, not by
+# systemd. flock -n exits 1 immediately if the lock is held, which is the
+# desired behaviour for scheduled backups (skip instead of queueing).
+ExecStart=/usr/bin/flock -n /run/lock/slg-auth-backup.lock /usr/bin/node /root/server-auth/backup/backup.mjs
+EnvironmentFile=/etc/slg-auth-backup.env
+TimeoutStartSec=15min
+
+# --- Hardening ---
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/root/server-auth
+ReadWritePaths=/tmp /run/lock
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
+# Network is required for OSS (HTTPS) and IMDS (169.254.169.254 style host).
+IPAddressAllow=any
+
+[Install]
+WantedBy=multi-user.target

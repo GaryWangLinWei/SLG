@@ -7,7 +7,8 @@ import OSS from 'ali-oss';
 
 import { assertSafeDatabasePath, loadConfig } from './config.mjs';
 import { createRedactor, writeLog } from './log.mjs';
-import { buildCliRedactorSecrets } from './cli-support.mjs';
+import { buildCliRedactorSecrets, resolveStsRefreshIntervalMs } from './cli-support.mjs';
+import { sanitizeErrorForLog } from './sanitize-error.mjs';
 import { createOnlineSnapshot, verifySnapshot } from './sqlite.mjs';
 import { decryptFile, encryptFile } from './crypto.mjs';
 import {
@@ -26,11 +27,13 @@ function tempRoot(name) {
 function main() {
   return (async () => {
     const config = loadConfig(process.env);
+    const refreshMs = resolveStsRefreshIntervalMs(process.env);
     const ossClient = await createOssClient(
       {
         region: config.ossRegion,
         bucket: config.ossBucket,
         credentialsProvider: fetchStsCredentialsFromImds,
+        refreshSTSTokenIntervalMs: refreshMs,
       },
       OSS,
     );
@@ -43,6 +46,7 @@ function main() {
       oss: { listLatestBackup, downloadAndVerify },
       dingtalk: { sendDingtalk },
       log: { writeLog, createRedactor },
+      sanitizeErrorForLog,
       logStream: process.stdout,
       clock: () => new Date(),
       randomUUID,
@@ -56,12 +60,13 @@ function main() {
 
 main().catch((error) => {
   const redact = createRedactor(buildCliRedactorSecrets(process.env));
+  const safe = sanitizeErrorForLog(error);
   const payload = redact({
     level: 'error',
     entry: 'backup.mjs',
-    message: error?.message ?? String(error),
-    name: error?.name ?? 'Error',
-    stack: error?.stack,
+    message: safe?.message ?? String(safe),
+    name: safe?.name ?? 'Error',
+    stack: safe?.stack,
   });
   process.stderr.write(`${JSON.stringify(payload)}\n`);
   process.exitCode = 1;

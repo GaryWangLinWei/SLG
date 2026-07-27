@@ -33,3 +33,36 @@ export function buildCliRedactorSecrets(env) {
   }
   return secrets;
 }
+
+/** Default STS token refresh interval used by createOssClient (60 minutes). */
+export const DEFAULT_STS_REFRESH_MS = 60 * 60 * 1000;
+
+const STS_REFRESH_MIN_SEC = 60;
+const STS_REFRESH_MAX_SEC = 24 * 60 * 60;
+
+/**
+ * Resolve the OSS STS token refresh interval, in milliseconds, from the
+ * BACKUP_OSS_STS_REFRESH_SEC environment variable. Returns the default when
+ * the variable is absent or blank. Throws on non-integers, negatives, and
+ * values outside [60, 86400] seconds.
+ *
+ * Assembly-layer helper (used by backup.mjs / verify-restore.mjs). Adding it
+ * to loadConfig would force a schema change on the Task 1 config tests, so
+ * we keep it in cli-support.mjs and thread the resolved ms value into the
+ * OSS client factory via a second `options` argument.
+ */
+export function resolveStsRefreshIntervalMs(env) {
+  const raw = env?.BACKUP_OSS_STS_REFRESH_SEC;
+  if (typeof raw !== 'string' || raw.trim() === '') return DEFAULT_STS_REFRESH_MS;
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    throw new Error(`BACKUP_OSS_STS_REFRESH_SEC must be a positive integer number of seconds, got ${JSON.stringify(raw)}`);
+  }
+  const seconds = Number(trimmed);
+  if (!Number.isSafeInteger(seconds) || seconds < STS_REFRESH_MIN_SEC || seconds > STS_REFRESH_MAX_SEC) {
+    throw new Error(
+      `BACKUP_OSS_STS_REFRESH_SEC must be between ${STS_REFRESH_MIN_SEC} and ${STS_REFRESH_MAX_SEC} seconds, got ${seconds}`,
+    );
+  }
+  return seconds * 1000;
+}

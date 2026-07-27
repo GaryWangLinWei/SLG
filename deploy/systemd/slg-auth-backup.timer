@@ -1,0 +1,17 @@
+[Unit]
+Description=SLG auth SQLite encrypted backup (daily) — timer
+Documentation=file:///root/server-auth/docs/server-auth-backup-operations.md
+Requires=slg-auth-backup.service
+
+[Timer]
+# Every day at 03:15 Asia/Shanghai (UTC+8, no DST).
+OnCalendar=*-*-* 03:15:00 Asia/Shanghai
+# Persistent=true replays a missed run after a reboot or extended downtime.
+Persistent=true
+# Randomize start within a 5-minute window to avoid thundering herds against OSS.
+RandomizedDelaySec=300
+Unit=slg-auth-backup.service
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

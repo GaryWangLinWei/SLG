@@ -41,6 +41,9 @@ export async function createOssClient(config, Client) {
   }
   const initial = await provider();
   assertCredentials(initial);
+  const refreshInterval = Number.isFinite(config?.refreshSTSTokenIntervalMs) && config.refreshSTSTokenIntervalMs > 0
+    ? config.refreshSTSTokenIntervalMs
+    : 60 * 60 * 1000;
   const options = {
     region: config.region,
     bucket: config.bucket,
@@ -58,7 +61,7 @@ export async function createOssClient(config, Client) {
         stsToken: refreshed.securityToken,
       };
     },
-    refreshSTSTokenInterval: 60 * 60 * 1000,
+    refreshSTSTokenInterval: refreshInterval,
   };
   return new Client(options);
 }
