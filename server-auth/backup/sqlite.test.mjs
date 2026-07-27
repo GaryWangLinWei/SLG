@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, open, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, open, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import test from 'node:test';
@@ -7,6 +7,8 @@ import Database from 'better-sqlite3';
 
 import {
   REQUIRED_TABLES,
+  assertIntegrityResult,
+  closePreservingError,
   createOnlineSnapshot,
   verifySnapshot,
 } from './sqlite.mjs';
@@ -37,6 +39,25 @@ test('online snapshot includes committed WAL data while source connection remain
       createSchema(source);
       source.prepare('INSERT INTO activation_codes (value) VALUES (?)').run('committed-in-wal');
 
+      const walStat = await stat(`${sourcePath}-wal`);
+      assert.ok(walStat.size > 0);
+      const mainOnlyPath = join(directory, 'main-only.db');
+      await writeFile(mainOnlyPath, await readFile(sourcePath));
+      const mainOnly = new Database(mainOnlyPath, { readonly: true });
+      try {
+        const hasTable = mainOnly.prepare(
+          "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'activation_codes'",
+        ).get();
+        if (hasTable) {
+          assert.equal(
+            mainOnly.prepare('SELECT value FROM activation_codes WHERE value = ?').get('committed-in-wal'),
+            undefined,
+          );
+        }
+      } finally {
+        mainOnly.close();
+      }
+
       await createOnlineSnapshot(sourcePath, snapshotPath);
 
       const snapshot = new Database(snapshotPath, { readonly: true });
@@ -54,6 +75,24 @@ test('online snapshot includes committed WAL data while source connection remain
   });
 });
 
+test('assertIntegrityResult requires exactly one ok row', () => {
+  assert.doesNotThrow(() => assertIntegrityResult([{ integrity_check: 'ok' }]));
+  assert.throws(() => assertIntegrityResult([]), /integrity/i);
+  assert.throws(
+    () => assertIntegrityResult([{ integrity_check: 'ok' }, { integrity_check: 'ok' }]),
+    /integrity/i,
+  );
+  assert.throws(() => assertIntegrityResult([{ integrity_check: 'corrupt' }]), /integrity/i);
+});
+
+test('closePreservingError retains the primary error when close also fails', () => {
+  const primary = new Error('primary failure');
+  const closeError = new Error('close failure');
+  assert.throws(
+    () => closePreservingError({ close() { throw closeError; } }, primary),
+    (error) => error === primary && error.cause === closeError,
+  );
+});
 test('verifySnapshot rejects a zero-byte database', async () => {
   await withTempDir(async (directory) => {
     const path = join(directory, 'empty.db');

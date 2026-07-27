@@ -9,24 +9,50 @@ export const REQUIRED_TABLES = [
   'remote_sessions',
 ];
 
+export function assertIntegrityResult(rows) {
+  if (rows.length !== 1 || rows[0].integrity_check !== 'ok') {
+    throw new Error('Snapshot database integrity check failed');
+  }
+}
+
+export function closePreservingError(database, primaryError) {
+  if (!database) {
+    if (primaryError) throw primaryError;
+    return;
+  }
+  try {
+    database.close();
+  } catch (closeError) {
+    if (primaryError) {
+      primaryError.cause ??= closeError;
+      throw primaryError;
+    }
+    throw new Error('Snapshot database close failed', { cause: closeError });
+  }
+  if (primaryError) throw primaryError;
+}
+
 export async function createOnlineSnapshot(sourcePath, destinationPath) {
   await assertSafeDatabasePath(sourcePath);
   let source;
+  let primaryError;
   try {
     source = new Database(sourcePath, { readonly: true, fileMustExist: true });
     await source.backup(destinationPath);
+  } catch (error) {
+    primaryError = error;
   } finally {
-    source?.close();
+    closePreservingError(source, primaryError);
   }
 }
 
 export function verifySnapshot(path, requiredTables = REQUIRED_TABLES) {
   const size = statSync(path).size;
-  if (size <= 0) {
-    throw new Error('Snapshot database is empty');
-  }
+  if (size <= 0) throw new Error('Snapshot database is empty');
 
   let database;
+  let result;
+  let primaryError;
   try {
     database = new Database(path, { readonly: true, fileMustExist: true });
     let integrityRows;
@@ -35,9 +61,7 @@ export function verifySnapshot(path, requiredTables = REQUIRED_TABLES) {
     } catch (error) {
       throw new Error('Snapshot database integrity check failed', { cause: error });
     }
-    if (integrityRows.length !== 1 || integrityRows[0].integrity_check !== 'ok') {
-      throw new Error('Snapshot database integrity check failed');
-    }
+    assertIntegrityResult(integrityRows);
 
     const tables = database
       .prepare("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
@@ -49,20 +73,13 @@ export function verifySnapshot(path, requiredTables = REQUIRED_TABLES) {
       }
       database.prepare(`SELECT 1 FROM "${table.replaceAll('"', '""')}" LIMIT 1`).get();
     }
-
-    return { integrity: 'ok', size, tables };
+    result = { integrity: 'ok', size, tables };
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith('Snapshot database')) {
-      throw error;
-    }
-    throw new Error('Snapshot database integrity check failed', { cause: error });
+    primaryError = error instanceof Error && error.message.startsWith('Snapshot database')
+      ? error
+      : new Error('Snapshot database integrity check failed', { cause: error });
   } finally {
-    if (database) {
-      try {
-        database.close();
-      } catch (error) {
-        throw new Error('Snapshot database integrity check failed while closing', { cause: error });
-      }
-    }
+    closePreservingError(database, primaryError);
   }
+  return result;
 }
