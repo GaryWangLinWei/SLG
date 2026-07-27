@@ -1,0 +1,5 @@
+const MASK='[REDACTED]';
+function replaceSecrets(value,secrets){ let result=value; for(const secret of secrets) if(secret) result=result.split(secret).join(MASK); return result; }
+export function createRedactor(secrets){ const active=secrets.filter(value=>typeof value==='string'&&value.length>0); const visit=value=>{ if(typeof value==='string') return replaceSecrets(value,active); if(value instanceof Error) return serializeError(value,visit); if(Array.isArray(value)) return value.map(visit); if(value&&typeof value==='object'){ const result={}; for(const [key,item] of Object.entries(value)) result[key]=visit(item); return result; } return value; }; return visit; }
+export function serializeError(error,redact){ if(!(error instanceof Error)) return redact(error); const result={name:error.name,message:error.message,stack:error.stack}; for(const [key,value] of Object.entries(error)) result[key]=value; return redact(result); }
+export function writeLog(stream,event,redact){ stream.write(`${JSON.stringify(redact({...event,timestamp:new Date().toISOString()}))}\n`); }

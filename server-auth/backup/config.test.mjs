@@ -1,0 +1,14 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, symlink } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { loadConfig, assertSafeDatabasePath } from './config.mjs';
+const key = Buffer.alloc(32, 7).toString('base64');
+const valid = (dbPath = resolve('auth.db')) => ({ BACKUP_DB_PATH: dbPath, BACKUP_OSS_REGION: 'region', BACKUP_OSS_BUCKET: 'bucket', BACKUP_OSS_PREFIX: '/daily', BACKUP_ENCRYPTION_KEY: key, DINGTALK_WEBHOOK: 'https://example.com/hook', DINGTALK_SECRET: 'secret', INSTANCE_ID: 'node-1' });
+test('config rejects each missing required variable', () => { for (const name of ['BACKUP_DB_PATH','BACKUP_OSS_REGION','BACKUP_OSS_BUCKET','BACKUP_OSS_PREFIX','BACKUP_ENCRYPTION_KEY','DINGTALK_WEBHOOK','DINGTALK_SECRET']) { const env = valid(); delete env[name]; assert.throws(() => loadConfig(env), new RegExp(name)); } });
+test('config rejects relative database paths', () => assert.throws(() => loadConfig(valid('./auth.db')), /absolute/i));
+test('config rejects invalid base64 and non-32-byte keys', () => { assert.throws(() => loadConfig({...valid(), BACKUP_ENCRYPTION_KEY:'not base64!'}), /base64/i); assert.throws(() => loadConfig({...valid(), BACKUP_ENCRYPTION_KEY:Buffer.alloc(31).toString('base64')}), /32 bytes/i); });
+test('config rejects non-HTTPS webhook and blank bucket or region', () => { assert.throws(() => loadConfig({...valid(), DINGTALK_WEBHOOK:'http://example.com'}), /HTTPS/i); assert.throws(() => loadConfig({...valid(), BACKUP_OSS_BUCKET:' '}), /BACKUP_OSS_BUCKET/); assert.throws(() => loadConfig({...valid(), BACKUP_OSS_REGION:' '}), /BACKUP_OSS_REGION/); });
+test('config normalizes prefix and returns all fields', () => { const c=loadConfig(valid()); assert.equal(c.ossPrefix,'daily/'); assert.equal(c.encryptionKey.length,32); assert.equal(c.instanceId,'node-1'); assert.deepEqual(Object.keys(c), ['dbPath','ossRegion','ossBucket','ossPrefix','encryptionKey','dingtalkWebhook','dingtalkSecret','instanceId']); });
+test('config database path rejects non-files and symbolic links', async () => { const dir=await mkdtemp(join(tmpdir(),'backup-config-')); const file=join(dir,'auth.db'); await writeFile(file,'db'); await assert.doesNotReject(assertSafeDatabasePath(file)); await assert.rejects(assertSafeDatabasePath(dir),/regular file/i); const target=await mkdtemp(join(tmpdir(),'backup-target-')); const link=join(dir,'link'); await symlink(target,link,'junction'); await assert.rejects(assertSafeDatabasePath(link),/symbolic link/i); });
