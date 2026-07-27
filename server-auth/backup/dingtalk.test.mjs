@@ -24,6 +24,9 @@ test('signDingtalk returns HMAC-SHA256 base64 of `${timestamp}\\n${secret}`', ()
 test('signDingtalk rejects non-string secret or non-finite timestamp', () => {
   assert.throws(() => signDingtalk('later', FAKE_SECRET), /timestamp/i);
   assert.throws(() => signDingtalk(FAKE_TIMESTAMP, ''), /secret/i);
+  assert.throws(() => signDingtalk(NaN, FAKE_SECRET), /timestamp/i);
+  assert.throws(() => signDingtalk(Infinity, FAKE_SECRET), /timestamp/i);
+  assert.throws(() => signDingtalk(-Infinity, FAKE_SECRET), /timestamp/i);
 });
 
 test('sendDingtalk posts URL-encoded timestamp and sign, JSON text body, and returns response info', async () => {

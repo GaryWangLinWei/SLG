@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile, stat } from 'node:fs/promises';
+import { readFile, rm, stat } from 'node:fs/promises';
 
 export const METADATA_KEYS = Object.freeze([
   'format-version',
@@ -121,13 +121,19 @@ export async function downloadAndVerify(client, object, destinationPath, expecte
   if (typeof name !== 'string' || name === '') {
     throw new TypeError('object must be an object key or an object descriptor with a name');
   }
-  await client.get(name, destinationPath);
-  const data = await readFile(destinationPath);
-  const actual = createHash('sha256').update(data).digest('hex');
-  if (actual.toLowerCase() !== expectedSha256.toLowerCase()) {
-    throw new Error(`Downloaded object SHA-256 mismatch: expected=${expectedSha256} actual=${actual}`);
+  try {
+    await client.get(name, destinationPath);
+    const data = await readFile(destinationPath);
+    const actual = createHash('sha256').update(data).digest('hex');
+    if (actual.toLowerCase() !== expectedSha256.toLowerCase()) {
+      throw new Error(`Downloaded object SHA-256 mismatch: expected=${expectedSha256} actual=${actual}`);
+    }
+    return { sha256: actual, size: data.length };
+  } catch (error) {
+    // rm with force ignores ENOENT; swallow cleanup errors so the original failure surfaces.
+    await rm(destinationPath, { force: true }).catch(() => {});
+    throw error;
   }
-  return { sha256: actual, size: data.length };
 }
 
 async function fetchWithTimeout(fetchImpl, url, init, timeoutMs) {

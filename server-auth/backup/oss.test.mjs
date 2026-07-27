@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, rm, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
@@ -207,6 +207,57 @@ test('downloadAndVerify fails when computed SHA-256 does not match expected', as
       downloadAndVerify(client, 'daily/backup.db.enc', dest, wrong),
       /SHA-256 mismatch/i,
     );
+  });
+});
+
+test('downloadAndVerify removes destination on SHA mismatch (including pre-existing stale file)', async () => {
+  await withTempDir(async (dir) => {
+    const dest = join(dir, 'out.db.enc');
+    // Pre-existing stale file must not survive a failed download.
+    await writeFile(dest, 'stale-previous-content');
+    const client = new FakeOss({});
+    client.getHandler = async (_name, path) => { await writeFile(path, 'tampered'); };
+    const wrong = createHash('sha256').update('original').digest('hex');
+    await assert.rejects(
+      downloadAndVerify(client, 'daily/backup.db.enc', dest, wrong),
+      /SHA-256 mismatch/i,
+    );
+    await assert.rejects(access(dest), (error) => error.code === 'ENOENT');
+  });
+});
+
+test('downloadAndVerify removes destination when client.get itself throws and rethrows original error', async () => {
+  await withTempDir(async (dir) => {
+    const dest = join(dir, 'out.db.enc');
+    await writeFile(dest, 'stale-previous-content');
+    const client = new FakeOss({});
+    const original = new Error('injected-get-failure');
+    client.getHandler = async (_name, path) => {
+      // Simulate partial write followed by a hard error during transport.
+      await writeFile(path, 'partial');
+      throw original;
+    };
+    const rejected = await assert.rejects(
+      downloadAndVerify(client, 'daily/backup.db.enc', dest, 'f'.repeat(64)),
+      (error) => error === original,
+    );
+    // Original error surface must be preserved (see custom rejection matcher above).
+    void rejected;
+    await assert.rejects(access(dest), (error) => error.code === 'ENOENT');
+  });
+});
+
+test('downloadAndVerify tolerates missing destination file during cleanup (ENOENT is not surfaced)', async () => {
+  await withTempDir(async (dir) => {
+    const dest = join(dir, 'never-written.db.enc');
+    const client = new FakeOss({});
+    const original = new Error('get-failed-before-any-write');
+    client.getHandler = async () => { throw original; };
+    await assert.rejects(
+      downloadAndVerify(client, 'daily/backup.db.enc', dest, 'a'.repeat(64)),
+      (error) => error === original,
+    );
+    await assert.rejects(access(dest), (error) => error.code === 'ENOENT');
   });
 });
 
