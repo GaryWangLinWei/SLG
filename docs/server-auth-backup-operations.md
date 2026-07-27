@@ -240,7 +240,7 @@ systemctl status slg-auth-backup.timer slg-auth-verify.timer
    sudo chown root:root /root/server-auth/restore/$TS
    sudo chmod 0700 /root/server-auth/restore/$TS
    ```
-5. **下载 + SHA 校验** — 用 verify-restore 的调试模式或手工 `aliyun oss cp` 到 `restore/$TS/auth.db.enc`，然后 `sha256sum` 与 OSS meta 中 `sha256` 严格相等。**不匹配则终止**并回滚到 incident 现场。
+5. **下载 + SHA 校验** — 用 `aliyun oss cp oss://<bucket>/<full-key> /root/server-auth/restore/$TS/auth.db.enc` 下载到 `restore/$TS/auth.db.enc`，然后 `sha256sum` 与 OSS meta 中 `sha256` 严格相等。**不匹配则终止**并回滚到 incident 现场。
 6. **解密** — 用 `BACKUP_ENCRYPTION_KEY` 与 `crypto.mjs::decryptFile` 解密到 `restore/$TS/auth.db.new`。也可以临时把 env 里的 KEY 传给一次性 Node 脚本；解密完成后立即从 shell 历史中清除。
 7. **快速校验** — `sqlite3 /root/server-auth/restore/$TS/auth.db.new "PRAGMA integrity_check;"` 必须输出 `ok`；再抽查关键表：
    ```sql
