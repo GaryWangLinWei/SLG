@@ -46,6 +46,7 @@ export async function createOssClient(config, Client) {
     : 60 * 60 * 1000;
   const options = {
     region: config.region,
+    internal: config.internal !== false,
     bucket: config.bucket,
     accessKeyId: initial.accessKeyId,
     accessKeySecret: initial.accessKeySecret,
@@ -62,6 +63,7 @@ export async function createOssClient(config, Client) {
       };
     },
     refreshSTSTokenInterval: refreshInterval,
+    timeout: 600000,
   };
   return new Client(options);
 }
