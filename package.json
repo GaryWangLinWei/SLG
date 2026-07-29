@@ -21,7 +21,7 @@
     "appId": "com.rok.automation",
     "productName": "ROK助手",
     "releaseInfo": {
-      "releaseNotes": "1.2.1更新内容\n1.修复远程开关失效bug\n2.修复宝石采集无法派遣6,7队bug"
+      "releaseNotes": "1.2.1更新内容\n1.修复账号调度部分情况失效bug\n2.修复远程开关失效bug\n3.修复宝石采集无法派遣6,7队bug"
     },
     "directories": {
       "output": "release"
