@@ -1527,7 +1527,7 @@ export function HomePage() {
                     refreshStatus();
                   } else {
                     pushLog(`🏔️ 山洞探索 完成`);
-                    markRoundDone();
+                    markRoundDone('cave');
                   }
                 }
               } catch {} finally { releaseLock(); }
@@ -1716,7 +1716,7 @@ export function HomePage() {
                   refreshStatus();
                 } else {
                   pushLog(`⚒️ 生产装备材料 完成`);
-                  markRoundDone();
+                  markRoundDone('produce-material');
                 }
               }
             } catch {} finally { releaseLock(); }
