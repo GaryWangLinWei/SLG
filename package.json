@@ -1,6 +1,6 @@
 {
   "name": "rok-automation",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "万国觉醒自动化助手",
   "main": "dist/electron/main.js",
   "scripts": {
@@ -21,7 +21,7 @@
     "appId": "com.rok.automation",
     "productName": "ROK助手",
     "releaseInfo": {
-      "releaseNotes": "1.2.0更新内容\n1.修复经典模式，宝石矿识别失败问题\n2.修复开始运行不同步问题"
+      "releaseNotes": "1.2.1更新内容\n1.修复远程开关失效bug\n2.修复宝石采集无法派遣6,7队bug"
     },
     "directories": {
       "output": "release"
