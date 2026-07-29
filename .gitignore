@@ -27,3 +27,6 @@ backups/
 # 运行时截图和调试产物
 temp/
 
+
+# Superpowers skill runtime state (brainstorm sessions, etc.)
+.superpowers/

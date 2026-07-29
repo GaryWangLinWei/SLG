@@ -440,35 +440,48 @@
     const qaList = [
       {
         q: '宝石采集和自动寨子通用设置',
-        a: `<p>在游戏"通用设置"中，把"地图画面设置"改为<strong>重制版</strong>。</p>
+        a: `<p>脚本通过图像识别，需要把"地图画面设置"调整为<strong>重制版</strong>。</p>
+            <p><strong>路径：</strong>头像 → 设置 → 通用设置。</p>
             <p><img src="/help/images/qa/general-settings.png" alt="通用设置 - 地图画面重制版" style="max-width:100%;border-radius:12px;margin-top:8px;cursor:zoom-in;" onclick="openLightbox(this.src)"></p>`
       },
       {
-        q: '如何使用账号调度？',
-        a: `<p>把游戏账号切换页中的编号，填入脚本坐标配置页。</p>
-            <p><img src="/help/images/qa/Q1.png" alt="账号编号" style="max-width:100%;border-radius:12px;margin-top:8px;cursor:zoom-in;" onclick="openLightbox(this.src)"></p>`
-      },
-      {
-        q: '账号调度有哪些模式？',
-        a: `<ol>
-              <li><strong>按时间：</strong>给每个账号配置运行时间，到时间后切换下一个账号。</li>
-              <li><strong>按轮次：</strong>每个账号跑一遍勾选的任务，跑完切下一个账号。</li>
-              <li><strong>寨子模式：</strong>检测到发起集结成功或加入集结成功后，切下一个账号。<br>
-                  （账号 1 勾选"自动攻打城寨"，账号 2 勾选"加入集结"，可实现自动开寨子）</li>
-              <li><strong>组合采集：</strong>小号负责搜索宝石矿，分享给大号；大号通过分享得到的宝石矿进行采集。<br>
-                  <strong>使用方法：</strong>大号勾选"采集分享矿"，小号勾选"分享宝石矿"，两个号都填入<strong>大号城堡坐标</strong>。
-              </li>
-            </ol>`
+        q: '账号调度系统',
+        a: `<p>账号调度是脚本的核心特性，支持在多账号间自动无缝切换——A 账号任务执行完毕后，自动切换至 B 账号继续运行。</p>
+            <p>提供四种调度模式：</p>
+            <ol>
+              <li><strong>按时间调度</strong><br>
+                  为每个账号配置独立的运行时长，到时自动切换下一账号。<br>
+                  <em>使用场景：</em>大号配 2 小时，小号配 30 分钟。小号既能参与挂机采集，又可避免大号长时间在线。</li>
+              <li><strong>按轮次调度</strong><br>
+                  每个账号完成一轮勾选任务后，自动切换下一账号。<br>
+                  该模式面向未来 10~20 个账号的轮流采集场景，2 个账号不建议使用，切号过于频繁。</li>
+              <li><strong>寨子模式</strong><br>
+                  仅需 2 个账号即可自动开启城寨玩法。大号勾选「自动攻打城寨」，小号勾选「加入集结」，通过最大行军距离约束，确保小号只加入大号发起的集结。</li>
+              <li><strong>组合采集</strong><br>
+                  小号负责搜索宝石矿并记录坐标，大号读取坐标后直接搜索并采集。大号勾选「采集分享矿」，小号勾选「分享宝石矿」，两个账号均需填入大号城堡坐标。<br>
+                  核心目的不在增效，而是通过双号配合分散采集行为，降低被检测风险。</li>
+            </ol>
+            <p style="margin-top:16px;"><strong>🎬 账号调度演示 - 以寨子为例</strong></p>
+            <div style="position:relative;padding-bottom:56.25%;height:0;border-radius:12px;overflow:hidden;background:#000;margin-top:8px;">
+              <iframe src="https://player.bilibili.com/player.html?bvid=BV1Fu3w6NEr9&page=1&high_quality=1&danmaku=0"
+                      allowfullscreen scrolling="no" frameborder="0"
+                      style="position:absolute;top:0;left:0;width:100%;height:100%;border:none;"></iframe>
+            </div>`
       },
       {
         q: '宝石采集有哪些模式？',
-        a: `<p><strong>普通模式：</strong>采集完回城。</p>
-            <p><strong>驻扎模式：</strong>采集完驻扎。</p>
+        a: `<p><strong>普通模式：</strong>采集完回城，执行频率：5 分钟。</p>
+            <p><strong>驻扎模式：</strong>采集完驻扎，执行频率：1 分钟。</p>
             <p>用滑动条调节概率：0% 就是完全普通模式，100% 就是完全驻扎模式。</p>`
       },
       {
         q: '建造队列 / 科技研究 / 部队训练异常？',
-        a: `<p>确保游戏左侧「队列速览」中这 3 项是<strong>展开状态</strong>，脚本需要读取倒计时。</p>`
+        a: `<p>确保游戏左侧「队列速览」中这 3 项是<strong>展开状态</strong>，脚本需要读取倒计时。</p>
+            <p><img src="/help/images/qa/queue-expanded.png" alt="队列速览展开状态" style="max-width:320px;border-radius:12px;margin-top:8px;cursor:zoom-in;" onclick="openLightbox(this.src)"></p>`
+      },
+      {
+        q: '游戏频繁闪退？',
+        a: `<p>脚本运行时，请不要人为操作游戏，否则会让脚本误以为出现了弹窗，从而强杀游戏进程重启。</p>`
       }
     ];
 
@@ -506,7 +519,7 @@
       qaList.forEach((item, idx) => {
         const el = document.createElement('div');
         el.className = 'qa-item';
-        if (item.q === '账号调度有哪些模式？') {
+        if (item.q === '账号调度系统') {
           el.id = 'qa-account-schedule-modes';
         }
         el.innerHTML = `
