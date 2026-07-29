@@ -922,10 +922,8 @@ export function HomePage() {
 
     // per-round 切号：本轮已完成一次的 source 集合；集齐所有勾选的 source 才触发切号
     const roundActionsDone = new Set<string>();
-    // fort-mode 切号：本轮内是否至少一次 rally-fort/join-rally 成功
-    let fortSuccessThisRound = false;
-    // combo-gem: 本轮内是否满足触发（分享矿跑完 或 采集分享矿后 pool<5）
-    let comboGemTriggeredThisRound = false;
+    // combo-gem: 触发条件（分享矿跑完 或 采集分享矿后 pool<5）命中即当场切号，
+    // 不再累计 triggered 旗，也不再等其他 action 凑齐一轮
     const computeExpectedActions = (): Set<string> => {
       const f = featuresRef.current;
       const exp = new Set<string>();
@@ -962,45 +960,43 @@ export function HomePage() {
           pushLog(`⏳ 轮次进度 ${expected.size - missing.length}/${expected.size}，等待 [${missing.join(',')}]`);
         }
       } else if (feat.switchMode === 'fort-mode') {
-        // 累计寨子/集结成功旗
+        // 寨子模式语义：rally-fort/join-rally 成功即立刻切号，不等其他慢周期任务凑齐一轮
+        // （produce-material 间隔 2~4h，若混在同一 expected 集合里等它，会永远卡住）
         if ((source === 'rally-fort' || source === 'join-rally') && isSuccess) {
-          fortSuccessThisRound = true;
+          pushLog(`🔁 寨子模式：${source} 成功，立即触发切号`);
+          pendingAccountSwitch = true;
+          scheduleFortModeFallback();
+          roundActionsDone.clear();
+          return;
         }
-        // 本轮所有 expected action 跑完再看是否切号
+        // 失败/其他 action 走"跑完一轮再判决"的老逻辑，用于打日志与状态复位
         roundActionsDone.add(source);
         const expected = computeExpectedActions();
         const missing = [...expected].filter(s => !roundActionsDone.has(s));
         if (expected.size > 0 && missing.length === 0) {
-          if (fortSuccessThisRound) {
-            pushLog(`🔁 寨子模式：本轮完成且有 rally-fort/join-rally 成功，触发切号`);
-            pendingAccountSwitch = true;
-            scheduleFortModeFallback();
-          } else {
-            pushLog(`⏳ 寨子模式：本轮完成但无成功，继续下一轮`);
-          }
+          pushLog(`⏳ 寨子模式：本轮完成但无 rally-fort/join-rally 成功，继续下一轮`);
           roundActionsDone.clear();
-          fortSuccessThisRound = false;
         }
       } else if (feat.switchMode === 'combo-gem') {
-        // 累计触发旗：分享宝石矿跑完 或 采集分享矿后 pool<5
-        if (source === 'share-gem') {
-          comboGemTriggeredThisRound = true;
-        } else if (source === 'gem' && typeof extra?.poolSize === 'number' && extra.poolSize < 5) {
-          comboGemTriggeredThisRound = true;
+        // 组合采集语义：触发条件命中即立刻切号，不等其他慢周期任务凑齐一轮
+        // - 小号勾了分享宝石矿：跑完一次分享 → 立即切给大号采
+        // - 大号勾了采集分享矿：pool<5 说明分享池快耗尽 → 立即切回小号补
+        const triggered =
+          source === 'share-gem' ||
+          (source === 'gem' && typeof extra?.poolSize === 'number' && extra.poolSize < 5);
+        if (triggered) {
+          pushLog(`🔁 组合采集：${source === 'share-gem' ? '分享矿跑完' : `池=${extra?.poolSize} < 5`}，立即触发切号`);
+          pendingAccountSwitch = true;
+          roundActionsDone.clear();
+          return;
         }
-        // 本轮所有 expected action 跑完再看是否切号
+        // 其他 action 走"跑完一轮再判决"的老逻辑，仅用于打日志和状态复位
         roundActionsDone.add(source);
         const expected = computeExpectedActions();
         const missing = [...expected].filter(s => !roundActionsDone.has(s));
         if (expected.size > 0 && missing.length === 0) {
-          if (comboGemTriggeredThisRound) {
-            pushLog(`🔁 组合采集：本轮完成且触发条件满足，切号`);
-            pendingAccountSwitch = true;
-          } else {
-            pushLog(`⏳ 组合采集：本轮完成但未触发（分享矿未跑 或 池≥5），继续下一轮`);
-          }
+          pushLog(`⏳ 组合采集：本轮完成但未触发（分享矿未跑 或 池≥5），继续下一轮`);
           roundActionsDone.clear();
-          comboGemTriggeredThisRound = false;
         }
       }
     };
@@ -1278,7 +1274,6 @@ export function HomePage() {
                 }
                 resetAllCooldowns();
                 roundActionsDone.clear();  // 新账号从零开始累计
-                fortSuccessThisRound = false;
                 scheduleSwitchTimer();  // 按新账号的时长重排定时器
                 scheduleFortModeFallback();  // 重置寨子模式兜底计时
                 // 顺序不变，下次切换目标 = validIds 中不等于新 active 的位置
