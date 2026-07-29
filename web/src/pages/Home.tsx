@@ -283,7 +283,7 @@ export function HomePage() {
   const [intentLoadError, setIntentLoadError] = useState<string | null>(null);
   const [operationState, setOperationState] = useState<OperationState>('idle');
   const operationLockRef = useRef(false);
-  const startHandlerRef = useRef<() => Promise<void>>(async () => {});
+  const startHandlerRef = useRef<(source?: 'local' | 'remote') => Promise<void>>(async () => {});
   const stopHandlerRef = useRef<() => Promise<void>>(async () => {});
   const runningTaskIdsRef = useRef<string[]>([]);
   const lastPostedLogIndexRef = useRef(0);
@@ -2342,13 +2342,15 @@ export function HomePage() {
   stopHandlerRef.current = handleStop;
 
   // Local clicks and remote commands share the latest wrappers and synchronous lock.
+  // 手机端下发 start_loop/stop_loop 时通过 ref 调用最新的 handler，避免 stale closure；
+  // start 带 'remote' 让 handleStartAll 走远程分支（launch-game + starting-state 通知手机）。
   useEffect(() => {
-    const eventSource = new EventSource('/api/remote-control/stream');
+    const eventSource = new EventSource(`${LOCAL_API_BASE}/api/remote-control/stream`);
     eventSource.onmessage = event => {
       try {
         const data = JSON.parse(event.data);
         if (data.action === 'start_loop') {
-          void startHandlerRef.current();
+          void startHandlerRef.current('remote');
         } else if (data.action === 'stop_loop') {
           void stopHandlerRef.current();
         }
@@ -2356,14 +2358,6 @@ export function HomePage() {
     };
     return () => eventSource.close();
   }, []);
-
-  useEffect(() => {
-    fetch('/api/remote-control/loop-state', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ running: loopRunningState }),
-    }).catch(() => { /* best effort */ });
-  }, [loopRunningState]);
 
   const runningControlView = deriveRunningControlView({
     deviceConnected,
@@ -2395,26 +2389,6 @@ export function HomePage() {
       }
     }
   };
-
-  // 订阅远程控制 SSE：手机发 start_loop/stop_loop 时触发对应处理
-  useEffect(() => {
-    const es = new EventSource(`${LOCAL_API_BASE}/api/remote-control/stream`);
-    es.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data.action === 'start_loop') {
-          void handleStartAll('remote');
-        } else if (data.action === 'stop_loop') {
-          void handleStop();
-        }
-      } catch { /* connected/heartbeat 帧，忽略 */ }
-    };
-    es.onerror = () => {
-      // EventSource 会自动重连，不需要处理
-    };
-    return () => es.close();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // 同步日志到 /api/logs/append，供 Mobile 页 SSE + 手机远程可见
   useEffect(() => {
