@@ -913,8 +913,12 @@ export function HomePage() {
     );
 
     const acquireLock = async (): Promise<boolean> => {
+      // 记录排队前的 profile；排队期间发生切号（profile 变了）时拒绝拿锁 ——
+      // 老账号的活单在切号完成那一刻就作废，工人 continue 回顶部重读牌子后自然按新账号跑。
+      const startProfile = activeConfigNameRef.current;
       while ((deviceBusy || attackPreempt || pendingAccountSwitch) && !isStopped()) { await sleep(0.3); }
       if (isStopped()) return false;
+      if (activeConfigNameRef.current !== startProfile) return false;
       deviceBusy = true;
       return true;
     };
@@ -1085,7 +1089,7 @@ export function HomePage() {
               .map((t: { type: string; level: number }, i: number) => ({ ...t, team: i + 1 }))
               .filter((t: { type: string; level: number; team: number }) => t.type);
             if (gatherTasks.length > 0) {
-              if (!await acquireLock()) break;
+              if (!await acquireLock()) continue;
               if (offlineActive) { releaseLock(); await sleep(30); continue; }
               await ensureGameRunning();
               try {
@@ -1127,7 +1131,7 @@ export function HomePage() {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (featuresRef.current.helpTeammates && !featuresRef.current.autoWorldChat) {
-            if (!await acquireLock()) break;
+            if (!await acquireLock()) continue;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
             try {
@@ -1154,7 +1158,8 @@ export function HomePage() {
           }
           const helpInterval = 60 * (0.85 + Math.random() * 0.3); // 51-69s
           const startWait = monotonicNow();
-          while (!isStopped() && (monotonicNow() - startWait) < helpInterval * 1000) {
+          const waitSeq = cooldownResetSeq;
+          while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < helpInterval * 1000) {
             await sleep(1);
           }
         }
@@ -1167,7 +1172,7 @@ export function HomePage() {
           if (first) { first = false; continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (featuresRef.current.collectResources && !featuresRef.current.autoWorldChat) {
-            if (!await acquireLock()) break;
+            if (!await acquireLock()) continue;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
             try {
@@ -1299,7 +1304,7 @@ export function HomePage() {
           if (offlineActive) { await sleep(30); continue; }
           if (featuresRef.current.autoRallyFort && featuresRef.current.rallyFortLevel > 0 && !featuresRef.current.autoWorldChat) {
             if (isStopped()) break;
-            if (!await acquireLock()) break;
+            if (!await acquireLock()) continue;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
             let cd = 600; // 默认 CD，实际根据结果确定
@@ -1370,7 +1375,7 @@ export function HomePage() {
           if (offlineActive) { await sleep(30); continue; }
           if (featuresRef.current.joinRallyEnabled && !isFeatureLocked('joinRally') && !featuresRef.current.autoWorldChat) {
             if (isStopped()) break;
-            if (!await acquireLock()) break;
+            if (!await acquireLock()) continue;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
             let cd = 300; // 默认 CD 5 分钟
@@ -1452,7 +1457,7 @@ export function HomePage() {
             if (!buildingOptions.includes('斥候营地')) {
               pushLog(`⚠️ 未标记斥候营地位置，跳过迷雾探索`);
             } else {
-              if (!await acquireLock()) break;
+              if (!await acquireLock()) continue;
               if (offlineActive) { releaseLock(); await sleep(30); continue; }
               await ensureGameRunning();
               try {
@@ -1502,7 +1507,7 @@ export function HomePage() {
             if (!buildingOptions.includes('斥候营地')) {
               pushLog(`⚠️ 未标记斥候营地位置，跳过山洞探索`);
             } else {
-              if (!await acquireLock()) break;
+              if (!await acquireLock()) continue;
               if (offlineActive) { releaseLock(); await sleep(30); continue; }
               await ensureGameRunning();
               try {
@@ -1544,7 +1549,7 @@ export function HomePage() {
           if (offlineActive) { await sleep(30); continue; }
 
           if (featuresRef.current.gemGatherEnabled && featuresRef.current.shareGemEnabled && !isFeatureLocked('shareGem') && !featuresRef.current.autoWorldChat) {
-            if (!await acquireLock()) break;
+            if (!await acquireLock()) continue;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
             try {
@@ -1657,7 +1662,12 @@ export function HomePage() {
                     pushLog(`🛡️ 自动开盾 完成，2 小时后再检测`);
                     releaseLock();
                     attackPreempt = false;
-                    await sleep(2 * 60 * 60);
+                    // 2h 静默期可被切号打断：新账号可能也被打，应立即重新检测
+                    const shieldStartWait = monotonicNow();
+                    const shieldWaitSeq = cooldownResetSeq;
+                    while (!isStopped() && cooldownResetSeq === shieldWaitSeq && (monotonicNow() - shieldStartWait) < 2 * 60 * 60 * 1000) {
+                      await sleep(1);
+                    }
                     continue;
                   } else {
                     pushLog(`🛡️ 自动开盾 完成`);
@@ -1691,7 +1701,7 @@ export function HomePage() {
           if (!buildingOptions.includes('铁匠铺')) {
             pushLog(`⚠️ 未标记铁匠铺位置，跳过生产装备材料`);
           } else {
-            if (!await acquireLock()) break;
+            if (!await acquireLock()) continue;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
             try {
@@ -1740,9 +1750,9 @@ export function HomePage() {
 
           if (shouldOffline && !lastOfflineState) {
             pushLog(`🌙 进入下线状态（${inNightWindow ? '夜间' : '宝石休息'}）`);
-            offlineActive = true;
-            lastOfflineState = true;
             if (await acquireLock()) {
+              offlineActive = true;
+              lastOfflineState = true;
               try {
                 const r = await createTask(currentAccountId, 'com.rok.automation', 'kill-game');
                 if (r.success) {
@@ -1767,13 +1777,13 @@ export function HomePage() {
                   setRunningTaskIds([...runningTaskIdsRef.current]);
                 }
               } catch {} finally { releaseLock(); }
+              offlineActive = false;
+              lastOfflineState = false;
+              // 游戏重启后界面已变化，强制主循环重新检查底部菜单栏
+              bottomBarChecked = false;
+              // 上线等价于重新点开始运行：通知各子循环重置状态、从头开始
+              relaunchRequested = true;
             }
-            offlineActive = false;
-            lastOfflineState = false;
-            // 游戏重启后界面已变化，强制主循环重新检查底部菜单栏
-            bottomBarChecked = false;
-            // 上线等价于重新点开始运行：通知各子循环重置状态、从头开始
-            relaunchRequested = true;
           }
 
           // 等 30s 再检查（中途循环停止可立即退出）
@@ -1862,7 +1872,7 @@ export function HomePage() {
             if (fNow.shareGemEnabled && !isFeatureLocked('shareGem')) {
               break; // 切到分享账号，让 shareGemLoop 接管
             }
-            if (!await acquireLock()) break;
+            if (!await acquireLock()) continue;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
             const useShared = fNow.gemGatherSharedOnly && !isFeatureLocked('gemGather');
