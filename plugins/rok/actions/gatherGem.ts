@@ -308,6 +308,8 @@ export function createSpiralState(config: RokConfig): SpiralState {
 }
 
 const CHENGBAO_TEMPLATE = path.join(TEMPLATE_DIR, 'icon_chengbao.png');
+const TEQUAN_TEMPLATE = path.join(TEMPLATE_DIR, 'tequan.png');
+const TEQUAN_CHECK_REGION = { x: 124, y: 60, width: 163 - 124, height: 108 - 60 };
 const ZOOM_TAP_POINT = { x: 322, y: 700 };
 
 /** 检测城寨图标是否遮挡缩放点击点 */
@@ -341,32 +343,45 @@ export async function zoomOutToWorld(
   ctx: PluginContext,
   worldBtn: { x: number; y: number }
 ): Promise<void> {
-  // 先检测城寨图标是否遮挡缩放点，有遮挡就先避让滑动
-  let check = await isChengbaoBlockingZoom(ctx);
-  let slideCount = 0;
-  const MAX_SLIDES = 3;
-  while (check.blocked && slideCount < MAX_SLIDES) {
-    slideCount++;
-    ctx.log(`  [遮挡检测] 城寨图标遮挡缩放点，第 ${slideCount} 次避让滑动 (600,454) → (647,310)`);
-    await ctx.swipe(600, 454, 647, 310, 500, false);
-    await ctx.sleep(0.8);
-    check = await isChengbaoBlockingZoom(ctx);
+  const MAX_ZOOM_ATTEMPTS = 3;
+  for (let attempt = 1; attempt <= MAX_ZOOM_ATTEMPTS; attempt++) {
+    // 先检测城寨图标是否遮挡缩放点，有遮挡就先避让滑动
+    let check = await isChengbaoBlockingZoom(ctx);
+    let slideCount = 0;
+    const MAX_SLIDES = 3;
+    while (check.blocked && slideCount < MAX_SLIDES) {
+      slideCount++;
+      ctx.log(`  [遮挡检测] 城寨图标遮挡缩放点，第 ${slideCount} 次避让滑动 (600,454) → (647,310)`);
+      await ctx.swipe(600, 454, 647, 310, 500, false);
+      await ctx.sleep(0.8);
+      check = await isChengbaoBlockingZoom(ctx);
+    }
+
+    if (check.blocked) {
+      ctx.log(`  [遮挡检测] 滑动 ${MAX_SLIDES} 次后仍遮挡，强制点击缩放点`);
+    } else {
+      ctx.log(`  [遮挡检测] 无遮挡`);
+    }
+
+    ctx.log(`  长按城内外按钮 (${worldBtn.x}, ${worldBtn.y}) 2秒 (第 ${attempt}/${MAX_ZOOM_ATTEMPTS} 次)`);
+    await ctx.swipeAndHold(worldBtn.x, worldBtn.y, worldBtn.x, worldBtn.y, 2000);
+    await ctx.releaseHold();
+    await ctx.sleep(0.5);
+
+    ctx.log(`  点击缩放点 (${ZOOM_TAP_POINT.x}, ${ZOOM_TAP_POINT.y})`);
+    await ctx.tap(ZOOM_TAP_POINT.x, ZOOM_TAP_POINT.y);
+    await ctx.sleep(0.5);
+
+    // 兜底：左上角特权图标区域识别 tequan.png，找到 = 还在特权界面 = 缩放未成功
+    const tequanFound = await ctx.findImageWithLocation(TEQUAN_TEMPLATE, 0.75, [0.9, 1.0, 1.1], undefined, undefined, TEQUAN_CHECK_REGION);
+    if (!tequanFound.found) {
+      ctx.log(`  [缩放校验] 区域内未识别到 tequan，缩放完成 ✓`);
+      return;
+    }
+    ctx.log(`  [缩放校验] 区域内识别到 tequan (conf=${tequanFound.confidence.toFixed(2)})，缩放未生效，准备重试`);
+    await ctx.sleep(0.5);
   }
-
-  if (check.blocked) {
-    ctx.log(`  [遮挡检测] 滑动 ${MAX_SLIDES} 次后仍遮挡，强制点击缩放点`);
-  } else {
-    ctx.log(`  [遮挡检测] 无遮挡`);
-  }
-
-  ctx.log(`  长按城内外按钮 (${worldBtn.x}, ${worldBtn.y}) 2秒`);
-  await ctx.swipeAndHold(worldBtn.x, worldBtn.y, worldBtn.x, worldBtn.y, 2000);
-  await ctx.releaseHold();
-  await ctx.sleep(0.5);
-
-  ctx.log(`  点击缩放点 (${ZOOM_TAP_POINT.x}, ${ZOOM_TAP_POINT.y})`);
-  await ctx.tap(ZOOM_TAP_POINT.x, ZOOM_TAP_POINT.y);
-  await ctx.sleep(0.5);
+  ctx.log(`  [缩放校验] 已重试 ${MAX_ZOOM_ATTEMPTS} 次仍检测到 tequan，放弃继续尝试`);
 }
 
 export async function checkIdleTeamsAvailable(ctx: PluginContext): Promise<boolean> {
