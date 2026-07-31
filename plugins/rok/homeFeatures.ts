@@ -36,6 +36,9 @@ export interface HomeFeatures {
   rallyFortTeamPage: TeamPageChoice;
   rallyFortDowngrade: boolean;
   rallyFortUsePotion: boolean;
+  rallyFortFallbackTeam: boolean;
+  rallyFortFallbackTeamNum: number;
+  rallyFortFallbackTroopType: 'any' | 'infantry' | 'cavalry' | 'archer';
   rallyFortTroopType: 'any' | 'infantry' | 'cavalry' | 'archer';
   shareGemEnabled: boolean;
   shareGemStopCondition: 'spiral' | 'count5' | 'count10' | 'count15' | 'count100';
@@ -69,8 +72,8 @@ export interface HomeFeatures {
   autoShieldEnabled: boolean;
   autoSwitchAccount: boolean;
   switchMode: 'per-round' | 'per-time' | 'fort-mode' | 'combo-gem';
-  switchIntervalMinutes: number;
-  switchProfileIds: [string, string];  // 恰好 2 个 profile 名称
+  switchIntervalMinutes: number | number[];
+  switchProfileIds: string[];  // dev: 最多 4 个；prod: 最多 2 个
 }
 
 export const DEFAULT_HOME_FEATURES: HomeFeatures = {
@@ -106,6 +109,9 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   rallyFortTeamPage: 'attack',
   rallyFortDowngrade: true,
   rallyFortUsePotion: false,
+  rallyFortFallbackTeam: false,
+  rallyFortFallbackTeamNum: 2,
+  rallyFortFallbackTroopType: 'any',
   rallyFortTroopType: 'any',
   shareGemEnabled: false,
   shareGemStopCondition: 'spiral',

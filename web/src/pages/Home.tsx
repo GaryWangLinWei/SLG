@@ -10,6 +10,8 @@ import { isComboGemActive } from '../utils/comboGemMode';
 // Electron 打包后 HTML 走 file://，相对路径 /api 会失败；必须显式指向本地后端
 const IS_ELECTRON = typeof window !== 'undefined' && 'electronAPI' in window;
 const LOCAL_API_BASE = IS_ELECTRON ? 'http://localhost:3000' : '';
+/** 账号调度最大槽位：dev 放开到 4 便于本地多号测试，生产保持 2。 */
+const MAX_SWITCH_SLOTS = import.meta.env.DEV ? 4 : 2;
 import { createLoopCancellationPredicate, guardedCreateTask, isCurrentLoopGeneration } from '../utils/loopGeneration';
 import { persistRunningSession, readRunningSession, RunningSession } from '../utils/runningIntent';
 import { deriveRunningControlView, OperationState } from '../utils/runningControlView';
@@ -432,6 +434,9 @@ export function HomePage() {
         if (!isTeamPageChoice(merged.gemGatherTeamPage)) merged.gemGatherTeamPage = DEFAULT_FEATURES.gemGatherTeamPage;
         if (typeof merged.rallyFortDowngrade !== 'boolean') merged.rallyFortDowngrade = DEFAULT_FEATURES.rallyFortDowngrade;
         if (typeof merged.rallyFortUsePotion !== 'boolean') merged.rallyFortUsePotion = DEFAULT_FEATURES.rallyFortUsePotion;
+        if (typeof merged.rallyFortFallbackTeam !== 'boolean') merged.rallyFortFallbackTeam = DEFAULT_FEATURES.rallyFortFallbackTeam;
+        if (typeof merged.rallyFortFallbackTeamNum !== 'number') merged.rallyFortFallbackTeamNum = DEFAULT_FEATURES.rallyFortFallbackTeamNum;
+        if (!['any','infantry','cavalry','archer'].includes(merged.rallyFortFallbackTroopType)) merged.rallyFortFallbackTroopType = DEFAULT_FEATURES.rallyFortFallbackTroopType;
         if (!Number.isFinite(Number(merged.collectResourcesIntervalMinutes))) merged.collectResourcesIntervalMinutes = DEFAULT_COLLECT_RESOURCES_INTERVAL_MINUTES;
         merged.collectResourcesIntervalMinutes = Math.max(MIN_COLLECT_RESOURCES_INTERVAL_MINUTES, Number(merged.collectResourcesIntervalMinutes));
         if (!Number.isFinite(Number(merged.autoReconnectIntervalMinutes))) merged.autoReconnectIntervalMinutes = DEFAULT_AUTO_RECONNECT_INTERVAL_MINUTES;
@@ -665,14 +670,15 @@ export function HomePage() {
             completedBuildings: [false, false, false, false, false],
             completedTechs: [false, false, false, false, false],
           })) as any;
-          // 若开启自动切号且新 active 不在 switchProfileIds → 覆盖 [0]
+          // 若开启自动切号且新 active 不在 switchProfileIds → 找空槽填，无空槽覆盖槽 0
           if (merged.autoSwitchAccount) {
-            const cur = merged.switchProfileIds || ['', ''];
-            if (cur[0] !== newName && cur[1] !== newName) {
-              const nextIds: [string, string] = !cur[0] ? [newName, cur[1] || '']
-                : !cur[1] ? [cur[0], newName]
-                : [newName, cur[1] || ''];
-              merged.switchProfileIds = nextIds;
+            const cur: string[] = (merged.switchProfileIds || []).slice(0, MAX_SWITCH_SLOTS);
+            while (cur.length < MAX_SWITCH_SLOTS) cur.push('');
+            if (!cur.includes(newName)) {
+              const emptyIdx = cur.findIndex((s: string) => !s);
+              const slotIdx = emptyIdx >= 0 ? emptyIdx : 0;
+              cur[slotIdx] = newName;
+              merged.switchProfileIds = cur;
             }
           }
           return merged;
@@ -836,16 +842,19 @@ export function HomePage() {
 
     pendingAccountSwitch = false;
     if (featuresRef.current.autoSwitchAccount && !isFeatureLocked('autoSwitchAccount')) {
-      const cur = featuresRef.current.switchProfileIds || ['', ''];
+      const cur: string[] = (featuresRef.current.switchProfileIds || []).slice(0, MAX_SWITCH_SLOTS);
+      while (cur.length < MAX_SWITCH_SLOTS) cur.push('');
       const active = activeConfigNameRef.current;
-      if (active && cur[0] !== active && cur[1] !== active) {
-        const nextIds: [string, string] = !cur[0] ? [active, cur[1] || '']
-          : !cur[1] ? [cur[0], active]
-          : [active, cur[1] || ''];
+      if (active && !cur.includes(active)) {
+        // 找第一个空槽填；满了就覆盖槽 0（最老的）
+        const emptyIdx = cur.findIndex((s: string) => !s);
+        const slotIdx = emptyIdx >= 0 ? emptyIdx : 0;
+        cur[slotIdx] = active;
+        const nextIds = cur.slice(0, MAX_SWITCH_SLOTS);
         const merged = { ...featuresRef.current, switchProfileIds: nextIds } as any;
         featuresRef.current = merged;
         setFeatures(merged);
-        pushLog(`🔀 当前账号 ${active} 不在切号列表，自动填入 → [${nextIds.join(', ')}]`);
+        pushLog(`🔀 当前账号 ${active} 不在切号列表，自动填入槽位 ${slotIdx + 1} → [${nextIds.join(', ')}]`);
       }
     }
     const initialIds = (featuresRef.current.switchProfileIds || []).filter((s: string) => !!s);
@@ -857,12 +866,11 @@ export function HomePage() {
       if (switchTimerId) clearTimeout(switchTimerId);
       const feat = featuresRef.current;
       if (!feat.autoSwitchAccount || isFeatureLocked('autoSwitchAccount') || feat.switchMode !== 'per-time') return;
-      const ids = feat.switchProfileIds || ['', ''];
+      const ids = feat.switchProfileIds || [];
       const curIdx = ids.indexOf(activeConfigNameRef.current);
-      const intervals = Array.isArray(feat.switchIntervalMinutes)
-        ? feat.switchIntervalMinutes
-        : [feat.switchIntervalMinutes as any, feat.switchIntervalMinutes as any];
-      const minutes = Math.max(1, intervals[curIdx >= 0 ? curIdx : 0] || 30);
+      const defaultMin = typeof feat.switchIntervalMinutes === 'number' ? feat.switchIntervalMinutes : 30;
+      const intervals = Array.isArray(feat.switchIntervalMinutes) ? feat.switchIntervalMinutes : [];
+      const minutes = Math.max(1, intervals[curIdx >= 0 ? curIdx : 0] ?? defaultMin);
       pushLog(`⏲️ 切号定时器: ${minutes} 分钟后切号（当前 ${activeConfigNameRef.current}）`);
       switchTimerId = setTimeout(() => {
         pendingAccountSwitch = true;
@@ -1309,7 +1317,7 @@ export function HomePage() {
             await ensureGameRunning();
             let cd = 600; // 默认 CD，实际根据结果确定
             try {
-              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'rally-fort', { level: featuresRef.current.rallyFortLevel, team: featuresRef.current.rallyFortTeam, downgrade: featuresRef.current.rallyFortDowngrade, teamPage: featuresRef.current.rallyFortTeamPage, usePotion: featuresRef.current.rallyFortUsePotion, troopType: featuresRef.current.rallyFortTroopType });
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'rally-fort', { level: featuresRef.current.rallyFortLevel, team: featuresRef.current.rallyFortTeam, downgrade: featuresRef.current.rallyFortDowngrade, teamPage: featuresRef.current.rallyFortTeamPage, usePotion: featuresRef.current.rallyFortUsePotion, fallbackTeam: featuresRef.current.rallyFortFallbackTeam, fallbackTeamNum: featuresRef.current.rallyFortFallbackTeamNum, fallbackTroopType: featuresRef.current.rallyFortFallbackTroopType, troopType: featuresRef.current.rallyFortTroopType });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -2555,85 +2563,84 @@ export function HomePage() {
 
               {/* Profile 横向队列 */}
               <div className="bg-white/70 rounded-lg p-3">
-                <div className="flex items-center gap-2">
-                  {[0, 1].map((i) => {
-                    const profileName = features.switchProfileIds[i] || '';
-                    const isActive = !!profileName && profileName === activeConfigName && features.autoSwitchAccount;
-                    const other = features.switchProfileIds[1 - i] || '';
-                    const isPer = features.switchMode === 'per-time';
-                    return (
-                      <Fragment key={i}>
-                        <div className={`w-44 px-3 py-2.5 rounded-lg ${isActive ? 'bg-emerald-50 border-2 border-emerald-500 shadow -translate-y-0.5' : 'bg-white border-2 border-slate-200 hover:border-amber-300'}`}>
-                          <div className="flex items-center justify-between mb-1">
-                            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-400'}`}></span> {isActive ? '当前' : '待切换'}
-                            </span>
-                            <span className="text-[10px] text-slate-300">#{i + 1}</span>
-                          </div>
-                          <select
-                            value={profileName}
-                            onChange={(e) => {
-                              const v = e.target.value;
-                              const ids: [string, string] = [features.switchProfileIds[0] || '', features.switchProfileIds[1] || ''];
-                              ids[i] = v;
-                              setFeatures({ ...features, switchProfileIds: ids });
-                              // 若选中的是当前非 active 的 profile，同时切换 active（等同顶部下拉）
-                              if (v && v !== activeConfigName) handleConfigSwitch(v);
-                            }}
-                            className="text-sm font-bold text-slate-800 bg-transparent w-full h-[26px] focus:outline-none"
-                          >
-                            {!profileName && <option value="">-- 选择 --</option>}
-                            {configNames.filter(p => p !== other).map(p => {
-                              const hasAccount = !!(profileAccountNames[p] || '').trim();
-                              return (
-                                <option key={p} value={p} disabled={!hasAccount}>
-                                  {p}{hasAccount ? '' : '（未填编号）'}
-                                </option>
-                              );
-                            })}
-                          </select>
-                          {isPer && (
-                            <div className="flex items-center gap-1 mt-1">
-                              <input
-                                type="number"
-                                min={1}
-                                value={(Array.isArray(features.switchIntervalMinutes) ? features.switchIntervalMinutes[i] : features.switchIntervalMinutes) || 30}
-                                onChange={(e) => {
-                                  const cur = Array.isArray(features.switchIntervalMinutes)
-                                    ? features.switchIntervalMinutes
-                                    : [features.switchIntervalMinutes as any, features.switchIntervalMinutes as any];
-                                  const next: [number, number] = [cur[0] || 30, cur[1] || 30];
-                                  next[i] = Math.max(1, parseInt(e.target.value) || 30);
-                                  setFeatures({ ...features, switchIntervalMinutes: next });
-                                }}
-                                className="w-12 px-1 py-0.5 text-xs bg-white border border-slate-200 rounded text-center"
-                              />
-                              <span className="text-xs text-slate-400">分钟</span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  {(() => {
+                    const ids: string[] = (features.switchProfileIds || []).slice(0, MAX_SWITCH_SLOTS);
+                    while (ids.length < MAX_SWITCH_SLOTS) ids.push('');
+                    return ids.map((profileName: string, i: number) => {
+                      const isActive = !!profileName && profileName === activeConfigName && features.autoSwitchAccount;
+                      const others = ids.filter((_: string, j: number) => j !== i);
+                      const isPer = features.switchMode === 'per-time';
+                      return (
+                        <Fragment key={i}>
+                          <div className={`w-44 px-3 py-2.5 rounded-lg ${isActive ? 'bg-emerald-50 border-2 border-emerald-500 shadow -translate-y-0.5' : 'bg-white border-2 border-slate-200 hover:border-amber-300'}`}>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                                <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-400'}`}></span> {isActive ? '当前' : '待切换'}
+                              </span>
+                              <span className="text-[10px] text-slate-300">#{i + 1}</span>
                             </div>
-                          )}
-                        </div>
-                        {i === 0 && <span className="text-amber-500 text-sm flex-shrink-0 select-none">→</span>}
-                      </Fragment>
-                    );
-                  })}
+                            <select
+                              value={profileName}
+                              onChange={(e) => {
+                                const v = e.target.value;
+                                const next = ids.slice();
+                                next[i] = v;
+                                setFeatures({ ...features, switchProfileIds: next });
+                                if (v && v !== activeConfigName) handleConfigSwitch(v);
+                              }}
+                              className="text-sm font-bold text-slate-800 bg-transparent w-full h-[26px] focus:outline-none"
+                            >
+                              <option value="">-- 不选择 --</option>
+                              {configNames.filter(p => !others.includes(p)).map(p => {
+                                const hasAccount = !!(profileAccountNames[p] || '').trim();
+                                return (
+                                  <option key={p} value={p} disabled={!hasAccount}>
+                                    {p}{hasAccount ? '' : '（未填编号）'}
+                                  </option>
+                                );
+                              })}
+                            </select>
+                            {isPer && (
+                              <div className="flex items-center gap-1 mt-1">
+                                <input
+                                  type="number"
+                                  min={1}
+                                  value={(() => {
+                                    if (Array.isArray(features.switchIntervalMinutes)) {
+                                      return features.switchIntervalMinutes[i] ?? (typeof features.switchIntervalMinutes === 'number' ? features.switchIntervalMinutes : 30);
+                                    }
+                                    return features.switchIntervalMinutes || 30;
+                                  })()}
+                                  onChange={(e) => {
+                                    const base = typeof features.switchIntervalMinutes === 'number' ? features.switchIntervalMinutes : 30;
+                                    const cur = Array.isArray(features.switchIntervalMinutes)
+                                      ? features.switchIntervalMinutes.slice()
+                                      : [];
+                                    while (cur.length < MAX_SWITCH_SLOTS) cur.push(base);
+                                    cur[i] = Math.max(1, parseInt(e.target.value) || 30);
+                                    setFeatures({ ...features, switchIntervalMinutes: cur });
+                                  }}
+                                  className="w-12 px-1 py-0.5 text-xs bg-white border border-slate-200 rounded text-center"
+                                />
+                                <span className="text-xs text-slate-400">分钟</span>
+                              </div>
+                            )}
+                          </div>
+                          {i < MAX_SWITCH_SLOTS - 1 && <span className="text-amber-500 text-sm flex-shrink-0 select-none">→</span>}
+                        </Fragment>
+                      );
+                    });
+                  })()}
 
                   <span className="text-amber-500 text-sm flex-shrink-0 select-none">↩</span>
                   <span className="text-xs text-amber-500/70">循环</span>
 
                   <div className="flex-1"></div>
-
-                  <button
-                    type="button"
-                    disabled
-                    title="暂不支持超过 2 个账号"
-                    className="flex items-center gap-1 text-xs text-amber-500 px-3 py-1.5 border border-dashed border-amber-300 rounded-lg opacity-50 cursor-not-allowed"
-                  >
-                    <span className="text-base">+</span> 添加账号
-                  </button>
                 </div>
               </div>
 
-              <p className="mt-2 text-xs text-amber-600/70">💡 切号后自动加载对应方案的全部功能设置 · 共 2 个账号参与轮换</p>
+              <p className="mt-2 text-xs text-amber-600/70">💡 切号后自动加载对应方案的全部功能设置 · 共 {MAX_SWITCH_SLOTS} 个账号参与轮换{MAX_SWITCH_SLOTS > 2 && <span className="text-amber-500">（开发模式）</span>}</p>
             </div>
           )}
         </div>
@@ -3047,74 +3054,116 @@ export function HomePage() {
                   <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoRallyFort ? 'translate-x-[18px]' : ''}`} />
                 </label>
               </div>
-              <div className="flex flex-col gap-2 mt-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400 whitespace-nowrap">目标等级</span>
+              <div className="flex flex-col mt-2 -mx-4">
+                {/* 目标等级 + 派遣 */}
+                <div className="flex items-center gap-2 px-4 py-2.5 border-t border-slate-100">
+                  <span className="text-xs text-slate-500 whitespace-nowrap w-16">目标等级</span>
                   <select value={features.rallyFortLevel}
                     disabled={features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, rallyFortLevel: Number(e.target.value) })}
-                    className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-20">
+                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-20">
                     <option value={0}>—</option>
                     {[1,2,3,4,5,6,7,8,9,10].map(l => (<option key={l} value={l}>Lv.{l}</option>))}
                   </select>
-                  <span className="text-xs text-slate-400 whitespace-nowrap ml-2">派遣第</span>
+                  <span className="text-xs text-slate-500 whitespace-nowrap ml-3">派遣第</span>
                   <select value={features.rallyFortTeam}
                     disabled={features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, rallyFortTeam: Number(e.target.value) })}
-                    className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-16">
+                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-14">
                     {[1,2,3,4,5].map(t => (<option key={t} value={t}>{t}</option>))}
                   </select>
-                  <span className="text-xs text-slate-400 whitespace-nowrap">队伍</span>
+                  <span className="text-xs text-slate-700 whitespace-nowrap">队伍</span>
                 </div>
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500 whitespace-nowrap" title="当搜索不到对应等级的城寨后，降级搜索。">降级搜索</span>
-                    <label className={`relative inline-flex items-center ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
-                      title="当搜索不到对应等级的城寨后，降级搜索。">
-                      <input type="checkbox" checked={features.rallyFortDowngrade}
-                        disabled={features.autoWorldChat}
-                        onChange={(e) => setFeatures({ ...features, rallyFortDowngrade: e.target.checked })}
-                        className="sr-only peer" />
-                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${features.rallyFortDowngrade ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
-                        {features.rallyFortDowngrade && (
-                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </span>
-                    </label>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500 whitespace-nowrap" title="体力不足时自动使用体力药水补充；未勾选则跳过本轮等 75 分钟">体力不足使用药水</span>
-                    <label className={`relative inline-flex items-center ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
-                      title="体力不足时自动使用体力药水补充；未勾选则跳过本轮等 75 分钟">
-                      <input type="checkbox" checked={features.rallyFortUsePotion}
-                        disabled={features.autoWorldChat}
-                        onChange={(e) => setFeatures({ ...features, rallyFortUsePotion: e.target.checked })}
-                        className="sr-only peer" />
-                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${features.rallyFortUsePotion ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
-                        {features.rallyFortUsePotion && (
-                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </span>
-                    </label>
-                  </div>
+
+                {/* 策略勾选：勾选框在前 */}
+                <div className="flex items-center gap-5 px-4 py-2.5 border-t border-slate-100">
+                  <label className={`flex items-center gap-1.5 ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
+                    title="当搜索不到对应等级的城寨后，降级搜索。">
+                    <input type="checkbox" checked={features.rallyFortDowngrade}
+                      disabled={features.autoWorldChat}
+                      onChange={(e) => setFeatures({ ...features, rallyFortDowngrade: e.target.checked })}
+                      className="sr-only peer" />
+                    <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors flex-shrink-0 ${features.rallyFortDowngrade ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
+                      {features.rallyFortDowngrade && (
+                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </span>
+                    <span className="text-xs text-slate-700 whitespace-nowrap">降级搜索</span>
+                  </label>
+                  <label className={`flex items-center gap-1.5 ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
+                    title="体力不足时自动使用体力药水补充；未勾选则跳过本轮等 75 分钟">
+                    <input type="checkbox" checked={features.rallyFortUsePotion}
+                      disabled={features.autoWorldChat}
+                      onChange={(e) => setFeatures({ ...features, rallyFortUsePotion: e.target.checked })}
+                      className="sr-only peer" />
+                    <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors flex-shrink-0 ${features.rallyFortUsePotion ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
+                      {features.rallyFortUsePotion && (
+                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </span>
+                    <span className="text-xs text-slate-700 whitespace-nowrap">体力不足使用药水</span>
+                  </label>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-slate-400 whitespace-nowrap">队伍页</span>
+
+                {/* 队伍页 + 部队推荐 */}
+                <div className="flex items-center gap-2 px-4 py-2.5 border-t border-slate-100">
+                  <span className="text-xs text-slate-500 whitespace-nowrap w-16">队伍页</span>
                   {renderTeamPageSelect(features.rallyFortTeamPage, (v) => setFeatures({ ...features, rallyFortTeamPage: v }), features.autoWorldChat)}
-                  <span className="text-xs text-slate-400 whitespace-nowrap ml-2">部队推荐</span>
+                  <span className="text-xs text-slate-500 whitespace-nowrap ml-3">部队推荐</span>
                   <select value={features.rallyFortTroopType}
                     disabled={features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, rallyFortTroopType: e.target.value as any })}
-                    className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-20">
+                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-20">
                     <option value="any">不限制</option>
                     <option value="infantry">步兵</option>
                     <option value="cavalry">骑兵</option>
                     <option value="archer">弓兵</option>
                   </select>
+                </div>
+
+                {/* 备用队伍 sub-card */}
+                <div className="px-4 pt-2 pb-1">
+                  <div className={`rounded-lg border border-[#f0f0f3] bg-[#fafafc] p-2.5 ${features.autoWorldChat ? 'opacity-50' : ''}`}>
+                    <label className={`flex items-center gap-1.5 ${features.autoWorldChat ? 'pointer-events-none' : 'cursor-pointer'}`}
+                      title="设置备用队伍，主队返回时也能发起集结。">
+                      <input type="checkbox" checked={features.rallyFortFallbackTeam}
+                        disabled={features.autoWorldChat}
+                        onChange={(e) => setFeatures({ ...features, rallyFortFallbackTeam: e.target.checked })}
+                        className="sr-only peer" />
+                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors flex-shrink-0 ${features.rallyFortFallbackTeam ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
+                        {features.rallyFortFallbackTeam && (
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className="text-xs font-medium text-slate-700 whitespace-nowrap">启用备用队伍</span>
+                    </label>
+                    <div className={`flex items-center gap-2 mt-2 pl-5 ${features.rallyFortFallbackTeam ? '' : 'opacity-50 pointer-events-none'}`}>
+                      <span className="text-xs text-slate-500 whitespace-nowrap">第</span>
+                      <select value={features.rallyFortFallbackTeamNum}
+                        disabled={features.autoWorldChat || !features.rallyFortFallbackTeam}
+                        onChange={(e) => setFeatures({ ...features, rallyFortFallbackTeamNum: Number(e.target.value) })}
+                        className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-14">
+                        {[1,2,3,4,5].filter(t => t !== features.rallyFortTeam).map(t => (<option key={t} value={t}>{t}</option>))}
+                      </select>
+                      <span className="text-xs text-slate-700 whitespace-nowrap">队伍</span>
+                      <span className="text-xs text-slate-500 whitespace-nowrap ml-2">部队推荐</span>
+                      <select value={features.rallyFortFallbackTroopType}
+                        disabled={features.autoWorldChat || !features.rallyFortFallbackTeam}
+                        onChange={(e) => setFeatures({ ...features, rallyFortFallbackTroopType: e.target.value as any })}
+                        className="px-2 py-1 bg-white border border-slate-200 rounded text-xs w-20">
+                        <option value="any">不限制</option>
+                        <option value="infantry">步兵</option>
+                        <option value="cavalry">骑兵</option>
+                        <option value="archer">弓兵</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
               </div>
 

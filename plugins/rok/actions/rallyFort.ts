@@ -151,12 +151,16 @@ export async function rallyFort(
   ctx: PluginContext,
   config: RokConfig,
   targetLevel: number,
-  team: number,
+  primaryTeam: number,
   downgrade: boolean = true,
   teamPage: TeamPage = 'attack',
   usePotion: boolean = false,
-  troopType: 'any' | 'infantry' | 'cavalry' | 'archer' = 'any'
+  troopType: 'any' | 'infantry' | 'cavalry' | 'archer' = 'any',
+  fallbackTeamEnabled: boolean = false,
+  fallbackTeamNum: number = 2,
+  fallbackTroopType: 'any' | 'infantry' | 'cavalry' | 'archer' = 'any'
 ): Promise<RallyFortOutcome> {
+  let team = primaryTeam;
   ctx.log(`=== 自动攻打城寨 Lv.${targetLevel} 队伍${team} ===`);
 
   const fs = config.fortSearch;
@@ -311,7 +315,7 @@ export async function rallyFort(
   }
 
   const teamButtons = hasPaging ? TEAM_BUTTONS_PAGED : TEAM_BUTTONS_NO_PAGE;
-  const teamBtn = teamButtons[team];
+  let teamBtn = teamButtons[team];
   if (!teamBtn) {
     ctx.log(`  ❌ 无效的队伍序号: ${team}`);
     return { result: 'team_unavailable', dispatched: 0, foundLevel: currentLevel };
@@ -323,10 +327,58 @@ export async function rallyFort(
   ctx.log(`  [debug] 像素变化率: ${(stateResult.diffPercentage * 100).toFixed(1)}%, changed: ${stateResult.changed}`);
 
   if (!stateResult.changed) {
-    ctx.log(`  ⚠️ 队伍${team}不可用，按钮无选中状态变化，跳过`);
-    await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
-    await ctx.sleep(0.5);
-    return { result: 'team_unavailable', dispatched: 0, foundLevel: currentLevel };
+    ctx.log(`  ⚠️ 队伍${team}不可用，按钮无选中状态变化`);
+    if (!fallbackTeamEnabled) {
+      ctx.log(`  跳过（未启用备用队伍）`);
+      await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
+      await ctx.sleep(0.5);
+      return { result: 'team_unavailable', dispatched: 0, foundLevel: currentLevel };
+    }
+
+    // 备用队伍：根据备用部队推荐勾选兵种，再点击备用队伍
+    const fbBtn = teamButtons[fallbackTeamNum];
+    if (!fbBtn) {
+      ctx.log(`  ❌ 无效的备用队伍序号: ${fallbackTeamNum}`);
+      await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
+      await ctx.sleep(0.5);
+      return { result: 'team_unavailable', dispatched: 0, foundLevel: currentLevel };
+    }
+
+    // 兵种切换：与主队不同时，先取消主队已选兵种，再点备用兵种；相同则不动
+    const troopTapMap: Record<string, { x: number; y: number }> = {
+      infantry: { x: 864, y: 136 },
+      cavalry: { x: 1009, y: 136 },
+      archer: { x: 1152, y: 134 },
+    };
+    if (troopType !== fallbackTroopType) {
+      if (troopType !== 'any') {
+        const offTap = troopTapMap[troopType];
+        ctx.log(`  [备用队伍] 取消主队兵种 ${troopType} → 点击 (${offTap.x}, ${offTap.y})`);
+        await ctx.tap(offTap.x, offTap.y);
+        await ctx.sleep(0.4);
+      }
+      if (fallbackTroopType !== 'any') {
+        const onTap = troopTapMap[fallbackTroopType];
+        ctx.log(`  [备用队伍] 选中备用兵种 ${fallbackTroopType} → 点击 (${onTap.x}, ${onTap.y})`);
+        await ctx.tap(onTap.x, onTap.y);
+        await ctx.sleep(0.6);
+      }
+    } else {
+      ctx.log(`  [备用队伍] 主备兵种一致（${troopType}），无需切换`);
+    }
+
+    ctx.log(`  [备用队伍] 选择队伍 ${fallbackTeamNum} 并检测状态变化...`);
+    const fbState = await ctx.checkButtonStateChange(fbBtn.x, fbBtn.y, 150, 50, 0.1);
+    ctx.log(`  [debug] 备用队伍${fallbackTeamNum} 像素变化率: ${(fbState.diffPercentage * 100).toFixed(1)}%, changed: ${fbState.changed}`);
+    if (!fbState.changed) {
+      ctx.log(`  ⚠️ 备用队伍${fallbackTeamNum}也不可用，跳过`);
+      await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
+      await ctx.sleep(0.5);
+      return { result: 'team_unavailable', dispatched: 0, foundLevel: currentLevel };
+    }
+    // 选中备用队伍，覆盖 team 变量以便后续日志/行军使用
+    team = fallbackTeamNum;
+    teamBtn = fbBtn;
   }
 
   // 点击行军；若弹出行动力不足且存在免费体力，领取后重试一次
