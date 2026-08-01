@@ -63,7 +63,6 @@ const PAGE_INDICATOR_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_page_indicator.png'
 const STATE_JIJIE_TEMPLATE = path.join(TEMPLATE_DIR, 'jijie', 'state_jijie.png');
 const BTN_JOINTEAM_TEMPLATE = path.join(TEMPLATE_DIR, 'jijie', 'btn_jointeam.png');
 const ICON_CHENGZHAI_TEMPLATE = path.join(TEMPLATE_DIR, 'jijie', 'icon_jijie_chengzhai.png');
-const ICON_CHENGZHAI_OLD_TEMPLATE = path.join(TEMPLATE_DIR, 'jijie', 'icon_jijie_chengzhai_old.png');
 const ICON_LOHA_TEMPLATE = path.join(TEMPLATE_DIR, 'jijie', 'icon_jijie_luoha.png');
 const BTN_BIANDUI_TEMPLATE = path.join(TEMPLATE_DIR, 'jijie', 'btn_biandui.png');
 
@@ -199,20 +198,14 @@ export async function joinRally(
     const fortResult = await ctx.findImageWithLocation(
       ICON_CHENGZHAI_TEMPLATE, 0.8, undefined, false, undefined, targetRegion
     );
-    const fortOldResult = fortResult.found ? null : await ctx.findImageWithLocation(
-      ICON_CHENGZHAI_OLD_TEMPLATE, 0.8, undefined, false, undefined, targetRegion
-    );
-    const isFort = fortResult.found || fortOldResult?.found;
     const loharResult = await ctx.findImageWithLocation(
       ICON_LOHA_TEMPLATE, 0.8, undefined, false, undefined, targetRegion
     );
 
     let currentTarget: 'fort' | 'lohar' | null = null;
-    if (isFort) {
+    if (fortResult.found) {
       currentTarget = 'fort';
-      const which = fortResult.found ? '新版' : '旧版';
-      const conf = fortResult.found ? fortResult.confidence : fortOldResult!.confidence;
-      ctx.log(`    检测到城寨集结（${which}图标 conf=${conf.toFixed(3)}）`);
+      ctx.log(`    检测到城寨集结`);
     } else if (loharResult.found) {
       currentTarget = 'lohar';
       ctx.log(`    检测到洛哈集结`);
