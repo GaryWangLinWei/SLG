@@ -6,6 +6,7 @@ import { researchTech, TECH_TEMPLATES, ECONOMIC_TECHS, MILITARY_TECHS } from './
 import { trainTroopsSingle } from './actions/trainTroops';
 import { explore } from './actions/explore';
 import { helpTeammates } from './actions/helpTeammates';
+import { claimAllianceTerritory } from './actions/claimAllianceTerritory';
 import { readQueueOverview, resetQueueFilters } from './actions/readQueueOverview';
 import { rallyFort } from './actions/rallyFort';
 import { rallyFortSpiral } from './actions/rallyFortSpiral';
@@ -593,6 +594,15 @@ export const RiseOfKingdomsPlugin: Plugin = {
       run: async (ctx) => {
         if (await ensureNoPopupBlocking(ctx, 'help-teammates')) return;
         await helpTeammates(ctx);
+      }
+    },
+    {
+      id: 'claim-alliance-territory',
+      name: '领取联盟领土收益',
+      description: '打开联盟领土页领取收益，每4小时执行',
+      run: async (ctx) => {
+        if (await ensureNoPopupBlocking(ctx, 'claim-alliance-territory')) return;
+        await claimAllianceTerritory(ctx);
       }
     },
     {
