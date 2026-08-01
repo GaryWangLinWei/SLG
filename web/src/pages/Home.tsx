@@ -434,6 +434,7 @@ export function HomePage() {
         if (!isTeamPageChoice(merged.gemGatherTeamPage)) merged.gemGatherTeamPage = DEFAULT_FEATURES.gemGatherTeamPage;
         if (typeof merged.rallyFortDowngrade !== 'boolean') merged.rallyFortDowngrade = DEFAULT_FEATURES.rallyFortDowngrade;
         if (typeof merged.rallyFortUsePotion !== 'boolean') merged.rallyFortUsePotion = DEFAULT_FEATURES.rallyFortUsePotion;
+        if (typeof merged.rallyFortMarauder !== 'boolean') merged.rallyFortMarauder = DEFAULT_FEATURES.rallyFortMarauder;
         if (typeof merged.rallyFortFallbackTeam !== 'boolean') merged.rallyFortFallbackTeam = DEFAULT_FEATURES.rallyFortFallbackTeam;
         if (typeof merged.rallyFortFallbackTeamNum !== 'number') merged.rallyFortFallbackTeamNum = DEFAULT_FEATURES.rallyFortFallbackTeamNum;
         if (!['any','infantry','cavalry','archer'].includes(merged.rallyFortFallbackTroopType)) merged.rallyFortFallbackTroopType = DEFAULT_FEATURES.rallyFortFallbackTroopType;
@@ -1319,7 +1320,7 @@ export function HomePage() {
             await ensureGameRunning();
             let cd = 600; // 默认 CD，实际根据结果确定
             try {
-              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'rally-fort', { level: featuresRef.current.rallyFortLevel, team: featuresRef.current.rallyFortTeam, downgrade: featuresRef.current.rallyFortDowngrade, teamPage: featuresRef.current.rallyFortTeamPage, usePotion: featuresRef.current.rallyFortUsePotion, fallbackTeam: featuresRef.current.rallyFortFallbackTeam, fallbackTeamNum: featuresRef.current.rallyFortFallbackTeamNum, fallbackTroopType: featuresRef.current.rallyFortFallbackTroopType, troopType: featuresRef.current.rallyFortTroopType });
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'rally-fort', { level: featuresRef.current.rallyFortLevel, team: featuresRef.current.rallyFortTeam, downgrade: featuresRef.current.rallyFortDowngrade, teamPage: featuresRef.current.rallyFortTeamPage, usePotion: featuresRef.current.rallyFortUsePotion, fallbackTeam: featuresRef.current.rallyFortFallbackTeam, fallbackTeamNum: featuresRef.current.rallyFortFallbackTeamNum, fallbackTroopType: featuresRef.current.rallyFortFallbackTroopType, troopType: featuresRef.current.rallyFortTroopType, marauder: featuresRef.current.rallyFortMarauder });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -3153,6 +3154,23 @@ export function HomePage() {
                     </span>
                     <span className="text-xs text-slate-700 whitespace-nowrap">体力不足使用药水</span>
                   </label>
+                  {import.meta.env.DEV && (
+                    <label title="勾选后，集结目标变成劫掠者城寨"
+                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
+                      features.rallyFortMarauder
+                        ? 'bg-amber-50 text-amber-700'
+                        : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+                    } ${features.autoWorldChat ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}>
+                      <input type="checkbox" checked={features.rallyFortMarauder}
+                        disabled={features.autoWorldChat}
+                        onChange={(e) => setFeatures({ ...features, rallyFortMarauder: e.target.checked })}
+                        className="sr-only peer" />
+                      <span className={`w-[16px] h-[16px] rounded-[4px] border-2 flex items-center justify-center text-[11px] leading-none ${
+                        features.rallyFortMarauder ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-slate-300 text-transparent'
+                      }`}>✓</span>
+                      劫掠者城寨
+                    </label>
+                  )}
                 </div>
 
                 {/* 队伍页 + 部队推荐 */}
@@ -3537,7 +3555,6 @@ export function HomePage() {
                 <span className="flex items-center gap-2 text-sm text-slate-700">
                   <span className="w-6 h-6 bg-indigo-100 rounded flex items-center justify-center text-xs">🚩</span>
                   领取联盟领土收益
-                  <span className="text-xs text-slate-400">· 每4小时</span>
                 </span>
                 <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
                   <input type="checkbox" checked={features.claimAllianceTerritoryEnabled} disabled={features.autoWorldChat}

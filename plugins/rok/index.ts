@@ -277,7 +277,7 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
   fortSearch: {
     searchButton: { x: 78, y: 677 },
     barbarianButton: { x: 318, y: 795 },
-    fortTab: { x: 438, y: 295 },
+    fortTab: { x: 380, y: 300 },
     minusButton: { x: 121, y: 484 },
     plusButton: { x: 559, y: 481 },
     searchActionButton: { x: 336, y: 593 },
@@ -687,7 +687,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       id: 'rally-fort',
       name: '攻打城寨',
       description: '使用游戏内置搜索查找野蛮人城寨并发起集结',
-      run: async (ctx, params: { level?: number; team?: number; downgrade?: boolean; teamPage?: TeamPage; usePotion?: boolean; fallbackTeam?: boolean; fallbackTeamNum?: number; fallbackTroopType?: 'any' | 'infantry' | 'cavalry' | 'archer'; troopType?: 'any' | 'infantry' | 'cavalry' | 'archer' } = {}) => {
+      run: async (ctx, params: { level?: number; team?: number; downgrade?: boolean; teamPage?: TeamPage; usePotion?: boolean; fallbackTeam?: boolean; fallbackTeamNum?: number; fallbackTroopType?: 'any' | 'infantry' | 'cavalry' | 'archer'; troopType?: 'any' | 'infantry' | 'cavalry' | 'archer'; marauder?: boolean } = {}) => {
         if (await ensureNoPopupBlocking(ctx, 'rally-fort')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const level = params.level || 5;
@@ -721,7 +721,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
           ctx.log('⚠️ 未识别到队伍计数，继续城寨集结');
         }
 
-        const outcome = await rallyFort(ctx, config, level, team, downgrade, params.teamPage ?? 'attack', params.usePotion === true, params.troopType ?? 'any', params.fallbackTeam === true, params.fallbackTeamNum || 2, params.fallbackTroopType ?? 'any');
+        const outcome = await rallyFort(ctx, config, level, team, downgrade, params.teamPage ?? 'attack', params.usePotion === true, params.troopType ?? 'any', params.fallbackTeam === true, params.fallbackTeamNum || 2, params.fallbackTroopType ?? 'any', params.marauder === true);
         ctx.log(`城寨集结: Lv.${outcome.foundLevel || level} 队伍${team} → ${outcome.result}`);
       }
     },

@@ -63,6 +63,7 @@ const PAGE_INDICATOR_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_page_indicator.png'
 const STATE_JIJIE_TEMPLATE = path.join(TEMPLATE_DIR, 'jijie', 'state_jijie.png');
 const BTN_JOINTEAM_TEMPLATE = path.join(TEMPLATE_DIR, 'jijie', 'btn_jointeam.png');
 const ICON_CHENGZHAI_TEMPLATE = path.join(TEMPLATE_DIR, 'jijie', 'icon_jijie_chengzhai.png');
+const ICON_CHENGZHAI_OLD_TEMPLATE = path.join(TEMPLATE_DIR, 'jijie', 'icon_jijie_chengzhai_old.png');
 const ICON_LOHA_TEMPLATE = path.join(TEMPLATE_DIR, 'jijie', 'icon_jijie_luoha.png');
 const BTN_BIANDUI_TEMPLATE = path.join(TEMPLATE_DIR, 'jijie', 'btn_biandui.png');
 
@@ -194,19 +195,24 @@ export async function joinRally(
     }
     ctx.log(`    第 ${i + 1} 栏：检测到可加入按钮`);
 
+    const targetRegion = { x: col.target.x, y: col.target.y, width: col.target.width, height: col.target.height };
     const fortResult = await ctx.findImageWithLocation(
-      ICON_CHENGZHAI_TEMPLATE, 0.8, undefined, false, undefined,
-      { x: col.target.x, y: col.target.y, width: col.target.width, height: col.target.height }
+      ICON_CHENGZHAI_TEMPLATE, 0.8, undefined, false, undefined, targetRegion
     );
+    const fortOldResult = fortResult.found ? null : await ctx.findImageWithLocation(
+      ICON_CHENGZHAI_OLD_TEMPLATE, 0.8, undefined, false, undefined, targetRegion
+    );
+    const isFort = fortResult.found || fortOldResult?.found;
     const loharResult = await ctx.findImageWithLocation(
-      ICON_LOHA_TEMPLATE, 0.8, undefined, false, undefined,
-      { x: col.target.x, y: col.target.y, width: col.target.width, height: col.target.height }
+      ICON_LOHA_TEMPLATE, 0.8, undefined, false, undefined, targetRegion
     );
 
     let currentTarget: 'fort' | 'lohar' | null = null;
-    if (fortResult.found) {
+    if (isFort) {
       currentTarget = 'fort';
-      ctx.log(`    检测到城寨集结`);
+      const which = fortResult.found ? '新版' : '旧版';
+      const conf = fortResult.found ? fortResult.confidence : fortOldResult!.confidence;
+      ctx.log(`    检测到城寨集结（${which}图标 conf=${conf.toFixed(3)}）`);
     } else if (loharResult.found) {
       currentTarget = 'lohar';
       ctx.log(`    检测到洛哈集结`);

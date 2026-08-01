@@ -36,6 +36,7 @@ export interface HomeFeatures {
   rallyFortTeamPage: TeamPageChoice;
   rallyFortDowngrade: boolean;
   rallyFortUsePotion: boolean;
+  rallyFortMarauder: boolean;
   rallyFortFallbackTeam: boolean;
   rallyFortFallbackTeamNum: number;
   rallyFortFallbackTroopType: 'any' | 'infantry' | 'cavalry' | 'archer';
@@ -110,6 +111,7 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   rallyFortTeamPage: 'attack',
   rallyFortDowngrade: true,
   rallyFortUsePotion: false,
+  rallyFortMarauder: false,
   rallyFortFallbackTeam: false,
   rallyFortFallbackTeamNum: 2,
   rallyFortFallbackTroopType: 'any',

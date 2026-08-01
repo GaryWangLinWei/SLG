@@ -63,7 +63,8 @@ const SELECT_TEAM_BUTTON = { x: 1259, y: 180 };
 const WORLD_SWITCH_BUTTON_RECT = { x1: 39, y1: 776, x2: 115, y2: 858 };
 const SEARCH_ENTRY_RECT = { x1: 42, y1: 645, x2: 110, y2: 704 };
 const BARBARIAN_BUTTON_RECT = { x1: 269, y1: 749, x2: 370, y2: 844 };
-const FORT_TAB_RECT = { x1: 347, y1: 276, x2: 576, y2: 313 };
+// 劫掠者城寨页签（dev 选项勾选后用这个坐标）
+const MARAUDER_TAB_POINT = { x: 474, y: 300 };
 const FORT_MINUS_RECT = { x1: 102, y1: 467, x2: 137, y2: 501 };
 const FORT_PLUS_RECT = { x1: 539, y1: 467, x2: 576, y2: 501 };
 const FORT_SEARCH_ACTION_RECT = { x1: 244, y1: 561, x2: 436, y2: 626 };
@@ -158,7 +159,8 @@ export async function rallyFort(
   troopType: 'any' | 'infantry' | 'cavalry' | 'archer' = 'any',
   fallbackTeamEnabled: boolean = false,
   fallbackTeamNum: number = 2,
-  fallbackTroopType: 'any' | 'infantry' | 'cavalry' | 'archer' = 'any'
+  fallbackTroopType: 'any' | 'infantry' | 'cavalry' | 'archer' = 'any',
+  marauder: boolean = false
 ): Promise<RallyFortOutcome> {
   let team = primaryTeam;
   ctx.log(`=== 自动攻打城寨 Lv.${targetLevel} 队伍${team} ===`);
@@ -181,8 +183,13 @@ export async function rallyFort(
   await ctx.sleep(1);
 
   // [4/8] 切换到城寨页签
-  ctx.log(`  [4/8] 切换到城寨页签 (${fs.fortTab.x}, ${fs.fortTab.y})`);
-  await ctx.tapRect(FORT_TAB_RECT.x1, FORT_TAB_RECT.y1, FORT_TAB_RECT.x2, FORT_TAB_RECT.y2);
+  if (marauder) {
+    ctx.log(`  [4/8] 切换到劫掠者城寨页签 (${MARAUDER_TAB_POINT.x}, ${MARAUDER_TAB_POINT.y})`);
+    await ctx.tap(MARAUDER_TAB_POINT.x, MARAUDER_TAB_POINT.y);
+  } else {
+    ctx.log(`  [4/8] 切换到野蛮人城寨页签 (${fs.fortTab.x}, ${fs.fortTab.y})`);
+    await ctx.tap(fs.fortTab.x, fs.fortTab.y);
+  }
   await ctx.sleep(1);
 
   // [5/8] 设置等级并搜索
