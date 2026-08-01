@@ -116,7 +116,7 @@ let cooldownResetSeq = 0;               // 切号后各子循环打断 CD 等待
 let pendingAccountSwitch = false;    // 切号触发 flag：per-round 每轮末尾置 true；per-time setTimeout 到点置 true
 let switchTargetIdx = 0;             // 下一个要切到的 profile 索引（0 或 1）
 let switchTimerId: ReturnType<typeof setTimeout> | null = null;
-let fortModeFallbackTimerId: ReturnType<typeof setTimeout> | null = null;  // 寨子模式兜底：切号后 15 分钟内无成功也触发切号
+let fortModeFallbackTimerId: ReturnType<typeof setTimeout> | null = null;  // 寨子模式兜底：切号后 20 分钟内无成功也触发切号
 
 // 日志聚合：loopLogs 是唯一真源；组件挂载时注册 setter，卸载时置 null。
 // 这样即使 Home 被卸载（切页/后台），日志也不会因 setter 失效而丢失。
@@ -975,10 +975,17 @@ export function HomePage() {
           pushLog(`⏳ 轮次进度 ${expected.size - missing.length}/${expected.size}，等待 [${missing.join(',')}]`);
         }
       } else if (feat.switchMode === 'fort-mode') {
-        // 寨子模式语义：rally-fort/join-rally 成功即立刻切号，不等其他慢周期任务凑齐一轮
+        // 寨子模式语义：rally-fort 成功、join-rally 成功或失败，即立刻切号，不等其他慢周期任务凑齐一轮
         // （produce-material 间隔 2~4h，若混在同一 expected 集合里等它，会永远卡住）
-        if ((source === 'rally-fort' || source === 'join-rally') && isSuccess) {
-          pushLog(`🔁 寨子模式：${source} 成功，立即触发切号`);
+        if (source === 'rally-fort' && isSuccess) {
+          pushLog(`🔁 寨子模式：rally-fort 成功，立即触发切号`);
+          pendingAccountSwitch = true;
+          scheduleFortModeFallback();
+          roundActionsDone.clear();
+          return;
+        }
+        if (source === 'join-rally') {
+          pushLog(`🔁 寨子模式：join-rally ${isSuccess ? '成功' : '失败'}，立即触发切号`);
           pendingAccountSwitch = true;
           scheduleFortModeFallback();
           roundActionsDone.clear();
