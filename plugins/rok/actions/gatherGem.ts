@@ -496,7 +496,7 @@ export async function searchAndClickGem(
     // 占用检测：全屏匹配 zhanyong.png，命中 = 已被占领
     const occupyMatch = await ctx.findImageWithLocation(ZHANYONG_TEMPLATE, 0.7);
     if (occupyMatch.found) {
-      ctx.log(`  🔄 检测到占领标识 @ (${occupyMatch.x}, ${occupyMatch.y}) confidence: ${occupyMatch.confidence.toFixed(3)}，缩地后继续螺旋`);
+      ctx.log(`  🔄 已占用：检测到占领标识 @ (${occupyMatch.x}, ${occupyMatch.y}) confidence: ${occupyMatch.confidence.toFixed(3)}，缩地后继续螺旋`);
       await zoomOutToWorld(ctx, worldBtn);
       await ctx.sleep(1);
       continue;

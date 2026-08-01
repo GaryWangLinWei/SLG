@@ -194,7 +194,7 @@ async function gatherOne(
       0.7
     );
     if (occupyMatch.found) {
-      ctx.log(`  ⚠️ (${target.x},${target.y}) 检测到占领标识 @ (${occupyMatch.x}, ${occupyMatch.y}) confidence: ${occupyMatch.confidence.toFixed(3)}，从池找下一个最近矿`);
+      ctx.log(`  ⚠️ (${target.x},${target.y}) 已占用：检测到占领标识 @ (${occupyMatch.x}, ${occupyMatch.y}) confidence: ${occupyMatch.confidence.toFixed(3)}，从池找下一个最近矿`);
       target = popNearest(poolAccountId, anchor);
       continue;
     }
