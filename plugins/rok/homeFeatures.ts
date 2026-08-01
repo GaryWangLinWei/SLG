@@ -68,6 +68,7 @@ export interface HomeFeatures {
   joinRallyUseDefaultTeam: boolean;
   produceMaterialEnabled: boolean;
   produceMaterialType: 'leather' | 'iron' | 'ebony' | 'bone';
+  claimAllianceTerritoryEnabled: boolean;
   attackDetectEnabled: boolean;
   autoShieldEnabled: boolean;
   autoSwitchAccount: boolean;
@@ -140,6 +141,7 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   joinRallyUseDefaultTeam: false,
   produceMaterialEnabled: false,
   produceMaterialType: 'leather',
+  claimAllianceTerritoryEnabled: false,
   attackDetectEnabled: false,
   autoShieldEnabled: false,
   autoSwitchAccount: false,

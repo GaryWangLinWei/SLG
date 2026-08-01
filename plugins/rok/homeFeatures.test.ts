@@ -1,4 +1,4 @@
-import { getCollectResourcesIntervalSeconds } from './homeFeatures';
+import { getCollectResourcesIntervalSeconds, DEFAULT_HOME_FEATURES } from './homeFeatures';
 
 describe('collect resources interval', () => {
   afterEach(() => {
@@ -21,5 +21,11 @@ describe('collect resources interval', () => {
     jest.spyOn(Math, 'random').mockReturnValue(0.5);
 
     expect(getCollectResourcesIntervalSeconds(Number.NaN)).toBe(240 * 60);
+  });
+});
+
+describe('claim alliance territory', () => {
+  it('defaults claimAllianceTerritoryEnabled to false', () => {
+    expect(DEFAULT_HOME_FEATURES.claimAllianceTerritoryEnabled).toBe(false);
   });
 });
