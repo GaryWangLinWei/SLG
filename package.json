@@ -1,6 +1,6 @@
 {
   "name": "rok-automation",
-  "version": "1.2.2",
+  "version": "1.2.3",
   "description": "万国觉醒自动化助手",
   "main": "dist/electron/main.js",
   "scripts": {
@@ -21,7 +21,7 @@
     "appId": "com.rok.automation",
     "productName": "ROK助手",
     "releaseInfo": {
-      "releaseNotes": "1.2.2更新内容\n修复账号调度部分情况依然失效bug"
+      "releaseNotes": "1.2.3更新内容\n1.\"自动攻打城寨\"增加备用队伍设置，主队返回途中也能发起集结。\n2.修复部分情况搜索宝石视角异常bug\n3.修复部分情况召回采集队伍的bug\n4.新增\"领取联盟领土收益\"功能"
     },
     "directories": {
       "output": "release"
