@@ -8,7 +8,6 @@ import * as fs from 'fs/promises';
 import sharp from 'sharp';
 import { ocrService } from '../../../core/ocr/OcrService';
 import { ensureTeamPage, TeamPage } from '../utils/teamPage';
-import { detectTeamStates } from '../utils/teamStateDetection';
 import { getTeamButtons } from '../utils/teamButtons';
 
 const vision = new Vision();
@@ -307,6 +306,7 @@ export function createSpiralState(config: RokConfig): SpiralState {
   };
 }
 
+const ZHANYONG_TEMPLATE = path.join(TEMPLATE_DIR, 'zhanyong.png');
 const CHENGBAO_TEMPLATE = path.join(TEMPLATE_DIR, 'icon_chengbao.png');
 const TEQUAN_TEMPLATE = path.join(TEMPLATE_DIR, 'tequan.png');
 const TEQUAN_CHECK_REGION = { x: 124, y: 60, width: 163 - 124, height: 108 - 60 };
@@ -493,20 +493,10 @@ export async function searchAndClickGem(
       continue;
     }
 
-    const caijiRegion = {
-      x: Math.max(0, verified.x! - 60),
-      y: Math.max(0, verified.y! - 60),
-      w: 120,
-      h: 120,
-    };
-    // 全屏检测后按 caijiRegion 过滤（避免 120x120 被 ONNX resize 到 640×640 拉伸漏检）
-    const allCaiji = await detectTeamStates(ctx, ['caiji']);
-    const caijiStates = allCaiji.filter(d =>
-      d.x >= caijiRegion.x && d.x <= caijiRegion.x + caijiRegion.w &&
-      d.y >= caijiRegion.y && d.y <= caijiRegion.y + caijiRegion.h
-    );
-    if (caijiStates.length > 0) {
-      ctx.log(`  🔄 二次确认位置已有队伍采集，缩地后继续螺旋`);
+    // 占用检测：全屏匹配 zhanyong.png，命中 = 已被占领
+    const occupyMatch = await ctx.findImageWithLocation(ZHANYONG_TEMPLATE, 0.7);
+    if (occupyMatch.found) {
+      ctx.log(`  🔄 检测到占领标识 @ (${occupyMatch.x}, ${occupyMatch.y}) confidence: ${occupyMatch.confidence.toFixed(3)}，缩地后继续螺旋`);
       await zoomOutToWorld(ctx, worldBtn);
       await ctx.sleep(1);
       continue;

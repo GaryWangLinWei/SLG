@@ -44,30 +44,6 @@ async function saveDebugShot(ctx: PluginContext, tag: string): Promise<void> {
   }
 }
 
-/** 调试：保存带标注的 caiji 检测截图。红框=检测到的 caiji，绿框=过滤区域 */
-async function saveCaijiDebugShot(
-  ctx: PluginContext,
-  tag: string,
-  region: { x: number; y: number; w: number; h: number },
-  caiji: Array<{ x: number; y: number; confidence: number }>
-): Promise<void> {
-  try {
-    await fs.mkdir(DEBUG_DIR, { recursive: true });
-    const buf = await ctx.getScreenshot();
-    const img = sharp(buf);
-    const meta = await img.metadata();
-    const W = meta.width ?? 1600;
-    const H = meta.height ?? 900;
-    const boxes = caiji.map(c => `<rect x="${c.x - 20}" y="${c.y - 20}" width="40" height="40" fill="none" stroke="red" stroke-width="3"/><text x="${c.x - 20}" y="${c.y - 24}" fill="red" font-size="14">${c.confidence.toFixed(2)}</text>`).join('');
-    const svg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg"><rect x="${region.x}" y="${region.y}" width="${region.w}" height="${region.h}" fill="none" stroke="lime" stroke-width="2"/>${boxes}</svg>`;
-    const out = path.join(DEBUG_DIR, `${tag}_${Date.now()}.png`);
-    await img.composite([{ input: Buffer.from(svg), top: 0, left: 0 }]).toFile(out);
-    ctx.log(`  [调试] caiji 标注截图: ${out} (框内 ${caiji.length} 个)`);
-  } catch (e) {
-    ctx.log(`  [调试] caiji 标注截图失败: ${(e as Error).message}`);
-  }
-}
-
 export interface GatherSharedGemOutcome {
   result: 'ok' | 'empty' | 'no_team';
   gathered: number;
@@ -212,30 +188,19 @@ async function gatherOne(
       continue;
     }
 
-    // caiji 占用检测：全屏检测后按 verify 坐标 ±60px 边界过滤
-    // （避免 120x120 小区域被 ONNX resize 到 640×640 拉伸导致漏检）
-    const cx = verified.x!;
-    const cy = verified.y!;
-    const caijiRegion = {
-      x: Math.max(0, cx - 60),
-      y: Math.max(0, cy - 60),
-      w: 120,
-      h: 120,
-    };
-    const allCaiji = await detectTeamStates(ctx, ['caiji']);
-    const caijiStates = allCaiji.filter(d =>
-      d.x >= caijiRegion.x && d.x <= caijiRegion.x + caijiRegion.w &&
-      d.y >= caijiRegion.y && d.y <= caijiRegion.y + caijiRegion.h
+    // 占用检测：全屏匹配 zhanyong.png，命中 = 已被占领
+    const occupyMatch = await ctx.findImageWithLocation(
+      path.join(getTemplatesDir(), 'zhanyong.png'),
+      0.7
     );
-    await saveCaijiDebugShot(ctx, caijiStates.length > 0 ? 'caiji_hit' : 'caiji_miss', caijiRegion, allCaiji);
-    if (caijiStates.length > 0) {
-      ctx.log(`  ⚠️ (${target.x},${target.y}) 宝石上检测到 caiji 状态（已被采集），从池找下一个最近矿`);
+    if (occupyMatch.found) {
+      ctx.log(`  ⚠️ (${target.x},${target.y}) 检测到占领标识 @ (${occupyMatch.x}, ${occupyMatch.y}) confidence: ${occupyMatch.confidence.toFixed(3)}，从池找下一个最近矿`);
       target = popNearest(poolAccountId, anchor);
       continue;
     }
 
-    ctx.log(`  点击二次确认后的宝石位置 (${cx}, ${cy})`);
-    await ctx.tap(cx, cy);
+    ctx.log(`  点击二次确认后的宝石位置 (${verified.x}, ${verified.y})`);
+    await ctx.tap(verified.x!, verified.y!);
     await ctx.sleep(1);
 
     const caijiResult = await ctx.findImageWithLocation(caijiBtnTemplate, 0.7);
