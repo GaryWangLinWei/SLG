@@ -123,14 +123,23 @@ export async function getCurrentLocation(ctx: PluginContext): Promise<Location> 
 }
 
 /**
- * 确保当前在城外，并重置城外视角。
+ * 确保当前在城外。
  * - 如果在城内：切换到城外
- * - 如果已在城外：点2次切换（回城→出城），重置视角到默认位置
+ * - 如果已在城外：默认点 2 次切换（回城→出城）重置视角；resetView=false 时直接返回
  */
-export async function ensureInWorld(ctx: PluginContext, config: RokConfig): Promise<void> {
+export async function ensureInWorld(
+  ctx: PluginContext,
+  config: RokConfig,
+  options?: { resetView?: boolean }
+): Promise<void> {
+  const resetView = options?.resetView ?? true;
   const { x, y } = config.resourceCollect.worldSwitchButton;
   const location = await getCurrentLocation(ctx);
   if (location === 'world') {
+    if (!resetView) {
+      ctx.log('  [位置] 已在城外，无需切换');
+      return;
+    }
     ctx.log('  [位置] 已在城外，重置视角...');
     await tapWorldSwitchButton(ctx);
     await ctx.sleep(1.5);

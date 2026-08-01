@@ -123,9 +123,9 @@ export async function gatherSingleResource(
 
   ctx.log(`>>> 采集: ${task.type} Lv.${task.level} 队伍${task.team}`);
 
-  // Step 1: Ensure in world map (智能检测当前位置，需要时才切换)
+  // Step 1: Ensure in world map (智能检测当前位置，需要时才切换；城外采集搜索面板有固定坐标入口，无需重置视角)
   ctx.log(`  [1/9] 确保在城外`);
-  await ensureInWorld(ctx, config);
+  await ensureInWorld(ctx, config, { resetView: false });
 
   // Step 2: Open search panel
   ctx.log(`  [2/9] 打开搜索面板`);
