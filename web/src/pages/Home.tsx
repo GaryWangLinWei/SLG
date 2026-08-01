@@ -1775,7 +1775,7 @@ export function HomePage() {
                 setExpiredMessage('激活码已到期，请重新激活');
                 refreshStatus();
               } else {
-                pushLog(`🏰 领取联盟领土收益 完成`);
+                pushLog(`🏴 领取联盟领土收益 完成`);
                 markRoundDone('alliance-territory');
               }
             }
@@ -3535,7 +3535,7 @@ export function HomePage() {
               {/* 领取联盟领土收益 */}
               <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0">
                 <span className="flex items-center gap-2 text-sm text-slate-700">
-                  <span className="w-6 h-6 bg-indigo-100 rounded flex items-center justify-center text-xs">🏰</span>
+                  <span className="w-6 h-6 bg-indigo-100 rounded flex items-center justify-center text-xs">🏴</span>
                   领取联盟领土收益
                   <span className="text-xs text-slate-400">· 每4小时</span>
                 </span>
