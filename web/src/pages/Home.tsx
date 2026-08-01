@@ -800,6 +800,7 @@ export function HomePage() {
       (features.joinRallyEnabled && !isFeatureLocked('joinRally')) ||
       (features.gemGatherEnabled && features.shareGemEnabled && !isFeatureLocked('shareGem')) ||
       features.produceMaterialEnabled ||
+      features.claimAllianceTerritoryEnabled ||
       features.attackDetectEnabled;
     if (!hasAnyFeature) {
       alert('请先开启至少一个功能再运行');
@@ -949,6 +950,7 @@ export function HomePage() {
       if (f.autoCaveExplore) exp.add('cave');
       if (f.gemGatherEnabled && f.shareGemEnabled && !isFeatureLocked('shareGem')) exp.add('share-gem');
       if (f.produceMaterialEnabled) exp.add('produce-material');
+      if (f.claimAllianceTerritoryEnabled) exp.add('alliance-territory');
       // gemGather 与 shareGem 互斥：勾了分享，gemLoop 会 skip，不计入 expected
       if (f.gemGatherEnabled && !isFeatureLocked('gemGather') && f.gemGatherTeams.length > 0 && !(f.shareGemEnabled && !isFeatureLocked('shareGem'))) exp.add('gem');
       if (f.upgradeBuildings || f.autoResearch || f.trainTroops) exp.add('main');
@@ -3484,6 +3486,21 @@ export function HomePage() {
                     className="sr-only" />
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.helpTeammates ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                   <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.helpTeammates ? 'translate-x-[18px]' : ''}`} />
+                </label>
+              </div>
+              {/* 领取联盟领土收益 */}
+              <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0">
+                <span className="flex items-center gap-2 text-sm text-slate-700">
+                  <span className="w-6 h-6 bg-indigo-100 rounded flex items-center justify-center text-xs">🏰</span>
+                  领取联盟领土收益
+                  <span className="text-xs text-slate-400">· 每4小时</span>
+                </span>
+                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+                  <input type="checkbox" checked={features.claimAllianceTerritoryEnabled} disabled={features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, claimAllianceTerritoryEnabled: e.target.checked })}
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.claimAllianceTerritoryEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.claimAllianceTerritoryEnabled ? 'translate-x-[18px]' : ''}`} />
                 </label>
               </div>
               {/* 自动开盾（受攻击时触发） */}
