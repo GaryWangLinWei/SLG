@@ -5,6 +5,7 @@ import { commandHandler, RemoteContext } from '../../core/remote/CommandHandler'
 import { remoteClient } from '../../core/remote/RemoteClient';
 import { StatusData } from '../../core/remote/messages';
 import { emit as emitRemoteControl, hasClients as hasRemoteControlClients } from '../routes/remoteControl';
+import { licenseService } from '../../core/license';
 
 // 远程指令到本地 action 的映射
 const ACTION_MAP: Record<string, { pluginId: string; actionId: string }> = {
@@ -62,6 +63,18 @@ class RemoteContextService implements RemoteContext {
   async startTask(name: string, params?: any): Promise<{ success: boolean; error?: string }> {
     const mapping = ACTION_MAP[name];
     if (!mapping) return { success: false, error: `未知任务: ${name}` };
+
+    // 远程 WS 链路同样要过许可校验（HTTP 侧由 licenseGuard 拦截，这里补上 WS 入口）
+    const license = await licenseService.getStatus();
+    if (!license.activated) {
+      return { success: false, error: '许可证未激活或设备不匹配' };
+    }
+    if (license.isExpired) {
+      return { success: false, error: '许可证已过期' };
+    }
+    if (license.isOffline) {
+      return { success: false, error: '许可证离线验证超时，请联网后重试' };
+    }
 
     // 远程未显式选择账号时，自动用第一个账号
     let accountId = this.defaultAccountId;

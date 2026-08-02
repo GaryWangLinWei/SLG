@@ -1,16 +1,30 @@
 import { LicenseStatus, ActivationResult, HeartbeatResult, StoredLicenseData } from './types';
 import { loadLicense, loadLicenseSync, saveLicense, clearLicense } from './LicenseStorage';
 import { generateFingerprint, verifyFingerprint, verifyFingerprintSync } from './DeviceFingerprint';
-import { evaluateLicense, computeTrustedNow } from './clockTrust';
-import { join } from 'path';
-import { homedir } from 'os';
-import { writeFileSync, mkdirSync } from 'fs';
+import { evaluateLicense, ClockReading } from './clockTrust';
+import { performance } from 'perf_hooks';
 
 // Auth server config - can be overridden by env
 const AUTH_SERVER_URL = process.env.AUTH_SERVER_URL || 'http://106.15.11.158:3456';
 
+// 离线宽限：最后一次成功心跳后，允许断网/服务端不可用的最长时间。
+// 仅用于容忍网络抖动和服务端短暂故障，到期后立即失效（不会额外宽限）。
+const GRACE_PERIOD = 12 * 60 * 60 * 1000;
+
 class LicenseService {
   private heartbeatTimer: NodeJS.Timeout | null = null;
+  // 本进程启动点：单调时钟在进程重启后归零，用它判断存储的 mono 锚点是否属于本进程
+  private readonly sessionStartWall = Date.now();
+  private readonly sessionStartMono = performance.now();
+
+  private readClock(): ClockReading {
+    return {
+      wallNow: Date.now(),
+      monoNow: performance.now(),
+      sessionStartWall: this.sessionStartWall,
+      sessionStartMono: this.sessionStartMono,
+    };
+  }
 
   async getStatus(): Promise<LicenseStatus> {
     const stored = await loadLicense();
@@ -33,8 +47,7 @@ class LicenseService {
       };
     }
 
-    const GRACE_PERIOD = 24 * 60 * 60 * 1000;
-    const evalResult = evaluateLicense(stored, Date.now(), GRACE_PERIOD);
+    const evalResult = evaluateLicense(stored, this.readClock(), GRACE_PERIOD);
 
     return {
       activated: true,
@@ -51,16 +64,17 @@ class LicenseService {
   // Synchronous license check for use in non-async callbacks (e.g. checkStop)
   getStatusSync() {
     const stored = loadLicenseSync();
-    if (!stored) return { activated: false, isExpired: true };
+    if (!stored) return { activated: false, isExpired: true, isOffline: false };
 
     if (!verifyFingerprintSync(stored.fingerprint)) {
-      return { activated: false, isExpired: true };
+      return { activated: false, isExpired: true, isOffline: false };
     }
 
-    const evalResult = evaluateLicense(stored, Date.now(), 24 * 60 * 60 * 1000);
+    const evalResult = evaluateLicense(stored, this.readClock(), GRACE_PERIOD);
     return {
       activated: true,
       isExpired: evalResult.isExpired,
+      isOffline: evalResult.isOffline,
     };
   }
 
@@ -103,6 +117,9 @@ class LicenseService {
         serverNowAt: data.serverNow ?? nowLocal,
         serverNowLocalAt: nowLocal,
         lastVerifiedAt: nowLocal,
+        // 单调时钟锚点（本进程），防墙钟冻结/精确回拨
+        monoWallAt: nowLocal,
+        monoAt: performance.now(),
       };
 
       await saveLicense(licenseData);
@@ -171,6 +188,9 @@ class LicenseService {
           serverNowLocalAt: nowLocal,
           // 回拨检测用本地时间域（与 getStatus 中的 Date.now() 同域）
           lastVerifiedAt: nowLocal,
+          // 单调时钟锚点（本进程），每次成功心跳刷新，防墙钟冻结/精确回拨
+          monoWallAt: nowLocal,
+          monoAt: performance.now(),
           ...(updatedTier ? { tier: updatedTier } : {}),
         });
         return { success: true, isOffline: false, expiresAt: updatedExpiresAt, serverNow };
@@ -211,14 +231,8 @@ class LicenseService {
   }
 
   async init(): Promise<void> {
-    // 将设备指纹写入 ~/.slg-automation/设备指纹.txt，方便用户排查问题
-    try {
-      const fingerprint = await generateFingerprint();
-      const dir = join(homedir(), '.slg-automation');
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, '设备指纹.txt'), `设备指纹: ${fingerprint}\n此文件由程序自动生成，请勿修改\n`);
-    } catch { /* 写入失败不影响正常使用 */ }
-
+    // 不再将设备指纹明文落盘：指纹是解密 license.json 的密钥来源，
+    // 明文写入 设备指纹.txt 会让本机用户能直接解密并篡改 expiresAt。
     const status = await this.getStatus();
     if (status.activated && !status.isExpired) {
       await this.heartbeat().catch(() => {});

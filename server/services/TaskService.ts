@@ -150,12 +150,17 @@ class TaskService {
         throw new Error('Task stopped by user');
       }
 
-      // Check license expiration on every action tick
+      // Check license on every action tick
       const licenseStatus = licenseService.getStatusSync();
       if (licenseStatus.activated && licenseStatus.isExpired) {
         task.stopRequested = true;
         task.logs.push(`[${new Date().toLocaleTimeString()}] 许可证已过期，自动停止`);
         throw new Error('License expired, task auto-stopped');
+      }
+      if (licenseStatus.activated && licenseStatus.isOffline) {
+        task.stopRequested = true;
+        task.logs.push(`[${new Date().toLocaleTimeString()}] 许可证离线验证超时，请联网后重试`);
+        throw new Error('License offline grace expired, task auto-stopped');
       }
     };
 

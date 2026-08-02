@@ -49,6 +49,10 @@ export interface StoredLicenseData {
   serverNowAt?: number;
   /** 最后一次成功心跳时的本地墙钟（ms） */
   serverNowLocalAt?: number;
-  /** 最后一次可信验证时间（ms，单调下限，用于时钟回拨检测） */
+  /** 最后一次可信验证时间（ms，本地时间域，用于时钟回拨检测） */
   lastVerifiedAt?: number;
+  /** 锚点建立时的本地墙钟（ms），用于判断 mono 锚点是否属于本进程 */
+  monoWallAt?: number;
+  /** 锚点建立时的单调时钟读数（ms），用于防墙钟冻结 */
+  monoAt?: number;
 }
