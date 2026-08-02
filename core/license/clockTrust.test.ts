@@ -124,6 +124,29 @@ describe('evaluateLicense (单调时钟)', () => {
     expect(r.isExpired).toBe(false);
   });
 
+  test('极老数据缺 serverNowLocalAt（只有 lastHeartbeatAt）→ 用 lastHeartbeatAt 兜底，冻结墙钟仍判离线', () => {
+    // 模拟 clockTrust 引入之前激活的许可证：没有 serverNowAt/serverNowLocalAt/lastVerifiedAt，
+    // 只有 lastHeartbeatAt（25h 前）。攻击者在锚点时刻启动进程并冻结墙钟，
+    // 但本进程 mono 已真实流逝 25h（超过 24h 测试宽限）。
+    const anchor = NOW - 25 * HOUR;
+    const frozenClock: ClockReading = {
+      wallNow: anchor,            // 墙钟冻结在心跳时刻
+      monoNow: 25 * HOUR,         // 进程真实运行了 25h
+      sessionStartWall: anchor,   // 进程就在锚点时刻启动
+      sessionStartMono: 0,
+    };
+    const r = evaluateLicense(
+      {
+        expiresAt: NOW + 30 * DAY,
+        lastHeartbeatAt: anchor,
+      } as any,
+      frozenClock,
+      GRACE
+    );
+    expect(r.isOffline).toBe(true);
+    expect(r.isExpired).toBe(false);
+  });
+
   test('老数据无 mono 锚点（上个进程留下）→ 用迁移基线接续，不失效', () => {
     // 锚点早于本进程启动（3h 前的心跳），进程已运行 2h，墙钟正常走到 NOW
     const r = evaluateLicense(

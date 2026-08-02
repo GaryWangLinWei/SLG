@@ -33,6 +33,8 @@ export interface ClockAnchor {
   serverNowLocalAt?: number;
   /** 最后一次可信验证时间（ms，本地时间域；老数据兜底） */
   lastVerifiedAt?: number;
+  /** 最后一次心跳时间（ms，本地时间域；极老数据兜底） */
+  lastHeartbeatAt?: number;
   /** 锚点建立时的本地墙钟（ms），用于判断 mono 是否属于本进程 */
   monoWallAt?: number;
   /** 锚点建立时的单调时钟读数（ms） */
@@ -52,8 +54,21 @@ export interface LicenseEvalResult {
  * 计算锚点之后可信的流逝毫秒数。
  * 取墙钟流逝与单调流逝的较大值，防墙钟冻结/回拨。
  */
+/**
+ * 解析本地墙钟锚点：优先级 serverNowLocalAt → lastVerifiedAt → lastHeartbeatAt。
+ * 极老数据（clockTrust 引入前激活）可能只有 lastHeartbeatAt，用它兜底避免
+ * 首次心跳前 elapsed 恒为 0、离线宽限不生效。
+ */
+export function getLocalAnchor(anchor: ClockAnchor): number | undefined {
+  if (typeof anchor.serverNowLocalAt === 'number') return anchor.serverNowLocalAt;
+  if (typeof anchor.lastVerifiedAt === 'number') return anchor.lastVerifiedAt;
+  if (typeof anchor.lastHeartbeatAt === 'number') return anchor.lastHeartbeatAt;
+  return undefined;
+}
+
 export function computeElapsed(anchor: ClockAnchor, clock: ClockReading): number {
-  if (typeof anchor.serverNowLocalAt !== 'number') return 0;
+  const localAnchor = getLocalAnchor(anchor);
+  if (typeof localAnchor !== 'number') return 0;
 
   // 情况 1：mono 锚点属于本进程（锚点建立在本进程启动之后）。
   // 直接用本进程 mono 差值，墙钟冻结/回拨也不影响。
@@ -64,7 +79,7 @@ export function computeElapsed(anchor: ClockAnchor, clock: ClockReading): number
   ) {
     const monoElapsed = clock.monoNow - anchor.monoAt;
     // 同时参考墙钟，取较大值（前拨墙钟只会更快到期，无害）。
-    const wallElapsed = clock.wallNow - anchor.serverNowLocalAt;
+    const wallElapsed = clock.wallNow - localAnchor;
     return Math.max(monoElapsed, wallElapsed, 0);
   }
 
@@ -73,11 +88,11 @@ export function computeElapsed(anchor: ClockAnchor, clock: ClockReading): number
   //   elapsed = 锚点 → 本进程启动（墙钟流逝，钳到 0 防重启间隙回拨）
   //           + 本进程启动 → 现在（本进程 mono 流逝，冻结墙钟也守得住）
   // 这样"跨会话冻结"攻击中本进程已真实运行的时间不会被清零。
-  const preSessionWall = Math.max(0, clock.sessionStartWall - anchor.serverNowLocalAt);
+  const preSessionWall = Math.max(0, clock.sessionStartWall - localAnchor);
   const inSessionMono = clock.monoNow - clock.sessionStartMono;
   const migrated = preSessionWall + inSessionMono;
 
-  const wallElapsed = clock.wallNow - anchor.serverNowLocalAt;
+  const wallElapsed = clock.wallNow - localAnchor;
   return Math.max(migrated, wallElapsed, 0);
 }
 
@@ -119,10 +134,7 @@ export function evaluateLicense(
 
   // 回拨检测：本地墙钟不得早于锚点墙钟超过容差。
   // 注意：即便这里没触发（精确回拨到锚点），单调时钟仍会让宽限照常流逝。
-  const localAnchor =
-    typeof stored.serverNowLocalAt === 'number'
-      ? stored.serverNowLocalAt
-      : stored.lastVerifiedAt;
+  const localAnchor = getLocalAnchor(stored);
   let clockRollback = false;
   if (
     typeof localAnchor === 'number' &&
