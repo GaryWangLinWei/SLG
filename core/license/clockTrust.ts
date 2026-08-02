@@ -53,22 +53,32 @@ export interface LicenseEvalResult {
  * 取墙钟流逝与单调流逝的较大值，防墙钟冻结/回拨。
  */
 export function computeElapsed(anchor: ClockAnchor, clock: ClockReading): number {
-  const wallElapsed =
-    typeof anchor.serverNowLocalAt === 'number'
-      ? clock.wallNow - anchor.serverNowLocalAt
-      : 0;
+  if (typeof anchor.serverNowLocalAt !== 'number') return 0;
 
-  // mono 锚点仅在属于本进程时才可信（锚点墙钟不早于本进程启动墙钟）
-  let monoElapsed = 0;
+  // 情况 1：mono 锚点属于本进程（锚点建立在本进程启动之后）。
+  // 直接用本进程 mono 差值，墙钟冻结/回拨也不影响。
   if (
     typeof anchor.monoAt === 'number' &&
     typeof anchor.monoWallAt === 'number' &&
     anchor.monoWallAt >= clock.sessionStartWall - CLOCK_SKEW_TOLERANCE_MS
   ) {
-    monoElapsed = clock.monoNow - anchor.monoAt;
+    const monoElapsed = clock.monoNow - anchor.monoAt;
+    // 同时参考墙钟，取较大值（前拨墙钟只会更快到期，无害）。
+    const wallElapsed = clock.wallNow - anchor.serverNowLocalAt;
+    return Math.max(monoElapsed, wallElapsed, 0);
   }
 
-  return Math.max(wallElapsed, monoElapsed, 0);
+  // 情况 2：mono 锚点来自上个进程（或老数据无锚点）。
+  // 把本进程启动点作为新基线迁移：
+  //   elapsed = 锚点 → 本进程启动（墙钟流逝，钳到 0 防重启间隙回拨）
+  //           + 本进程启动 → 现在（本进程 mono 流逝，冻结墙钟也守得住）
+  // 这样"跨会话冻结"攻击中本进程已真实运行的时间不会被清零。
+  const preSessionWall = Math.max(0, clock.sessionStartWall - anchor.serverNowLocalAt);
+  const inSessionMono = clock.monoNow - clock.sessionStartMono;
+  const migrated = preSessionWall + inSessionMono;
+
+  const wallElapsed = clock.wallNow - anchor.serverNowLocalAt;
+  return Math.max(migrated, wallElapsed, 0);
 }
 
 /**

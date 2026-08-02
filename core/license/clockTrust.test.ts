@@ -124,20 +124,23 @@ describe('evaluateLicense (单调时钟)', () => {
     expect(r.isExpired).toBe(false);
   });
 
-  test('老数据无 mono 锚点 → 回退墙钟逻辑，不失效', () => {
+  test('老数据无 mono 锚点（上个进程留下）→ 用迁移基线接续，不失效', () => {
+    // 锚点早于本进程启动（3h 前的心跳），进程已运行 2h，墙钟正常走到 NOW
     const r = evaluateLicense(
       {
         expiresAt: NOW + 3 * DAY,
-        serverNowAt: NOW - HOUR,
-        serverNowLocalAt: NOW - HOUR,
-        lastVerifiedAt: NOW - HOUR,
+        serverNowAt: NOW - 3 * HOUR,
+        serverNowLocalAt: NOW - 3 * HOUR,
+        lastVerifiedAt: NOW - 3 * HOUR,
       },
       reading(NOW, 2 * HOUR),
       GRACE
     );
     expect(r.activated).toBe(true);
     expect(r.isExpired).toBe(false);
+    // preSessionWall(1h) + inSessionMono(2h) = 3h，与墙钟流逝一致
     expect(r.trustedNow).toBe(NOW);
+    expect(r.isOffline).toBe(false);
   });
 
   test('跨进程重启：mono 锚点来自上个进程 → 忽略 mono，用墙钟接续但不判篡改', () => {
@@ -156,6 +159,26 @@ describe('evaluateLicense (单调时钟)', () => {
     );
     // 不能因为 mono 读数看起来"倒退"而误判；正常用墙钟接续
     expect(r.clockRollback).toBe(false);
+    expect(r.isExpired).toBe(false);
+  });
+
+  test('跨会话冻结攻击：回拨到上个会话锚点并冻结、断网 10 天 → 仍应判离线', () => {
+    // 上个会话最后心跳：墙钟 = 锚点 = NOW-3h（早于本进程启动 NOW-2h）
+    // 攻击者把墙钟回拨到该锚点并冻结，但本进程已真实运行 10 天（mono=10天）
+    const TEN_DAYS = 10 * DAY;
+    const r = evaluateLicense(
+      {
+        expiresAt: NOW + 30 * DAY, // 远未到期，排除到期因素
+        serverNowAt: NOW - 3 * HOUR,
+        serverNowLocalAt: NOW - 3 * HOUR,
+        lastVerifiedAt: NOW - 3 * HOUR,
+        monoWallAt: NOW - 3 * HOUR, // 上个进程的锚点
+        monoAt: 5 * HOUR,
+      },
+      reading(NOW - 3 * HOUR, TEN_DAYS), // wall 冻结在锚点，mono 走了 10 天
+      GRACE
+    );
+    expect(r.isOffline).toBe(true);
     expect(r.isExpired).toBe(false);
   });
 });
