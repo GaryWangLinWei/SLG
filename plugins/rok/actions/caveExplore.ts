@@ -2,9 +2,7 @@ import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
 import { resetCityView, swipeBuildingToCenter } from '../utils/location';
 import { getTemplatesDir } from '../../../core/resourcePath';
-import { ocrService } from '../../../core/ocr/OcrService';
 import * as path from 'path';
-import * as fs from 'fs/promises';
 import sharp from 'sharp';
 
 const TEMPLATE_DIR = getTemplatesDir();
@@ -22,20 +20,10 @@ const CLOSE_SCOUT = { x: 1365, y: 109 };
 // 山洞页签
 const CAVE_TAB = { x: 940, y: 267 };
 
-// OCR 区域：3 个山洞坐标显示位置
-const CAVE_OCR_REGIONS = [
-  { id: 1, x: 286, y: 457, width: 144, height: 33, cx: 358, cy: 473 },
-  { id: 2, x: 286, y: 612, width: 144, height: 44, cx: 358, cy: 634 },
-];
-
 // 调查按钮
 const INVESTIGATE_BTN = { x: 1141, y: 596 };
 
-export type CaveExploreResult = 'success' | 'no_scout_button' | 'no_idle_scout';
-
-// 持久化的已探索山洞集合（整个进程共享）
-const globalExploredSet = new Set<string>();
-let globalInitialized = false;
+export type CaveExploreResult = 'success' | 'no_scout_button' | 'no_idle_scout' | 'no_cave';
 
 export async function caveExplore(
   ctx: PluginContext,
@@ -50,15 +38,12 @@ export async function caveExplore(
 
   ctx.log(`=== 开始山洞探索 ===`);
 
-  globalInitialized = true;
-  const exploredSet = globalExploredSet;
-  ctx.log(`  当前已记录山洞数: ${exploredSet.size} 个`);
-
   const popScoutTemplate = path.join(TEMPLATE_DIR, 'pop_zhenChaBtn.png');
   const chihouIdleTemplate = path.join(TEMPLATE_DIR, 'chihou_idle.png');
   const chihouBackTemplate = path.join(TEMPLATE_DIR, 'chihou_back.png');
   const chihouZhuzhaTemplate = path.join(TEMPLATE_DIR, 'chihou_zhuzha.png');
   const btnExploreTemplate = path.join(TEMPLATE_DIR, 'btn_explore.png');
+  const btnGoToCaveTemplate = path.join(TEMPLATE_DIR, 'btn_gotocave.png');
 
   // 预加载模板尺寸
   const idleMeta = await sharp(chihouIdleTemplate).metadata();
@@ -145,66 +130,34 @@ export async function caveExplore(
     await ctx.sleep(1);
 
     // ============================================
-    // 第 7 步: OCR 识别山洞坐标
+    // 第 7 步: 全屏识别所有"前往"按钮，按可用斥候数选择
+    // 可用斥候=3 → 最上面的按钮；=2 → 第二上面；=1 → 最下面
+    // （前往按钮按 y 升序排列，最上面在前）
     // ============================================
-    ctx.log('[7/10] 识别山洞坐标...');
-    let tappedCave = false;
-    let anyOcrMatch = false;
-    let currentCaveCoord: string | null = null; // 暂存当前山洞坐标，派遣成功后记录
+    ctx.log('[7/10] 全屏识别前往按钮...');
 
-    for (const region of CAVE_OCR_REGIONS) {
-      const regionPath = await ctx.captureRegion(region.x, region.y, region.width, region.height);
+    // 按 y 升序排列（最上面在前）
+    const gotoMatches = (await ctx.findAllImages(btnGoToCaveTemplate, 0.7))
+      .sort((a, b) => a.y - b.y);
+    ctx.log(`  识别到 ${gotoMatches.length} 个前往按钮，可用斥候 ${idleTotal} 个`);
 
-      try {
-        const rawText = await ocrService.readCaveCoordinates(regionPath);
-        ctx.log(`  区域${region.id} OCR: "${rawText}"`);
-
-        // 直接提取纯数字串（去除所有非数字字符）作为去重 key
-        const coordKey = rawText.replace(/\D/g, '');
-        if (coordKey) {
-          anyOcrMatch = true;
-          if (exploredSet.has(coordKey)) {
-            ctx.log(`  山洞 ${coordKey} 已探索，跳过`);
-          } else {
-            exploredSet.add(coordKey);
-            currentCaveCoord = coordKey;
-            ctx.log(`  新山洞 ${coordKey}，点击区域${region.id}中心 (${region.cx}, ${region.cy})`);
-            await ctx.tap(region.cx, region.cy);
-            tappedCave = true;
-            await fs.unlink(regionPath).catch(() => {});
-            break;
-          }
-        } else {
-          ctx.log(`  区域${region.id} 未识别到坐标格式`);
-        }
-      } catch (e: any) {
-        ctx.log(`  区域${region.id} OCR 异常: ${e.message}`);
-      }
-
-      await fs.unlink(regionPath).catch(() => {});
+    if (gotoMatches.length === 0) {
+      ctx.log('  ⚠️ 未识别到前往按钮，无可探索山洞，关闭界面');
+      await ctx.tap(CLOSE_SCOUT.x, CLOSE_SCOUT.y);
+      await ctx.sleep(1);
+      ctx.log(`=== 山洞探索完成 (无可探索山洞) ===`);
+      return 'no_cave';
     }
 
-    if (!tappedCave) {
-      // 前两个山洞都已探索，前往固定位置的第三个山洞
-      if (anyOcrMatch) {
-        ctx.log(`  前2个山洞已探索，前往第三个山洞 (1235, 743)`);
-        currentCaveCoord = 'FIXED_1235_743';
-        await ctx.tap(1235, 743);
-        tappedCave = true;
-      } else {
-        ctx.log('  所有山洞已探索或 OCR 识别失败');
-        if (idleTotal > 1) {
-          // 还有剩余闲置斥候，继续下一轮
-          ctx.log(`  剩余 ${idleTotal - 1} 个闲置斥候，继续...`);
-          continue;
-        }
-        ctx.log('  无更多闲置斥候');
-        await ctx.tap(CLOSE_SCOUT.x, CLOSE_SCOUT.y);
-        await ctx.sleep(1);
-        ctx.log(`=== 山洞探索完成 ===`);
-        return 'success';
-      }
-    }
+    // 按 y 升序（最上面在前）：
+    // 3 个斥候 → 最上面(index 0)；2 个 → 第二上面(index 1)；1 个 → 最下面(index length-1)
+    let pickIndex: number;
+    if (idleTotal >= 3) pickIndex = 0;
+    else if (idleTotal === 2) pickIndex = 1;
+    else pickIndex = gotoMatches.length - 1;
+    const target = gotoMatches[pickIndex] ?? gotoMatches[gotoMatches.length - 1];
+    ctx.log(`  选择第 ${pickIndex + 1} 个前往按钮 (${target.x}, ${target.y})，可用斥候 ${idleTotal}`);
+    await ctx.tap(target.x, target.y);
     await ctx.sleep(2.5);
 
     // ============================================
@@ -231,11 +184,6 @@ export async function caveExplore(
     await ctx.tap(exploreBtn.x, exploreBtn.y);
     await ctx.sleep(1);
 
-    // 派遣成功，记录山洞坐标到内存（去重用）
-    if (currentCaveCoord) {
-      ctx.log(`  已记录山洞: ${currentCaveCoord}`);
-    }
-
     // ============================================
     // 第 10 步: 判断是否继续
     // ============================================
@@ -251,10 +199,9 @@ export async function caveExplore(
 }
 
 /**
- * 重置山洞探索状态（清空已记录的山洞）
- * 用户点击「结束」后再点击「开始」时调用
+ * 重置山洞探索状态。
+ * 改为按"前往"按钮位置选洞后无内部状态，保留空实现以兼容前端 action 调用。
  */
 export function resetCaveExploreState(): void {
-  globalExploredSet.clear();
-  globalInitialized = false;
+  // no-op
 }
