@@ -1487,6 +1487,7 @@ export function HomePage() {
           if (featuresRef.current.autoExplore && !featuresRef.current.autoWorldChat) {
             if (!buildingOptions.includes('斥候营地')) {
               pushLog(`⚠️ 未标记斥候营地位置，跳过迷雾探索`);
+              markRoundDone('explore');
             } else {
               if (!await acquireLock()) continue;
               if (offlineActive) { releaseLock(); await sleep(30); continue; }
@@ -1537,6 +1538,7 @@ export function HomePage() {
           if (featuresRef.current.autoCaveExplore && !featuresRef.current.autoWorldChat) {
             if (!buildingOptions.includes('斥候营地')) {
               pushLog(`⚠️ 未标记斥候营地位置，跳过山洞探索`);
+              markRoundDone('cave');
             } else {
               if (!await acquireLock()) continue;
               if (offlineActive) { releaseLock(); await sleep(30); continue; }
@@ -1731,6 +1733,7 @@ export function HomePage() {
           }
           if (!buildingOptions.includes('铁匠铺')) {
             pushLog(`⚠️ 未标记铁匠铺位置，跳过生产装备材料`);
+            markRoundDone('produce-material');
           } else {
             if (!await acquireLock()) continue;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
