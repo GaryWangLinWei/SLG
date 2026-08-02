@@ -3,6 +3,9 @@ import { loadLicense, loadLicenseSync, saveLicense, clearLicense } from './Licen
 import { generateFingerprint, verifyFingerprint, verifyFingerprintSync } from './DeviceFingerprint';
 import { evaluateLicense, ClockReading } from './clockTrust';
 import { performance } from 'perf_hooks';
+import { existsSync, unlinkSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
 
 // Auth server config - can be overridden by env
 const AUTH_SERVER_URL = process.env.AUTH_SERVER_URL || 'http://106.15.11.158:3456';
@@ -231,8 +234,13 @@ class LicenseService {
   }
 
   async init(): Promise<void> {
-    // 不再将设备指纹明文落盘：指纹是解密 license.json 的密钥来源，
-    // 明文写入 设备指纹.txt 会让本机用户能直接解密并篡改 expiresAt。
+    // 清理历史版本明文落盘的设备指纹文件。
+    // 指纹是解密 license.json 的密钥来源，明文存放会让本机用户能直接解密并篡改。
+    try {
+      const legacyFile = join(homedir(), '.slg-automation', '设备指纹.txt');
+      if (existsSync(legacyFile)) unlinkSync(legacyFile);
+    } catch { /* 删除失败不影响正常使用 */ }
+
     const status = await this.getStatus();
     if (status.activated && !status.isExpired) {
       await this.heartbeat().catch(() => {});
