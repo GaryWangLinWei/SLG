@@ -32,6 +32,29 @@ http://106.15.11.158:3456/health
 ```
 正常返回 `{"status":"ok"}`。
 
+## 管理员密钥管理
+
+- 密钥存放：VPS `/root/.slg-auth.env`（内容为 `ADMIN_KEY=<值>`，`chmod 600`，仅 root 可读）
+- 加载方式：`start.sh` 通过 `set -a; source /root/.slg-auth.env; set +a` 注入环境变量；**禁止把密钥写进 start.sh 或任何 git 仓库文件**
+- 轮换流程：
+  1. 生成新密钥（32 字节随机 hex，如 `openssl rand -hex 32`）
+  2. 写入 VPS：`ssh root@106.15.11.158 "printf 'ADMIN_KEY=%s\n' '<新密钥>' > /root/.slg-auth.env && chmod 600 /root/.slg-auth.env"`
+  3. 重启：`ssh root@106.15.11.158 "pm2 restart slg-auth"`
+  4. 验证：旧密钥请求 `/api/admin/stats` 返回 403，新密钥返回 200
+- 密钥一旦出现在聊天记录、日志或其他非授权可见处，立即按上述流程轮换
+
+## JWT 密钥管理
+
+- 存放：`/root/.slg-auth.env` 中的 `JWT_SECRET`（当前）与 `JWT_SECRET_LEGACY`（过渡期旧密钥）
+- 当前为双密钥过渡态：激活/新 token 用 `JWT_SECRET` 签发；心跳校验先试新密钥、失败再试 `JWT_SECRET_LEGACY`，**存量用户 token 不失效，无需重新激活**
+- 轮换流程（零用户影响）：
+  1. 生成新密钥：`openssl rand -hex 32`
+  2. 把当前 `JWT_SECRET` 的值移到 `JWT_SECRET_LEGACY`，新值写入 `JWT_SECRET`：`ssh root@106.15.11.158 "printf 'JWT_SECRET=%s\nJWT_SECRET_LEGACY=%s\n' '<新值>' '<旧值>' >> /root/.slg-auth.env"`（先核对 .env 现有内容，避免重复追加）
+  3. 上传更新后的 `config.ts`、`services/HeartbeatService.ts`（生产跑 ts-node 源码），`pm2 restart slg-auth`
+  4. 验证：新激活→心跳 200；用旧密钥签发的 token 心跳 200
+- **不要直接替换 JWT_SECRET 单密钥重启**：所有现存 token 立即失效，用户下次心跳 401 会清空本地许可、全部被迫重新激活
+- 过渡期结束后（旧 token 全部过期，最长 1 年）可删除 `JWT_SECRET_LEGACY` 并去掉 verify 回退
+
 ## 发布新版本（server-auth 后端）
 
 ### 1. 修改版本号
