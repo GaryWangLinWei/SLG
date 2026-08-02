@@ -11,13 +11,30 @@ export interface HeartbeatResult {
   error?: string;
 }
 
+/**
+ * 带轮换支持的 JWT 校验：先试主密钥，失败再试旧密钥（过渡期）。
+ * 全部失败时抛出主密钥校验的原始错误。
+ */
+export function verifyTokenWithRotation(token: string, primary: string, legacy?: string): { codeId: number } {
+  try {
+    return jwt.verify(token, primary) as { codeId: number };
+  } catch (e) {
+    if (legacy && legacy !== primary) {
+      try {
+        return jwt.verify(token, legacy) as { codeId: number };
+      } catch { /* 保持抛出主密钥错误 */ }
+    }
+    throw e;
+  }
+}
+
 export function verifyAndHeartbeat(token: string, deviceFingerprint: string, ip?: string): HeartbeatResult {
   const db = getDb();
   const now = Date.now();
 
   try {
     // Verify JWT
-    const decoded = jwt.verify(token, CONFIG.JWT_SECRET) as any;
+    const decoded = verifyTokenWithRotation(token, CONFIG.JWT_SECRET, CONFIG.JWT_SECRET_LEGACY || undefined) as any;
     const codeId = decoded.codeId;
 
     // Get activation code
