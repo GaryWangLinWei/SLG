@@ -28,6 +28,8 @@ import { checkGameRunning } from './actions/checkGameRunning';
 import { checkAttack } from './actions/checkAttack';
 import { autoShield } from './actions/autoShield';
 import { switchAccount } from './actions/switchAccount';
+import { switchLinkedRole } from './actions/switchLinkedRole';
+import { resolveSwitchKind } from './actions/switchAccountKind';
 import { ensureInCity, ensureBottomBarCollapsed, ensureNoPopupBlocking } from './utils/location';
 import { TeamPage } from './utils/teamPage';
 import { ocrService } from '../../core/ocr/OcrService';
@@ -936,14 +938,24 @@ export const RiseOfKingdomsPlugin: Plugin = {
     {
       id: 'switch-account',
       name: '切换账号',
-      description: '通过用户中心切换到指定编号的游戏账号',
+      description: '切换游戏账号，或在同一账号下切换连体号角色',
       run: async (ctx, params) => {
-        const targetName = params?.targetName as string | undefined;
-        if (!targetName) {
-          ctx.log('❌ 未提供 targetName');
-          return;
+        const currentName = (params?.currentName as string) ?? '';
+        const currentType = ((params?.currentType as 'account' | 'linked') ?? 'account');
+        const targetName = (params?.targetName as string) ?? '';
+        const targetType = ((params?.targetType as 'account' | 'linked') ?? 'account');
+
+        const decision = resolveSwitchKind({ currentName, currentType, targetName, targetType });
+        let result: string;
+        if (decision.kind === 'linked') {
+          result = await switchLinkedRole(ctx, decision.direction);
+        } else {
+          if (!targetName) {
+            ctx.log('❌ 未提供 targetName');
+            return;
+          }
+          result = await switchAccount(ctx, targetName);
         }
-        const result = await switchAccount(ctx, targetName);
         ctx.log(`切换账号: ${result}`);
       }
     },
