@@ -170,7 +170,8 @@ export interface RokConfig {
   };
 
   accountSwitch: {
-    accountName: string;   // 账号编号，如 "241872258"，空 = 不参与切号
+    accountName: string;   // 账号编号，连体号填主号相同的编号
+    targetType: 'account' | 'linked';  // account=常规主号，linked=连体号
   };
   homeFeatures?: HomeFeatures;
 }
@@ -322,6 +323,7 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
 
   accountSwitch: {
     accountName: '',
+    targetType: 'account',
   },
   homeFeatures: DEFAULT_HOME_FEATURES,
 };
