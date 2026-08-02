@@ -11,6 +11,7 @@ export interface LicenseStatus {
   tier?: 'basic' | 'pro';
   fingerprintMismatch?: boolean;
   storedFingerprint?: string;
+  clockRollback?: boolean; // 检测到本地时钟回拨
 }
 
 interface LicenseContextType {

@@ -1,6 +1,7 @@
 import { LicenseStatus, ActivationResult, HeartbeatResult, StoredLicenseData } from './types';
 import { loadLicense, loadLicenseSync, saveLicense, clearLicense } from './LicenseStorage';
 import { generateFingerprint, verifyFingerprint, verifyFingerprintSync } from './DeviceFingerprint';
+import { evaluateLicense, computeTrustedNow } from './clockTrust';
 import { join } from 'path';
 import { homedir } from 'os';
 import { writeFileSync, mkdirSync } from 'fs';
@@ -32,20 +33,16 @@ class LicenseService {
       };
     }
 
-    const now = Date.now();
-    const isExpired = now > stored.expiresAt;
-
     const GRACE_PERIOD = 24 * 60 * 60 * 1000;
-    const timeSinceHeartbeat = now - stored.lastHeartbeatAt;
-    const isOffline = timeSinceHeartbeat > GRACE_PERIOD;
-    const graceRemainingMs = Math.max(0, GRACE_PERIOD - timeSinceHeartbeat);
+    const evalResult = evaluateLicense(stored, Date.now(), GRACE_PERIOD);
 
     return {
       activated: true,
       expiresAt: stored.expiresAt,
-      isExpired,
-      isOffline: isExpired ? false : isOffline,
-      graceRemainingMinutes: isOffline ? 0 : Math.ceil(graceRemainingMs / 60000),
+      isExpired: evalResult.isExpired,
+      isOffline: evalResult.isOffline,
+      clockRollback: evalResult.clockRollback,
+      graceRemainingMinutes: evalResult.isOffline ? 0 : Math.ceil(evalResult.graceRemainingMs / 60000),
       deviceFingerprint: stored.fingerprint,
       tier: stored.tier || 'basic',
     };
@@ -60,9 +57,10 @@ class LicenseService {
       return { activated: false, isExpired: true };
     }
 
+    const evalResult = evaluateLicense(stored, Date.now(), 24 * 60 * 60 * 1000);
     return {
       activated: true,
-      isExpired: Date.now() > stored.expiresAt,
+      isExpired: evalResult.isExpired,
     };
   }
 
@@ -93,13 +91,18 @@ class LicenseService {
         ? Math.max(data.expiresAt, existing.expiresAt)
         : data.expiresAt;
 
+      const nowLocal = Date.now();
       const licenseData: StoredLicenseData = {
         token: data.token,
         expiresAt: safeExpiresAt,
         fingerprint,
-        activatedAt: existing?.activatedAt || Date.now(),
-        lastHeartbeatAt: Date.now(),
+        activatedAt: existing?.activatedAt || nowLocal,
+        lastHeartbeatAt: nowLocal,
         tier: newTier,
+        // 激活响应携带服务端时间；旧服务端不返回时用本地时间兜底
+        serverNowAt: data.serverNow ?? nowLocal,
+        serverNowLocalAt: nowLocal,
+        lastVerifiedAt: nowLocal,
       };
 
       await saveLicense(licenseData);
@@ -157,11 +160,37 @@ class LicenseService {
         const updatedExpiresAt = data?.expiresAt && data.expiresAt > stored.expiresAt
           ? data.expiresAt : stored.expiresAt;
         const updatedTier = (data?.tier || data?.status?.tier) as ('basic' | 'pro') | undefined;
-        await saveLicense({ ...stored, lastHeartbeatAt: Date.now(), expiresAt: updatedExpiresAt, ...(updatedTier ? { tier: updatedTier } : {}) });
-        return { success: true, isOffline: false, expiresAt: updatedExpiresAt };
+        const nowLocal = Date.now();
+        // 服务端时间权威：以服务端返回的 serverNow 为可信时间锚点
+        const serverNow = typeof data?.serverNow === 'number' ? data.serverNow : nowLocal;
+        await saveLicense({
+          ...stored,
+          lastHeartbeatAt: nowLocal,
+          expiresAt: updatedExpiresAt,
+          serverNowAt: serverNow,
+          serverNowLocalAt: nowLocal,
+          // 回拨检测用本地时间域（与 getStatus 中的 Date.now() 同域）
+          lastVerifiedAt: nowLocal,
+          ...(updatedTier ? { tier: updatedTier } : {}),
+        });
+        return { success: true, isOffline: false, expiresAt: updatedExpiresAt, serverNow };
       }
 
-      return { success: false, isOffline: false, error: (await response.json() as any).error || '心跳验证失败' };
+      // 只有服务端明确以 401 拒绝（过期/无效/设备不匹配）才让本地许可证失效，
+      // 这样联网时用户回拨时钟会被服务端权威结果拦下。
+      // 5xx（服务端临时故障/重启）不能清空，否则一次服务器抖动就把所有用户踢下线。
+      let errMsg = '心跳验证失败';
+      try {
+        const errData = await response.json() as any;
+        errMsg = errData?.error || errMsg;
+      } catch { /* 响应非 JSON */ }
+
+      if (response.status === 401) {
+        await clearLicense();
+        return { success: false, isOffline: false, error: errMsg };
+      }
+      // 5xx / 其他非预期状态：按离线处理，保留本地许可证，等下次心跳
+      return { success: false, isOffline: true, error: errMsg };
     } catch {
       return { success: false, isOffline: true, error: '离线模式 - 无法连接授权服务器' };
     }
