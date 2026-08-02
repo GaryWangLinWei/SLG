@@ -19,6 +19,8 @@ class LicenseService {
   // 本进程启动点：单调时钟在进程重启后归零，用它判断存储的 mono 锚点是否属于本进程
   private readonly sessionStartWall = Date.now();
   private readonly sessionStartMono = performance.now();
+  // 是否已有一次"时钟异常自愈心跳"在进行中，避免高频 getStatus 重复发起
+  private recoveryInProgress = false;
 
   private readClock(): ClockReading {
     return {
@@ -51,6 +53,18 @@ class LicenseService {
     }
 
     const evalResult = evaluateLicense(stored, this.readClock(), GRACE_PERIOD);
+
+    // 时钟异常自愈：检测到 clockRollback 时在后台触发一次心跳（非阻塞、去抖）。
+    // 用户运行中把系统时间调回正确后，无需等 1 小时定时心跳或重启即可解除异常。
+    // 纯后端/无人值守场景（前端未主动 syncStatus）也能自愈。
+    if (evalResult.clockRollback && !this.recoveryInProgress) {
+      this.recoveryInProgress = true;
+      this.heartbeat()
+        .catch(() => {})
+        .finally(() => {
+          this.recoveryInProgress = false;
+        });
+    }
 
     return {
       activated: true,
