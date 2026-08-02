@@ -41,6 +41,7 @@ export function ConfigPage() {
   const [clearConfirm, setClearConfirm] = useState(false);
   const [overwriteTarget, setOverwriteTarget] = useState<string | null>(null);
   const [accountSwitchName, setAccountSwitchName] = useState<string>('');
+  const [accountTargetType, setAccountTargetType] = useState<'account' | 'linked'>('account');
 
   const checkStatus = useCallback(async () => {
     if (!currentAccountId) return;
@@ -60,6 +61,7 @@ export function ConfigPage() {
           setBuildingPositions(entries.map(([name, pos]) => ({ name, x: pos.x, y: pos.y })));
         }
         setAccountSwitchName((res.config as any).accountSwitch?.accountName ?? '');
+        setAccountTargetType((res.config as any).accountSwitch?.targetType ?? 'account');
       }
     } catch { /* ignore */ }
   }, [currentAccountId]);
@@ -91,6 +93,7 @@ export function ConfigPage() {
           setBuildingPositions([]);
         }
         setAccountSwitchName((res.config as any).accountSwitch?.accountName ?? '');
+        setAccountTargetType((res.config as any).accountSwitch?.targetType ?? 'account');
         accountSwitchNameSyncedRef.current = (res.config as any).accountSwitch?.accountName ?? '';
       }
     } catch (e: any) {
@@ -175,7 +178,7 @@ export function ConfigPage() {
     const bp: Record<string, { x: number; y: number }> = {};
     positions.forEach(b => { bp[b.name] = { x: b.x, y: b.y }; });
     try {
-      await api.config.saveRokConfig(currentAccountId, { buildingPositions: bp, accountSwitch: { accountName: accountSwitchName } } as any, configName);
+      await api.config.saveRokConfig(currentAccountId, { buildingPositions: bp, accountSwitch: { accountName: accountSwitchName, targetType: accountTargetType } } as any, configName);
       setMessage('已保存');
     } catch { setMessage('保存失败'); }
   };
@@ -365,14 +368,26 @@ export function ConfigPage() {
 
         <span className="text-xs text-slate-400 ml-auto">{configNames.length}/5</span>
 
-        {/* 账号编号（与配置同一行） */}
+        {/* 账号类型 + 账号编号（与配置同一行） */}
+        <label className="text-sm text-slate-600 whitespace-nowrap ml-2">类型:</label>
+        <select
+          value={accountTargetType}
+          onChange={(e) => {
+            setAccountTargetType(e.target.value as 'account' | 'linked');
+            autoSave(buildingPositions);
+          }}
+          className="px-2 py-1 text-sm border border-slate-300 rounded"
+        >
+          <option value="account">常规账号</option>
+          <option value="linked">连体号</option>
+        </select>
         <label className="text-sm text-slate-600 whitespace-nowrap ml-2">账号编号:</label>
         <input
           type="text"
           value={accountSwitchName}
           onChange={(e) => setAccountSwitchName(e.target.value)}
           onBlur={() => autoSave(buildingPositions)}
-          placeholder="请输入"
+          placeholder={accountTargetType === 'linked' ? '填主号相同的编号' : '请输入'}
           className="px-2 py-1 text-sm border border-slate-300 rounded w-40"
         />
       </div>
