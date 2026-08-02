@@ -2676,8 +2676,10 @@ export function HomePage() {
                                   return !!np && np !== p && profileTargetTypes[np] === 'linked';
                                 });
                                 // 连体号必须有同编号的常规主号被选中
-                                const hasLinkedMaster = !isLinked || ids.some(sp =>
-                                  !!sp && sp !== p &&
+                                // 注意：必须按槽位索引 idx !== i 排除当前槽，而不是只按 profile 名 sp !== p ——
+                                // 槽 i 当前持有的另一个 profile 会在用户选择 p 时被替换，不应算作已配对的主号
+                                const hasLinkedMaster = !isLinked || ids.some((sp, idx) =>
+                                  idx !== i && !!sp &&
                                   profileTargetTypes[sp] === 'account' &&
                                   (profileAccountNames[sp] || '').trim() === accName
                                 );

@@ -61,7 +61,9 @@ export function ConfigPage() {
           setBuildingPositions(entries.map(([name, pos]) => ({ name, x: pos.x, y: pos.y })));
         }
         setAccountSwitchName((res.config as any).accountSwitch?.accountName ?? '');
-        setAccountTargetType((res.config as any).accountSwitch?.targetType ?? 'account');
+        const loadedType = (res.config as any).accountSwitch?.targetType === 'linked' ? 'linked' : 'account';
+        setAccountTargetType(loadedType);
+        accountTargetTypeSyncedRef.current = loadedType;
       }
     } catch { /* ignore */ }
   }, [currentAccountId]);
@@ -93,8 +95,10 @@ export function ConfigPage() {
           setBuildingPositions([]);
         }
         setAccountSwitchName((res.config as any).accountSwitch?.accountName ?? '');
-        setAccountTargetType((res.config as any).accountSwitch?.targetType ?? 'account');
+        const loadedType = (res.config as any).accountSwitch?.targetType === 'linked' ? 'linked' : 'account';
+        setAccountTargetType(loadedType);
         accountSwitchNameSyncedRef.current = (res.config as any).accountSwitch?.accountName ?? '';
+        accountTargetTypeSyncedRef.current = loadedType;
       }
     } catch (e: any) {
       setMessage(e.message || '切换失败');
@@ -120,6 +124,24 @@ export function ConfigPage() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountSwitchName, currentAccountId, configName]);
+
+  // 账号类型 debounce 保存：select onChange 里直接 autoSave 会闭包旧值（setState 尚未 re-render），
+  // 因此改用 effect 监听变化，停顿 600ms 后写入，与账号编号同一模式。
+  const accountTargetTypeSyncedRef = useRef<'account' | 'linked' | null>(null);
+  useEffect(() => {
+    if (!currentAccountId) return;
+    if (accountTargetTypeSyncedRef.current === null) {
+      accountTargetTypeSyncedRef.current = accountTargetType;
+      return;
+    }
+    if (accountTargetTypeSyncedRef.current === accountTargetType) return;
+    const t = setTimeout(() => {
+      autoSave(buildingPositions);
+      accountTargetTypeSyncedRef.current = accountTargetType;
+    }, 600);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountTargetType, currentAccountId, configName]);
 
   useEffect(() => {
     if (!dropdownOpen) return;
@@ -374,7 +396,6 @@ export function ConfigPage() {
           value={accountTargetType}
           onChange={(e) => {
             setAccountTargetType(e.target.value as 'account' | 'linked');
-            autoSave(buildingPositions);
           }}
           className="px-2 py-1 text-sm border border-slate-300 rounded"
         >
