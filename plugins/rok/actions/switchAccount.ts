@@ -16,6 +16,36 @@ const SWITCH_BTN = { x: 727, y: 97 };
 const DROPDOWN_BTN = { x: 994, y: 408 };
 const SURE_SWITCH_TEMPLATE = path.join(getTemplatesDir(), 'btn_sureswitch.png');
 
+/**
+ * 点击"确认登录"后的通用进城等待：等 15s → 点 TAP_REGION → 等 20s → 每 2s 轮询城内最多 60s。
+ * 常规账号切换与连体号切换共用。
+ */
+export async function waitForCityAfterLogin(ctx: PluginContext): Promise<'success' | 'switched_load_timeout'> {
+  ctx.log(`  等待 15s 进入开始界面`);
+  await ctx.sleep(15);
+
+  const tx = randInt(TAP_REGION.x1, TAP_REGION.x2);
+  const ty = randInt(TAP_REGION.y1, TAP_REGION.y2);
+  ctx.log(`  点击 (${tx}, ${ty}) 进入游戏`);
+  await ctx.tap(tx, ty);
+
+  ctx.log(`  等待 20s 加载...`);
+  await ctx.sleep(20);
+
+  ctx.log(`  每 2s 轮询进城，最多 60s`);
+  const pollStart = Date.now();
+  while (Date.now() - pollStart < 60_000) {
+    await ctx.sleep(2);
+    const loc = await getCurrentLocation(ctx);
+    if (loc === 'city') {
+      ctx.log(`  ✅ 已回到城内，切号成功`);
+      return 'success';
+    }
+  }
+  ctx.log(`  ❌ 账号已切换，但 60s 内未检测到城内界面`);
+  return 'switched_load_timeout';
+}
+
 const REGION1 = { x: 676, y: 495, w: 862 - 676, h: 520 - 495, tap: { x: 769, y: 508 } };
 const REGION2 = { x: 676, y: 569, w: 862 - 676, h: 594 - 569, tap: { x: 769, y: 582 } };
 
@@ -139,28 +169,5 @@ async function switchAccountOnce(ctx: PluginContext, targetName: string): Promis
   await ctx.tap(sureSwitch.x, sureSwitch.y);
   ctx.log(`  ✅ 已点击登录，账号切换完成；继续等待新账号进入城内`);
 
-  ctx.log(`  等待 15s 进入开始界面`);
-  await ctx.sleep(15);
-
-  const tx = randInt(TAP_REGION.x1, TAP_REGION.x2);
-  const ty = randInt(TAP_REGION.y1, TAP_REGION.y2);
-  ctx.log(`  点击 (${tx}, ${ty}) 进入游戏`);
-  await ctx.tap(tx, ty);
-
-  ctx.log(`  等待 20s 加载...`);
-  await ctx.sleep(20);
-
-  // 轮询城内 landmark 最多 60s，每 2s 一次
-  ctx.log(`  每 2s 轮询进城，最多 60s`);
-  const pollStart = Date.now();
-  while (Date.now() - pollStart < 60_000) {
-    await ctx.sleep(2);
-    const loc = await getCurrentLocation(ctx);
-    if (loc === 'city') {
-      ctx.log(`  ✅ 已回到城内，切号成功`);
-      return 'success';
-    }
-  }
-  ctx.log(`  ❌ 账号已切换，但 60s 内未检测到城内界面`);
-  return 'switched_load_timeout';
+  return await waitForCityAfterLogin(ctx);
 }
