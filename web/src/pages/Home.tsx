@@ -467,6 +467,7 @@ export function HomePage() {
   const [configNames, setConfigNames] = useState<string[]>([]);
   // 每个 profile 的账号编号，用于账号调度下拉禁用"未填编号"的选项
   const [profileAccountNames, setProfileAccountNames] = useState<Record<string, string>>({});
+  const [profileTargetTypes, setProfileTargetTypes] = useState<Record<string, 'account' | 'linked'>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -607,13 +608,16 @@ export function HomePage() {
           if (!activeConfigName) setActiveConfigName(pRes.active);
           // 拉每个 profile 的 accountSwitch.accountName 缓存到 UI
           const map: Record<string, string> = {};
+          const typeMap: Record<string, 'account' | 'linked'> = {};
           await Promise.all(pRes.profiles.map(async (p: string) => {
             try {
               const cfg = await api.config.getRokConfig(currentAccountId, p);
               map[p] = ((cfg.config as any)?.accountSwitch?.accountName || '').trim();
-            } catch { map[p] = ''; }
+              typeMap[p] = (cfg.config as any)?.accountSwitch?.targetType === 'linked' ? 'linked' : 'account';
+            } catch { map[p] = ''; typeMap[p] = 'account'; }
           }));
           setProfileAccountNames(map);
+          setProfileTargetTypes(typeMap);
         }
       } catch {}
     })();
@@ -629,13 +633,16 @@ export function HomePage() {
         if (!pRes.success) return;
         setConfigNames(pRes.profiles);
         const map: Record<string, string> = {};
+        const typeMap: Record<string, 'account' | 'linked'> = {};
         await Promise.all(pRes.profiles.map(async (p: string) => {
           try {
             const cfg = await api.config.getRokConfig(currentAccountId, p);
             map[p] = ((cfg.config as any)?.accountSwitch?.accountName || '').trim();
-          } catch { map[p] = ''; }
+            typeMap[p] = (cfg.config as any)?.accountSwitch?.targetType === 'linked' ? 'linked' : 'account';
+          } catch { map[p] = ''; typeMap[p] = 'account'; }
         }));
         setProfileAccountNames(map);
+        setProfileTargetTypes(typeMap);
       } catch {}
     };
     // 路由回到 Home 时立即刷一次
@@ -1241,14 +1248,20 @@ export function HomePage() {
           if (!await acquireLock()) { pushLog(`⏹️ 切号 acquireLock 中止（isStopped=${isStopped()}）`); break; }
           try {
             const cfgRes = await api.config.getRokConfig(currentAccountId, nextProfile);
-            const targetName = (cfgRes.config as any)?.accountSwitch?.accountName || '';
-            if (!targetName) {
+            const targetType: 'account' | 'linked' = (cfgRes.config as any)?.accountSwitch?.targetType === 'linked' ? 'linked' : 'account';
+            const targetName = ((cfgRes.config as any)?.accountSwitch?.accountName || '').trim();
+            const currentProfile = activeConfigNameRef.current;
+            const currentName = (profileAccountNames[currentProfile] || '').trim();
+            const currentType: 'account' | 'linked' = profileTargetTypes[currentProfile] ?? 'account';
+            if (targetType === 'account' && !targetName) {
               pushLog(`⚠️ profile "${nextProfile}" 未填账号编号，跳过`);
               switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
             } else {
               let ok = false;
               for (let attempt = 1; attempt <= 2 && !isStopped(); attempt++) {
-                const cr = await createTask(currentAccountId, 'com.rok.automation', 'switch-account', { targetName });
+                const cr = await createTask(currentAccountId, 'com.rok.automation', 'switch-account', {
+                  currentName, currentType, targetName, targetType,
+                });
                 if (!cr.success) break;
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, cr.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -2547,7 +2560,7 @@ export function HomePage() {
                 <span
                   role="img"
                   aria-label="账号调度说明"
-                  title="在两个账号配置方案之间自动切换。按时间轮换：到达设定时长后切号；按轮次轮换：完成设定轮数后切号；寨子模式：根据城寨任务结果切号；组合采集：小号分享宝石矿、大号采集分享矿。"
+                  title="在两个账号配置方案之间自动切换。按时间轮换：到达设定时长后切号；按轮次轮换：完成设定轮数后切号；寨子模式：根据城寨任务结果切号；组合采集：小号分享宝石矿、大号采集分享矿。连体号：在同一游戏账号的主号与连体角色间切换（配置页把类型设为&quot;连体号&quot;并填主号编号）；触发时机仍由上方模式决定。"
                   className="inline-flex h-4 w-4 cursor-pointer items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold leading-none text-slate-500 transition-colors hover:bg-cyan-100 hover:text-cyan-700"
                   onClick={(e) => {
                     e.stopPropagation();
@@ -2570,7 +2583,7 @@ export function HomePage() {
                     <span
                       role="img"
                       aria-label="账号调度说明"
-                      title="在两个账号配置方案之间自动切换。按时间轮换：到达设定时长后切号；按轮次轮换：完成设定轮数后切号；寨子模式：根据城寨任务结果切号；组合采集：小号分享宝石矿、大号采集分享矿。"
+                      title="在两个账号配置方案之间自动切换。按时间轮换：到达设定时长后切号；按轮次轮换：完成设定轮数后切号；寨子模式：根据城寨任务结果切号；组合采集：小号分享宝石矿、大号采集分享矿。连体号：在同一游戏账号的主号与连体角色间切换（配置页把类型设为&quot;连体号&quot;并填主号编号）；触发时机仍由上方模式决定。"
                       onClick={() => window.open('http://106.15.11.158:3456/help#qa-account-schedule-modes', '_blank', 'noopener,noreferrer')}
                       className="inline-flex h-4 w-4 cursor-pointer items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold leading-none text-slate-500 transition-colors hover:bg-cyan-100 hover:text-cyan-700"
                     >
@@ -2632,7 +2645,12 @@ export function HomePage() {
                               <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                                 <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-400'}`}></span> {isActive ? '当前' : '待切换'}
                               </span>
-                              <span className="text-[10px] text-slate-300">#{i + 1}</span>
+                              <span className="flex items-center gap-1">
+                                {profileName && profileTargetTypes[profileName] === 'linked' && (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700">连体</span>
+                                )}
+                                <span className="text-[10px] text-slate-300">#{i + 1}</span>
+                              </span>
                             </div>
                             <select
                               value={profileName}
@@ -2647,10 +2665,29 @@ export function HomePage() {
                             >
                               <option value="">-- 不选择 --</option>
                               {configNames.filter(p => !others.includes(p)).map(p => {
-                                const hasAccount = !!(profileAccountNames[p] || '').trim();
+                                const isLinked = profileTargetTypes[p] === 'linked';
+                                const accName = (profileAccountNames[p] || '').trim();
+                                const hasAccount = isLinked || !!accName;
+                                // 相邻槽位不能都是连体号（环形：2 槽互为邻居）
+                                const prevIdx = (i - 1 + MAX_SWITCH_SLOTS) % MAX_SWITCH_SLOTS;
+                                const nextIdx = (i + 1) % MAX_SWITCH_SLOTS;
+                                const neighborLinked = [prevIdx, nextIdx].some(j => {
+                                  const np = ids[j];
+                                  return !!np && np !== p && profileTargetTypes[np] === 'linked';
+                                });
+                                // 连体号必须有同编号的常规主号被选中
+                                const hasLinkedMaster = !isLinked || ids.some(sp =>
+                                  !!sp && sp !== p &&
+                                  profileTargetTypes[sp] === 'account' &&
+                                  (profileAccountNames[sp] || '').trim() === accName
+                                );
+                                const disabled = !hasAccount || (isLinked && (neighborLinked || !hasLinkedMaster));
+                                let suffix = '';
+                                if (isLinked) suffix = '（连体）';
+                                else if (!accName) suffix = '（未填编号）';
                                 return (
-                                  <option key={p} value={p} disabled={!hasAccount}>
-                                    {p}{hasAccount ? '' : '（未填编号）'}
+                                  <option key={p} value={p} disabled={disabled}>
+                                    {p}{suffix}
                                   </option>
                                 );
                               })}
