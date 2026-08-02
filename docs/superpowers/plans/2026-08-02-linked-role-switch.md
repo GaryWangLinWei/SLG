@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在账号调度中新增"连体号"切法——切到同一游戏账号下的另一个角色；"何时切"沿用现有 4 种触发时机，"怎么切"由目标 profile 的账号类型决定。
+**Goal:** 新增"连体号"切法——同一游戏账号下主号与连体角色互切；4 种触发时机不变，切法由当前/目标 profile 的类型与编号决定。
 
-**Architecture:** 给每个 profile 的 `accountSwitch` 增加 `targetType: 'account' | 'linked'`（默认 `'account'`）。新建 `switchLinkedRole` action 实现连体角色切换流程，并把常规切号里"点登录之后等进城"的逻辑抽成共享函数 `waitForCityAfterLogin`。前端 `accountSwitchLoop` 读取目标 profile 的 `targetType` 决定传哪个 action 参数；配置页提供账号类型选择，调度卡片对连体号槽位显示"连体"角标。
+**Architecture:** 给每个 profile 的 `accountSwitch` 加 `targetType: 'account' | 'linked'`，连体号也填主号编号。抽出纯函数 `resolveSwitchKind` 按决策表返回 OCR 或连体方向。新建 `switchLinkedRole(ctx, direction)`，主→连体点右侧 (909,334)，连体→主点左侧 (320,334)，其余流程共用 `waitForCityAfterLogin`。前端传当前+目标的编号与类型，并在槽位 UI 用禁用规则阻止连体接连体、连体无主号配对。
 
-**Tech Stack:** TypeScript, Node/Koa 后端, Jest + ts-jest（`plugins/`、`core/`、`web/src/utils/`）, React + Vite 前端, sharp 模板匹配。
+**Tech Stack:** TypeScript, Jest + ts-jest（`plugins/`）, React + Vite 前端, sharp 模板匹配。
 
 参考 spec：`docs/superpowers/specs/2026-08-02-linked-role-switch-design.md`
 
@@ -14,31 +14,30 @@
 
 ## File Structure
 
-- **Modify** `plugins/rok/index.ts` — `accountSwitch` 类型加 `targetType`；默认值加 `targetType: 'account'`；`switch-account` action 按 `targetType` 分支。
-- **Modify** `plugins/rok/actions/switchAccount.ts` — 抽出 `waitForCityAfterLogin` 导出，`switchAccountOnce` 末尾改为调用它（行为不变）。
-- **Create** `plugins/rok/actions/switchLinkedRole.ts` — 连体角色切换流程。
-- **Create** `plugins/rok/actions/switchLinkedRole.test.ts` — 流程单元测试。
-- **Modify** `web/src/pages/Config.tsx` — 新增"账号类型"选择 state、加载、保存、UI；连体时禁用清空账号编号。
-- **Modify** `web/src/pages/Home.tsx` — 拉取 profile 的 `targetType` 缓存；调度循环按类型传参；连体槽位显示"连体"角标。
-
-后端测试在 root 用 `npx jest <path> --runInBand`。前端没有 pages 层单测脚手架（root jest 只覆盖 `web/src/utils`），前端改动靠 `cd web && npm run build`（tsc 类型检查）+ 手动验证。
+- **Modify** `plugins/rok/index.ts` — 类型加 `targetType`；默认值；import；`switch-account` action 用 `resolveSwitchKind` 分支。
+- **Modify** `plugins/rok/actions/switchAccount.ts` — 导出 `waitForCityAfterLogin`，常规流程末尾复用。
+- **Create** `plugins/rok/actions/switchLinkedRole.ts` — 连体切换流程（带 direction）。
+- **Create** `plugins/rok/actions/switchLinkedRole.test.ts` — 流程测试。
+- **Create** `plugins/rok/actions/switchAccountKind.test.ts` — `resolveSwitchKind` 决策表测试。
+- **Modify** `web/src/pages/Config.tsx` — 账号类型选择，连体不禁用编号输入。
+- **Modify** `web/src/pages/Home.tsx` — 缓存 targetType；调度循环传 current/target 参数；连体槽位角标 + option 禁用规则。
 
 ---
 
 ## Task 1: 数据模型加 targetType
 
 **Files:**
-- Modify: `plugins/rok/index.ts:172-174`（类型）
-- Modify: `plugins/rok/index.ts:323-325`（默认值）
+- Modify: `plugins/rok/index.ts:172-174`
+- Modify: `plugins/rok/index.ts:323-325`
 
-- [ ] **Step 1: 修改类型定义**
+- [ ] **Step 1: 修改类型**
 
-把 `plugins/rok/index.ts:172-174` 的 `accountSwitch` 改成：
+把 `plugins/rok/index.ts:172-174` 改成：
 
 ```ts
   accountSwitch: {
-    accountName: string;   // 账号编号，如 "241872258"，空 = 不参与切号
-    targetType: 'account' | 'linked';  // 切到该 profile 时的切法：常规账号 OCR / 连体号角色
+    accountName: string;   // 账号编号，连体号填主号相同的编号
+    targetType: 'account' | 'linked';  // account=常规主号，linked=连体号
   };
 ```
 
@@ -56,7 +55,7 @@
 - [ ] **Step 3: 类型检查**
 
 Run: `npx tsc --noEmit`
-Expected: 无报错（ConfigService 用 `Partial<RokConfig>` 合并，老配置缺 `targetType` 不报错；合并后由 `DEFAULT_ROK_CONFIG` 补默认值）。
+Expected: 无报错。
 
 - [ ] **Step 4: Commit**
 
@@ -67,19 +66,18 @@ git commit -m "feat(plugin): add accountSwitch.targetType for linked-role switch
 
 ---
 
-## Task 2: 抽出 waitForCityAfterLogin 共享函数
+## Task 2: 抽出 waitForCityAfterLogin
 
 **Files:**
 - Modify: `plugins/rok/actions/switchAccount.ts`
 
-- [ ] **Step 1: 新增导出函数并让 switchAccountOnce 复用**
+- [ ] **Step 1: 新增导出函数**
 
-在 `plugins/rok/actions/switchAccount.ts` 中，紧接 `const SURE_SWITCH_TEMPLATE = ...`（第 17 行）之后、`REGION1` 之前，加入以下函数：
+在 `switchAccount.ts` 第 17 行 `const SURE_SWITCH_TEMPLATE = ...` 之后、`REGION1` 之前插入：
 
 ```ts
 /**
- * 点击"确认登录"按钮后的通用进城等待逻辑：
- * 等 15s → 随机点 TAP_REGION → 等 20s → 每 2s 轮询城内，最多 60s。
+ * 点击"确认登录"后的通用进城等待：等 15s → 点 TAP_REGION → 等 20s → 每 2s 轮询城内最多 60s。
  * 常规账号切换与连体号切换共用。
  */
 export async function waitForCityAfterLogin(ctx: PluginContext): Promise<'success' | 'switched_load_timeout'> {
@@ -109,9 +107,9 @@ export async function waitForCityAfterLogin(ctx: PluginContext): Promise<'succes
 }
 ```
 
-- [ ] **Step 2: 替换 switchAccountOnce 末尾的重复逻辑**
+- [ ] **Step 2: switchAccountOnce 末尾改为调用它**
 
-删除 `plugins/rok/actions/switchAccount.ts` 中第 140 行 `ctx.log(\`  ✅ 已点击登录...\`);` 之后、第 165 行 `return 'switched_load_timeout';`（含）之前的整段等待逻辑，并替换为调用共享函数。把当前第 138-165 行整体替换成：
+把 `switchAccount.ts` 当前第 138-165 行整体替换为：
 
 ```ts
   ctx.log(`  [6/6] 点登录 (${sureSwitch.x}, ${sureSwitch.y})`);
@@ -136,24 +134,129 @@ git commit -m "refactor(switch-account): extract waitForCityAfterLogin for reuse
 
 ---
 
-## Task 3: 实现 switchLinkedRole（TDD）
+## Task 3: 决策纯函数 resolveSwitchKind（TDD）
+
+**Files:**
+- Create: `plugins/rok/actions/switchAccountKind.ts`
+- Create: `plugins/rok/actions/switchAccountKind.test.ts`
+
+- [ ] **Step 1: 写失败测试**
+
+创建 `plugins/rok/actions/switchAccountKind.test.ts`：
+
+```ts
+import { resolveSwitchKind } from './switchAccountKind';
+
+describe('resolveSwitchKind 切法决策', () => {
+  test('主号(常规) → 同编号连体号 → main-to-linked', () => {
+    expect(resolveSwitchKind({
+      currentName: '241872258', currentType: 'account',
+      targetName: '241872258', targetType: 'linked',
+    })).toEqual({ kind: 'linked', direction: 'main-to-linked' });
+  });
+
+  test('连体号 → 同编号主号(常规) → linked-to-main', () => {
+    expect(resolveSwitchKind({
+      currentName: '241872258', currentType: 'linked',
+      targetName: '241872258', targetType: 'account',
+    })).toEqual({ kind: 'linked', direction: 'linked-to-main' });
+  });
+
+  test('常规 → 常规 同编号 → OCR（至少一方需 linked 才走连体）', () => {
+    expect(resolveSwitchKind({
+      currentName: '241872258', currentType: 'account',
+      targetName: '241872258', targetType: 'account',
+    })).toEqual({ kind: 'ocr' });
+  });
+
+  test('编号不同 → OCR（即使一方是连体号）', () => {
+    expect(resolveSwitchKind({
+      currentName: '111', currentType: 'linked',
+      targetName: '222', targetType: 'account',
+    })).toEqual({ kind: 'ocr' });
+  });
+
+  test('编号带空格也能匹配', () => {
+    expect(resolveSwitchKind({
+      currentName: ' 241872258 ', currentType: 'account',
+      targetName: '241872258', targetType: 'linked',
+    })).toEqual({ kind: 'linked', direction: 'main-to-linked' });
+  });
+
+  test('空编号 → OCR（避免误判连体）', () => {
+    expect(resolveSwitchKind({
+      currentName: '', currentType: 'account',
+      targetName: '', targetType: 'linked',
+    })).toEqual({ kind: 'ocr' });
+  });
+});
+```
+
+- [ ] **Step 2: 运行确认失败**
+
+Run: `npx jest plugins/rok/actions/switchAccountKind.test.ts --runInBand`
+Expected: FAIL，找不到模块。
+
+- [ ] **Step 3: 实现**
+
+创建 `plugins/rok/actions/switchAccountKind.ts`：
+
+```ts
+export type AccountType = 'account' | 'linked';
+export type LinkedDirection = 'main-to-linked' | 'linked-to-main';
+
+export interface SwitchKindInput {
+  currentName: string;
+  currentType: AccountType;
+  targetName: string;
+  targetType: AccountType;
+}
+
+export type SwitchKind =
+  | { kind: 'ocr' }
+  | { kind: 'linked'; direction: LinkedDirection };
+
+/**
+ * 决定切号物理方式：
+ * - 当前与目标编号相同（非空）、且至少一方是连体号 → 连体流程；
+ *   direction 由当前类型决定（当前是常规主号→主号切连体；当前是连体→连体切主号）。
+ * - 其余情况走 OCR 切账号。
+ */
+export function resolveSwitchKind(input: SwitchKindInput): SwitchKind {
+  const cur = (input.currentName || '').trim();
+  const tgt = (input.targetName || '').trim();
+  const sameAccount = !!cur && cur === tgt;
+  const isLinkedSwitch = sameAccount && (input.currentType === 'linked' || input.targetType === 'linked');
+  if (!isLinkedSwitch) return { kind: 'ocr' };
+
+  const direction: LinkedDirection = input.currentType === 'account' && input.targetType === 'linked'
+    ? 'main-to-linked'
+    : 'linked-to-main';
+  return { kind: 'linked', direction };
+}
+```
+
+- [ ] **Step 4: 运行确认通过**
+
+Run: `npx jest plugins/rok/actions/switchAccountKind.test.ts --runInBand`
+Expected: PASS（6 个测试）。
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add plugins/rok/actions/switchAccountKind.ts plugins/rok/actions/switchAccountKind.test.ts
+git commit -m "feat(plugin): add resolveSwitchKind decision function"
+```
+
+---
+
+## Task 4: 实现 switchLinkedRole（TDD）
 
 **Files:**
 - Create: `plugins/rok/actions/switchLinkedRole.ts`
 - Create: `plugins/rok/actions/switchLinkedRole.test.ts`
 
-连体号流程坐标（spec 第 5 步）：
-
-| 步骤 | 坐标 / 模板 |
-|---|---|
-| 点头像 | (63, 51) |
-| 点设置 | (1358, 743) |
-| 角色按钮 | 模板 `icon_role.png`（阈值 0.75） |
-| 点连体账号 | (909, 334) |
-| 确认登录 | 在区域 x=864, y=598, w=304, h=82 内匹配 `btn_surelogin.png`（阈值 0.7） |
-| 关闭角色管理 | (1366, 105) |
-| 关闭设置 | (1394, 55) |
-| 关闭玩家页 | (1454, 88) |
+坐标：头像 (63,51)；设置 (1358,743)；主号/连体角色入口 (320,334)/(909,334)；确认登录区域 x=864,y=598,w=304,h=82；关闭角色管理 (1366,105)、设置 (1394,55)、玩家页 (1454,88)。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -165,21 +268,16 @@ import { switchLinkedRole } from './switchLinkedRole';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import * as locationUtil from '../utils/location';
 
-jest.mock('../utils/location', () => ({
-  getCurrentLocation: jest.fn(),
-}));
+jest.mock('../utils/location', () => ({ getCurrentLocation: jest.fn() }));
 
 function makeCtx(overrides: Partial<any> = {}): any {
   const taps: Array<{ x: number; y: number }> = [];
-  const logs: string[] = [];
   const ctx = {
     taps,
-    logs,
     sleep: jest.fn(async () => {}),
     tap: jest.fn(async (x: number, y: number) => { taps.push({ x, y }); }),
-    log: jest.fn((m: string) => { logs.push(m); }),
+    log: jest.fn(),
     findImageWithLocation: jest.fn(),
-    captureRegion: jest.fn(),
     ...overrides,
   };
   return ctx;
@@ -188,11 +286,9 @@ function makeCtx(overrides: Partial<any> = {}): any {
 const ICON_ROLE = path.join(getTemplatesDir(), 'icon_role.png');
 const BTN_SURELOGIN = path.join(getTemplatesDir(), 'btn_surelogin.png');
 
-beforeEach(() => {
-  (locationUtil.getCurrentLocation as jest.Mock).mockResolvedValue('city');
-});
+beforeEach(() => { (locationUtil.getCurrentLocation as jest.Mock).mockResolvedValue('city'); });
 
-test('成功路径：点头像→设置→角色→连体账号→确认登录→进城', async () => {
+test('main-to-linked：点右侧连体角色 (909,334)', async () => {
   const ctx = makeCtx({
     findImageWithLocation: jest.fn(async (p: string) => {
       if (p === ICON_ROLE) return { found: true, x: 200, y: 300, confidence: 0.9 };
@@ -200,65 +296,64 @@ test('成功路径：点头像→设置→角色→连体账号→确认登录�
       return { found: false, x: 0, y: 0, confidence: 0 };
     }),
   });
-
-  const result = await switchLinkedRole(ctx as any);
+  const result = await switchLinkedRole(ctx as any, 'main-to-linked');
   expect(result).toBe('success');
-
-  // 关键点击：头像(63,51)、设置(1358,743)、角色图标位置、连体账号(909,334)、确认登录位置
-  expect(ctx.taps).toContainEqual({ x: 63, y: 51 });
-  expect(ctx.taps).toContainEqual({ x: 1358, y: 743 });
-  expect(ctx.taps).toContainEqual({ x: 200, y: 300 });
   expect(ctx.taps).toContainEqual({ x: 909, y: 334 });
-  expect(ctx.taps).toContainEqual({ x: 1000, y: 640 });
-  // 成功路径不应点击任何关闭按钮
+  expect(ctx.taps).not.toContainEqual({ x: 320, y: 334 });
   expect(ctx.taps).not.toContainEqual({ x: 1394, y: 55 });
   expect(ctx.taps).not.toContainEqual({ x: 1454, y: 88 });
-  expect(ctx.taps).not.toContainEqual({ x: 1366, y: 105 });
 });
 
-test('找不到角色按钮时依次关闭设置和玩家页，返回 not_found', async () => {
+test('linked-to-main：点左侧主号 (320,334)', async () => {
   const ctx = makeCtx({
     findImageWithLocation: jest.fn(async (p: string) => {
-      if (p === ICON_ROLE) return { found: false, x: 0, y: 0, confidence: 0.2 };
+      if (p === ICON_ROLE) return { found: true, x: 200, y: 300, confidence: 0.9 };
+      if (p === BTN_SURELOGIN) return { found: true, x: 1000, y: 640, confidence: 0.9 };
       return { found: false, x: 0, y: 0, confidence: 0 };
     }),
   });
+  const result = await switchLinkedRole(ctx as any, 'linked-to-main');
+  expect(result).toBe('success');
+  expect(ctx.taps).toContainEqual({ x: 320, y: 334 });
+  expect(ctx.taps).not.toContainEqual({ x: 909, y: 334 });
+});
 
-  const result = await switchLinkedRole(ctx as any);
+test('找不到角色按钮：关闭设置与玩家页，返回 not_found', async () => {
+  const ctx = makeCtx({
+    findImageWithLocation: jest.fn(async (p: string) =>
+      p === ICON_ROLE ? { found: false, x: 0, y: 0, confidence: 0.2 }
+      : { found: false, x: 0, y: 0, confidence: 0 }),
+  });
+  const result = await switchLinkedRole(ctx as any, 'main-to-linked');
   expect(result).toBe('not_found');
-  // 关闭设置(1394,55) → 关闭玩家页(1454,88)；不应点到角色管理关闭(1366,105)
   expect(ctx.taps).toContainEqual({ x: 1394, y: 55 });
   expect(ctx.taps).toContainEqual({ x: 1454, y: 88 });
   expect(ctx.taps).not.toContainEqual({ x: 1366, y: 105 });
   expect(ctx.taps).not.toContainEqual({ x: 909, y: 334 });
 });
 
-test('找不到确认登录按钮时依次关闭角色管理、设置、玩家页，返回 not_found', async () => {
+test('找不到确认登录：关闭角色管理、设置、玩家页，返回 not_found', async () => {
   const ctx = makeCtx({
-    findImageWithLocation: jest.fn(async (p: string) => {
-      if (p === ICON_ROLE) return { found: true, x: 200, y: 300, confidence: 0.9 };
-      if (p === BTN_SURELOGIN) return { found: false, x: 0, y: 0, confidence: 0.2 };
-      return { found: false, x: 0, y: 0, confidence: 0 };
-    }),
+    findImageWithLocation: jest.fn(async (p: string) =>
+      p === ICON_ROLE ? { found: true, x: 200, y: 300, confidence: 0.9 }
+      : p === BTN_SURELOGIN ? { found: false, x: 0, y: 0, confidence: 0.2 }
+      : { found: false, x: 0, y: 0, confidence: 0 }),
   });
-
-  const result = await switchLinkedRole(ctx as any);
+  const result = await switchLinkedRole(ctx as any, 'main-to-linked');
   expect(result).toBe('not_found');
-  expect(ctx.taps).toContainEqual({ x: 200, y: 300 });
   expect(ctx.taps).toContainEqual({ x: 909, y: 334 });
-  // 三个关闭按钮都要点
   expect(ctx.taps).toContainEqual({ x: 1366, y: 105 });
   expect(ctx.taps).toContainEqual({ x: 1394, y: 55 });
   expect(ctx.taps).toContainEqual({ x: 1454, y: 88 });
 });
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [ ] **Step 2: 运行确认失败**
 
 Run: `npx jest plugins/rok/actions/switchLinkedRole.test.ts --runInBand`
-Expected: FAIL，报错 `Cannot find module './switchLinkedRole'`。
+Expected: FAIL，找不到模块。
 
-- [ ] **Step 3: 实现 switchLinkedRole**
+- [ ] **Step 3: 实现**
 
 创建 `plugins/rok/actions/switchLinkedRole.ts`：
 
@@ -267,40 +362,37 @@ import * as path from 'path';
 import { PluginContext } from '../../../core/plugin';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import { waitForCityAfterLogin } from './switchAccount';
+import { LinkedDirection } from './switchAccountKind';
 
 export type SwitchLinkedRoleResult = 'success' | 'not_found' | 'switched_load_timeout';
 
 const AVATAR_TAP = { x: 63, y: 51 };
 const SETTINGS_BTN = { x: 1358, y: 743 };
-const LINKED_ACCOUNT_BTN = { x: 909, y: 334 };
+const MAIN_CHAR_BTN = { x: 320, y: 334 };    // 主号在左
+const LINKED_CHAR_BTN = { x: 909, y: 334 };  // 连体角色在右
 const CLOSE_ROLE_BTN = { x: 1366, y: 105 };
 const CLOSE_SETTINGS_BTN = { x: 1394, y: 55 };
 const CLOSE_PLAYER_BTN = { x: 1454, y: 88 };
 
-// 确认登录按钮的搜索区域（spec: (864,598)-(1168,680)）
 const SURELOGIN_SEARCH_REGION = { x: 864, y: 598, width: 1168 - 864, height: 680 - 598 };
-
 const ICON_ROLE_TEMPLATE = path.join(getTemplatesDir(), 'icon_role.png');
 const BTN_SURELOGIN_TEMPLATE = path.join(getTemplatesDir(), 'btn_surelogin.png');
 
 /**
- * 连体号切换：头像 → 设置 → 角色管理 → 连体账号 → 确认登录 → 等进城。
- * 与常规账号切换不同，不走用户中心/OCR，而是切到同一游戏账号下的另一个角色。
+ * 连体号切换：头像 → 设置 → 角色管理 → 选目标角色 → 确认登录 → 等进城。
+ * @param direction main-to-linked=主号切到连体角色(点右侧)；linked-to-main=连体切回主号(点左侧)。
  */
-export async function switchLinkedRole(ctx: PluginContext): Promise<SwitchLinkedRoleResult> {
-  ctx.log(`=== 切换连体号角色 ===`);
+export async function switchLinkedRole(ctx: PluginContext, direction: LinkedDirection): Promise<SwitchLinkedRoleResult> {
+  ctx.log(`=== 切换连体号角色 direction=${direction} ===`);
 
-  // 1. 点头像
   ctx.log(`  [1/5] 点头像 (${AVATAR_TAP.x},${AVATAR_TAP.y})`);
   await ctx.tap(AVATAR_TAP.x, AVATAR_TAP.y);
   await ctx.sleep(0.5);
 
-  // 2. 点设置
   ctx.log(`  [2/5] 点设置 (${SETTINGS_BTN.x},${SETTINGS_BTN.y})`);
   await ctx.tap(SETTINGS_BTN.x, SETTINGS_BTN.y);
   await ctx.sleep(1);
 
-  // 3. 找角色按钮
   const roleIcon = await ctx.findImageWithLocation(ICON_ROLE_TEMPLATE, 0.75);
   ctx.log(`  [3/5] icon_role.png found=${roleIcon.found} conf=${roleIcon.confidence.toFixed(3)}`);
   if (!roleIcon.found) {
@@ -313,19 +405,13 @@ export async function switchLinkedRole(ctx: PluginContext): Promise<SwitchLinked
   await ctx.tap(roleIcon.x, roleIcon.y);
   await ctx.sleep(1);
 
-  // 4. 点连体账号
-  ctx.log(`  [4/5] 点连体账号 (${LINKED_ACCOUNT_BTN.x},${LINKED_ACCOUNT_BTN.y})`);
-  await ctx.tap(LINKED_ACCOUNT_BTN.x, LINKED_ACCOUNT_BTN.y);
+  const target = direction === 'main-to-linked' ? LINKED_CHAR_BTN : MAIN_CHAR_BTN;
+  ctx.log(`  [4/5] 点${direction === 'main-to-linked' ? '连体角色(右)' : '主号(左)'} (${target.x},${target.y})`);
+  await ctx.tap(target.x, target.y);
   await ctx.sleep(1);
 
-  // 5. 在指定区域内匹配确认登录按钮
   const sureLogin = await ctx.findImageWithLocation(
-    BTN_SURELOGIN_TEMPLATE,
-    0.7,
-    undefined,
-    undefined,
-    undefined,
-    SURELOGIN_SEARCH_REGION,
+    BTN_SURELOGIN_TEMPLATE, 0.7, undefined, undefined, undefined, SURELOGIN_SEARCH_REGION,
   );
   ctx.log(`  [5/5] btn_surelogin.png found=${sureLogin.found} conf=${sureLogin.confidence.toFixed(3)}`);
   if (!sureLogin.found) {
@@ -344,12 +430,12 @@ export async function switchLinkedRole(ctx: PluginContext): Promise<SwitchLinked
 }
 ```
 
-注意：`findImageWithLocation` 的签名是 `(templatePath, threshold?, scales?, normalize?, channel?, searchRegion?)`（见 `core/plugin/PluginContext.ts:77-84`），第 6 个参数为搜索区域，区域字段为 `{ x, y, width, height }`。
+注意 `findImageWithLocation` 第 6 个参数为搜索区域 `{ x, y, width, height }`。
 
-- [ ] **Step 4: 运行测试确认通过**
+- [ ] **Step 4: 运行确认通过**
 
 Run: `npx jest plugins/rok/actions/switchLinkedRole.test.ts --runInBand`
-Expected: PASS（3 个测试）。
+Expected: PASS（4 个测试）。
 
 - [ ] **Step 5: 类型检查**
 
@@ -360,52 +446,55 @@ Expected: 无报错。
 
 ```bash
 git add plugins/rok/actions/switchLinkedRole.ts plugins/rok/actions/switchLinkedRole.test.ts
-git commit -m "feat(plugin): add switchLinkedRole action for 连体号 character switch"
+git commit -m "feat(plugin): add switchLinkedRole for 连体号 character switch"
 ```
 
 ---
 
-## Task 4: switch-account action 按 targetType 分支
+## Task 5: switch-account action 接入决策
 
 **Files:**
-- Modify: `plugins/rok/index.ts`（顶部 import 区与 `switch-account` action，约 934-947 行）
+- Modify: `plugins/rok/index.ts`
 
 - [ ] **Step 1: 加 import**
 
-在 `plugins/rok/index.ts` 顶部已有 `import { switchAccount } from './actions/switchAccount';` 附近（搜索该行），加一行：
+搜索 `import { switchAccount } from './actions/switchAccount';`，在其下加：
 
 ```ts
 import { switchLinkedRole } from './actions/switchLinkedRole';
+import { resolveSwitchKind } from './actions/switchAccountKind';
 ```
 
-- [ ] **Step 2: 改 action run 分支**
+- [ ] **Step 2: 替换 action**
 
-把 `plugins/rok/index.ts:934-947` 的 `switch-account` action 整体替换为：
+把 `plugins/rok/index.ts` 中 `id: 'switch-account'` 的 action（约 934-947 行）整体替换为：
 
 ```ts
     {
       id: 'switch-account',
       name: '切换账号',
-      description: '通过用户中心切换账号，或切换到同一账号下的连体号角色',
+      description: '切换游戏账号，或在同一账号下切换连体号角色',
       run: async (ctx, params) => {
-        const targetType = (params?.targetType as 'account' | 'linked') ?? 'account';
-        if (targetType === 'linked') {
-          const result = await switchLinkedRole(ctx);
-          ctx.log(`切换账号: ${result}`);
-          return;
+        const currentName = (params?.currentName as string) ?? '';
+        const currentType = ((params?.currentType as 'account' | 'linked') ?? 'account');
+        const targetName = (params?.targetName as string) ?? '';
+        const targetType = ((params?.targetType as 'account' | 'linked') ?? 'account');
+
+        const decision = resolveSwitchKind({ currentName, currentType, targetName, targetType });
+        let result: string;
+        if (decision.kind === 'linked') {
+          result = await switchLinkedRole(ctx, decision.direction);
+        } else {
+          if (!targetName) {
+            ctx.log('❌ 未提供 targetName');
+            return;
+          }
+          result = await switchAccount(ctx, targetName);
         }
-        const targetName = params?.targetName as string | undefined;
-        if (!targetName) {
-          ctx.log('❌ 未提供 targetName');
-          return;
-        }
-        const result = await switchAccount(ctx, targetName);
         ctx.log(`切换账号: ${result}`);
       }
     },
 ```
-
-前端成功判定依赖日志前缀 `切换账号:`，两种切法保持一致。
 
 - [ ] **Step 3: 类型检查**
 
@@ -416,59 +505,39 @@ Expected: 无报错。
 
 ```bash
 git add plugins/rok/index.ts
-git commit -m "feat(plugin): branch switch-account by targetType (account/linked)"
+git commit -m "feat(plugin): route switch-account by resolveSwitchKind"
 ```
 
 ---
 
-## Task 5: 配置页（Config.tsx）账号类型选择
+## Task 6: 配置页账号类型选择
 
 **Files:**
 - Modify: `web/src/pages/Config.tsx`
 
+连体号也填编号，不禁用输入框。
+
 - [ ] **Step 1: 加 state**
 
-在 `web/src/pages/Config.tsx:43` 的 `const [accountSwitchName, setAccountSwitchName] = useState<string>('');` 下面加：
+在 `Config.tsx:43` `const [accountSwitchName, setAccountSwitchName] ...` 下加：
 
 ```ts
   const [accountTargetType, setAccountTargetType] = useState<'account' | 'linked'>('account');
 ```
 
-- [ ] **Step 2: 加载时读取 targetType**
+- [ ] **Step 2: 加载读取 targetType**
 
-在 `loadConfig`（约第 62 行）和 `switchConfig`（约第 93 行）中，读取 `accountName` 的同一处增加读取 `targetType`。
-
-把 `loadConfig` 中的：
+在 `loadConfig`（约 62 行）和 `switchConfig`（约 93 行）读取 accountName 的同一处增加：
 
 ```ts
-        setAccountSwitchName((res.config as any).accountSwitch?.accountName ?? '');
-```
-
-替换为：
-
-```ts
-        setAccountSwitchName((res.config as any).accountSwitch?.accountName ?? '');
         setAccountTargetType((res.config as any).accountSwitch?.targetType ?? 'account');
 ```
 
-把 `switchConfig` 中的：
+即两处 `setAccountSwitchName(...)` 之后各加一行上面的 `setAccountTargetType(...)`。
 
-```ts
-        setAccountSwitchName((res.config as any).accountSwitch?.accountName ?? '');
-        accountSwitchNameSyncedRef.current = (res.config as any).accountSwitch?.accountName ?? '';
-```
+- [ ] **Step 3: 保存带上 targetType**
 
-替换为：
-
-```ts
-        setAccountSwitchName((res.config as any).accountSwitch?.accountName ?? '');
-        setAccountTargetType((res.config as any).accountSwitch?.targetType ?? 'account');
-        accountSwitchNameSyncedRef.current = (res.config as any).accountSwitch?.accountName ?? '';
-```
-
-- [ ] **Step 3: 保存时带上 targetType**
-
-把 `autoSave`（约第 178 行）中的：
+把 `autoSave`（约 178 行）中的：
 
 ```ts
       await api.config.saveRokConfig(currentAccountId, { buildingPositions: bp, accountSwitch: { accountName: accountSwitchName } } as any, configName);
@@ -480,9 +549,24 @@ git commit -m "feat(plugin): branch switch-account by targetType (account/linked
       await api.config.saveRokConfig(currentAccountId, { buildingPositions: bp, accountSwitch: { accountName: accountSwitchName, targetType: accountTargetType } } as any, configName);
 ```
 
-- [ ] **Step 4: 选连体号时清空并禁用账号编号**
+- [ ] **Step 4: UI 加类型选择（编号输入保持可用）**
 
-把账号编号输入框（约第 369-377 行）替换为下面这段，在它前面加上账号类型选择：
+把当前"账号编号"那一行（约 368-377 行）：
+
+```tsx
+        {/* 账号编号（与配置同一行） */}
+        <label className="text-sm text-slate-600 whitespace-nowrap ml-2">账号编号:</label>
+        <input
+          type="text"
+          value={accountSwitchName}
+          onChange={(e) => setAccountSwitchName(e.target.value)}
+          onBlur={() => autoSave(buildingPositions)}
+          placeholder="请输入"
+          className="px-2 py-1 text-sm border border-slate-300 rounded w-40"
+        />
+```
+
+替换为：
 
 ```tsx
         {/* 账号类型 + 账号编号（与配置同一行） */}
@@ -490,9 +574,7 @@ git commit -m "feat(plugin): branch switch-account by targetType (account/linked
         <select
           value={accountTargetType}
           onChange={(e) => {
-            const v = e.target.value as 'account' | 'linked';
-            setAccountTargetType(v);
-            if (v === 'linked') setAccountSwitchName('');
+            setAccountTargetType(e.target.value as 'account' | 'linked');
             autoSave(buildingPositions);
           }}
           className="px-2 py-1 text-sm border border-slate-300 rounded"
@@ -506,46 +588,41 @@ git commit -m "feat(plugin): branch switch-account by targetType (account/linked
           value={accountSwitchName}
           onChange={(e) => setAccountSwitchName(e.target.value)}
           onBlur={() => autoSave(buildingPositions)}
-          disabled={accountTargetType === 'linked'}
-          placeholder={accountTargetType === 'linked' ? '连体号无需编号' : '请输入'}
-          className="px-2 py-1 text-sm border border-slate-300 rounded w-40 disabled:bg-slate-100 disabled:text-slate-400"
+          placeholder={accountTargetType === 'linked' ? '填主号相同的编号' : '请输入'}
+          className="px-2 py-1 text-sm border border-slate-300 rounded w-40"
         />
 ```
 
-注意：原来的 `<label ...>账号编号:</label>` 和 `<input .../>` 要整段替换掉，不要重复。
-
-- [ ] **Step 5: 前端类型检查 + 构建**
+- [ ] **Step 5: 前端构建类型检查**
 
 Run: `cd web && npm run build`
-Expected: `tsc` 通过并完成 Vite 构建，无类型错误。
+Expected: tsc + Vite 构建成功。
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add web/src/pages/Config.tsx
-git commit -m "feat(web): add account type selector (account/linked) in Config page"
+git commit -m "feat(web): add account type selector in Config page"
 ```
 
 ---
 
-## Task 6: Home.tsx 拉取 targetType 并在调度循环中使用
+## Task 7: Home.tsx 缓存 targetType、调度传参、槽位 UI 规则
 
 **Files:**
 - Modify: `web/src/pages/Home.tsx`
 
-需要改三处：(a) 定义 profile targetType 缓存并在两处加载 profile 的地方填充；(b) `accountSwitchLoop` 按 targetType 决定 task 参数与跳过逻辑；(c) 槽位 UI 显示"连体"角标，并让连体号即使没编号也可被选中。
+- [ ] **Step 1: 加 targetType 缓存 state**
 
-- [ ] **Step 1: 找 state 定义并加缓存**
-
-在 `Home.tsx` 中搜索 `const [profileAccountNames`，在其下方新增一行：
+搜索 `const [profileAccountNames`，在其下加：
 
 ```ts
   const [profileTargetTypes, setProfileTargetTypes] = useState<Record<string, 'account' | 'linked'>>({});
 ```
 
-- [ ] **Step 2: 两处加载 profile 时填充 targetType**
+- [ ] **Step 2: 两处加载 profile 时填充 typeMap**
 
-第一处（约第 608-616 行，挂载/账号切换时）。把：
+第一处约 608-616 行，第二处约 631-638 行，两处都把：
 
 ```ts
           const map: Record<string, string> = {};
@@ -567,16 +644,14 @@ git commit -m "feat(web): add account type selector (account/linked) in Config p
             try {
               const cfg = await api.config.getRokConfig(currentAccountId, p);
               map[p] = ((cfg.config as any)?.accountSwitch?.accountName || '').trim();
-              typeMap[p] = ((cfg.config as any)?.accountSwitch?.targetType === 'linked') ? 'linked' : 'account';
+              typeMap[p] = (cfg.config as any)?.accountSwitch?.targetType === 'linked' ? 'linked' : 'account';
             } catch { map[p] = ''; typeMap[p] = 'account'; }
           }));
           setProfileAccountNames(map);
           setProfileTargetTypes(typeMap);
 ```
 
-第二处（约第 631-638 行，focus/visibility 刷新）做同样替换：把 `const map: Record<string,string> = {}; ... setProfileAccountNames(map);` 换成带 `typeMap` 的版本（与上面相同的代码块）。
-
-- [ ] **Step 3: accountSwitchLoop 按 targetType 传参**
+- [ ] **Step 3: accountSwitchLoop 传 current/target 参数**
 
 把 `Home.tsx:1243-1251` 这一段：
 
@@ -597,24 +672,25 @@ git commit -m "feat(web): add account type selector (account/linked) in Config p
 ```ts
             const cfgRes = await api.config.getRokConfig(currentAccountId, nextProfile);
             const targetType: 'account' | 'linked' = (cfgRes.config as any)?.accountSwitch?.targetType === 'linked' ? 'linked' : 'account';
-            const targetName = (cfgRes.config as any)?.accountSwitch?.accountName || '';
+            const targetName = ((cfgRes.config as any)?.accountSwitch?.accountName || '').trim();
+            const currentName = (profileAccountNames[activeConfigName] || '').trim();
+            const currentType: 'account' | 'linked' = profileTargetTypes[activeConfigName] ?? 'account';
             if (targetType === 'account' && !targetName) {
               pushLog(`⚠️ profile "${nextProfile}" 未填账号编号，跳过`);
               switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
             } else {
               let ok = false;
               for (let attempt = 1; attempt <= 2 && !isStopped(); attempt++) {
-                const taskParams = targetType === 'linked'
-                  ? { targetType: 'linked' as const }
-                  : { targetName };
-                const cr = await createTask(currentAccountId, 'com.rok.automation', 'switch-account', taskParams);
+                const cr = await createTask(currentAccountId, 'com.rok.automation', 'switch-account', {
+                  currentName, currentType, targetName, targetType,
+                });
 ```
 
-注意：这个 `if/else` 块的后续内容（`if (!cr.success) break;` 及之后的重试、成功判定、`switchProfile` 等）保持不变，只是缩进层级没变（仍是同一个 `else` 内）。确认替换后 `createTask` 调用只有一处、不再出现旧的 `{ targetName }` 字面量。
+说明：`activeConfigName`、`profileAccountNames`、`profileTargetTypes` 在该循环作用域可见（若 TS 提示闭包取值问题，改用对应的 ref：`activeConfigNameRef.current` 替代 `activeConfigName`）。其余重试与成功判定逻辑不动。
 
-- [ ] **Step 4: 槽位 option 对连体号解禁**
+- [ ] **Step 4: 槽位 option 禁用规则与文本**
 
-把槽位 `<select>` 内渲染 option 的部分（约第 2649-2656 行）：
+把约 2649-2656 行：
 
 ```tsx
                               {configNames.filter(p => !others.includes(p)).map(p => {
@@ -632,18 +708,38 @@ git commit -m "feat(web): add account type selector (account/linked) in Config p
 ```tsx
                               {configNames.filter(p => !others.includes(p)).map(p => {
                                 const isLinked = profileTargetTypes[p] === 'linked';
-                                const hasAccount = isLinked || !!(profileAccountNames[p] || '').trim();
+                                const accName = (profileAccountNames[p] || '').trim();
+                                const hasAccount = isLinked || !!accName;
+                                // 规则1：相邻槽位不能都是连体号（环形，2 槽互为邻居）
+                                const prevIdx = (i - 1 + MAX_SWITCH_SLOTS) % MAX_SWITCH_SLOTS;
+                                const nextIdx = (i + 1) % MAX_SWITCH_SLOTS;
+                                const neighborLinked = [prevIdx, nextIdx].some(j => {
+                                  const np = ids[j];
+                                  return np && np !== p && profileTargetTypes[np] === 'linked';
+                                });
+                                // 规则3：连体号必须有同编号的常规主号被选中
+                                const hasLinkedMaster = !isLinked || ids.some(sp =>
+                                  !!sp && sp !== p &&
+                                  profileTargetTypes[sp] === 'account' &&
+                                  (profileAccountNames[sp] || '').trim() === accName
+                                );
+                                const disabled = !hasAccount || (isLinked && (neighborLinked || !hasLinkedMaster));
+                                let suffix = '';
+                                if (isLinked) suffix = '（连体）';
+                                else if (!accName) suffix = '（未填编号）';
                                 return (
-                                  <option key={p} value={p} disabled={!hasAccount}>
-                                    {p}{isLinked ? '（连体）' : (hasAccount ? '' : '（未填编号）')}
+                                  <option key={p} value={p} disabled={disabled}>
+                                    {p}{suffix}
                                   </option>
                                 );
                               })}
 ```
 
-- [ ] **Step 5: 槽位卡片显示"连体"角标**
+注意：这里 `ids` 是该 IIFE 内的数组，`i` 是 map 的索引；`MAX_SWITCH_SLOTS`、`profileAccountNames`、`profileTargetTypes`、`configNames` 均在作用域内。
 
-在槽位卡片头部（约第 2631-2636 行），目前右侧只有 `#{i+1}`。把：
+- [ ] **Step 5: 槽位卡片"连体"角标**
+
+把约 2631-2636 行：
 
 ```tsx
                             <div className="flex items-center justify-between mb-1">
@@ -670,38 +766,38 @@ git commit -m "feat(web): add account type selector (account/linked) in Config p
                             </div>
 ```
 
-- [ ] **Step 6: tooltip 补连体号说明（可选但推荐）**
+- [ ] **Step 6: tooltip 补说明**
 
-搜索文案"在两个账号配置方案之间自动切换"（约第 2550、2573 行的 tooltip），在其中"组合采集"说明之后补一句：
+搜索文案"在两个账号配置方案之间自动切换"（约 2550、2573 行两处），在"组合采集"说明后补一句：
 
 ```
-连体号：切到同一游戏账号下的另一个角色（在配置页把账号类型设为"连体号"），触发时机仍由上方模式决定。
+连体号：在同一游戏账号的主号与连体角色间切换（配置页把类型设为"连体号"并填主号编号）；触发时机仍由上方模式决定。
 ```
 
-两处 tooltip 文案相同，都补上。
+两处都补。
 
-- [ ] **Step 7: 前端类型检查 + 构建**
+- [ ] **Step 7: 前端构建**
 
 Run: `cd web && npm run build`
-Expected: `tsc` 通过、Vite 构建成功。
+Expected: tsc + Vite 构建成功。若 `activeConfigName` 在 accountSwitchLoop 闭包中报"引用值可能陈旧"，改用 `activeConfigNameRef.current`。
 
 - [ ] **Step 8: Commit**
 
 ```bash
 git add web/src/pages/Home.tsx
-git commit -m "feat(web): support linked-role target in account schedule loop and slot badge"
+git commit -m "feat(web): support linked-role switch in schedule loop and slot UI rules"
 ```
 
 ---
 
-## Task 7: 全量验证
+## Task 8: 全量验证
 
-- [ ] **Step 1: 运行相关后端测试**
+- [ ] **Step 1: 相关后端测试**
 
-Run: `npx jest plugins/rok/actions/switchLinkedRole.test.ts --runInBand`
-Expected: 3 个测试全部 PASS。
+Run: `npx jest plugins/rok/actions/switchAccountKind.test.ts plugins/rok/actions/switchLinkedRole.test.ts --runInBand`
+Expected: 全部 PASS。
 
-- [ ] **Step 2: 根项目类型检查**
+- [ ] **Step 2: 根类型检查**
 
 Run: `npx tsc --noEmit`
 Expected: 无报错。
@@ -709,22 +805,25 @@ Expected: 无报错。
 - [ ] **Step 3: 前端构建**
 
 Run: `cd web && npm run build`
-Expected: tsc + Vite 构建成功。
+Expected: 成功。
 
 - [ ] **Step 4: 手动验证（真机/模拟器）**
 
-1. 启动 `npm run server` 与 `cd web && npm run dev`。
-2. 新建或编辑一个 profile，在配置页把"类型"切到"连体号"，确认账号编号输入框被禁用并显示"连体号无需编号"，保存。
-3. 在首页账号调度卡片选两个槽位：一个常规账号、一个连体号 profile，确认连体号槽位右上角出现紫色"连体"角标、option 文本带"（连体）"，且即使没填编号也能选中（不被禁用）。
-4. 选"按时间轮换"，设为 1 分钟，开启自动切号。先等它从常规号切到连体号，观察日志：
-   - 切连体号时 task 参数应为 `{ targetType: 'linked' }`，action 日志为 `=== 切换连体号角色 ===`，走 5 步流程，成功后出现 `切换账号: success`，随后前端激活连体号 profile。
-5. 再等它从连体号切回常规号，确认走的是常规 OCR 流程（`=== 切换账号 target=... ===`）。
-6. 异常路径：在没进入角色管理的界面触发一次连体切号，确认 action 返回 `not_found`、日志提示关闭弹窗，前端不推进 profile。
+1. 配置页：建主号 profile（类型常规，编号 N）、连体号 profile（类型连体号，编号 N）。确认连体号编号框可编辑且提示"填主号相同的编号"。
+2. 账号调度卡片选两槽：主号 + 连体号。确认连体号槽位有紫色"连体"角标、option 带"（连体）"。
+3. UI 规则验证：
+   - 尝试在相邻槽位选第二个连体号 → 该 option 被禁用。
+   - 连体号在没有同编号主号被选中时 → 被禁用。
+4. 按时间轮换设 1 分钟开启：
+   - 主号→连体：日志出现 `=== 切换连体号角色 direction=main-to-linked ===`，第 4 步点右侧 (909,334)，成功后 `切换账号: success`，激活连体 profile。
+   - 连体→主号：`direction=linked-to-main`，第 4 步点左侧 (320,334)，成功切回。
+5. 选一个编号不同的常规 profile 作为目标，确认走 OCR 流程（`=== 切换账号 target=... ===`）。
+6. 异常：在没有角色管理的界面触发连体切换，确认返回 `not_found`、关闭弹窗、不推进 profile。
 
 ---
 
 ## Self-Review 结论
 
-- **Spec 覆盖**：数据模型 targetType（Task 1）、配置页类型选择与连体禁用编号（Task 5）、抽出进城共享函数（Task 2）、连体流程 action（Task 3）、action 分支（Task 4）、调度循环按类型传参 + 连体无编号不跳过（Task 6 Step 3）、槽位"连体"角标 + tooltip（Task 6 Step 4-6）、失败关闭弹窗返回 not_found（Task 3 测试/实现）、测试（Task 3、7）均已覆盖。
-- **类型一致**：`targetType` 在 `RokConfig.accountSwitch`、Config.tsx state、Home.tsx 缓存与 task params 中统一为 `'account' | 'linked'`；action 日志前缀统一为 `切换账号:`。
-- **占位符**：无 TBD/TODO；每个代码步骤均给出完整代码。
+- **Spec 覆盖**：targetType 模型(Task1)、进城函数(Task2)、决策表(Task3)、连体流程双方向(Task4)、action 接线(Task5)、配置页连体仍填编号(Task6)、调度传 current/target(Task7 Step3)、UI 三条禁用规则(Task7 Step4)、连体角标(Task7 Step5)、tooltip(Task7 Step6)、失败关闭弹窗(Task4 测试/实现)、测试(Task3/4/8)均覆盖。
+- **类型/命名一致**：`targetType`、`resolveSwitchKind`、`direction: 'main-to-linked'|'linked-to-main'`、task 参数 `{currentName,currentType,targetName,targetType}` 在前后端统一；主号左 (320,334)、连体右 (909,334) 全文一致。
+- **占位符**：无 TBD/TODO，代码步骤完整。
