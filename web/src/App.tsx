@@ -270,7 +270,8 @@ function NavBar() {
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowInvite(false)}>
           <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full mx-4" onClick={e => e.stopPropagation()}>
             <h2 className="text-xl font-bold text-slate-800 mb-2">邀请好友</h2>
-            <p className="text-sm text-slate-500 mb-4">你和好友各获得 3 天免费使用</p>
+            <p className="text-sm text-slate-500 mb-1">你和好友各获得 3 天免费使用</p>
+            <p className="text-xs text-slate-400 mb-4">每个邀请码最多可使用 5 次</p>
             <div className="flex items-center gap-2 mb-4">
               <input readOnly value={myInviteCode || '加载中...'} className="flex-1 px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl font-mono text-sm text-slate-700" />
               <button
