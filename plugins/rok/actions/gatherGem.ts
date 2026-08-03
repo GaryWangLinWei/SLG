@@ -60,6 +60,53 @@ export function parseCoord(text: string): string | null {
   return digits || null;
 }
 
+/**
+ * 紧凑数字串的所有合法 X/Y 切分候选（万国觉醒 X、Y 均为 3-4 位）。
+ * 7 位串可能同时有 3+4 与 4+3 两个候选（如 "2791605" → (279,1605)/(2791,605)），
+ * 调用方应把全部候选交给消费端验证，而不是猜一个。
+ * 长度不在 6-8 或没有合法切分时返回空数组。
+ */
+export function splitDigitsToXYCandidates(digits: string): Array<{ x: number; y: number }> {
+  if (digits.length < 6 || digits.length > 8) return [];
+  const mid = Math.floor(digits.length / 2);
+  const result: Array<{ x: number; y: number }> = [];
+  for (const lx of [mid, mid + 1]) {
+    const ly = digits.length - lx;
+    if (lx < 3 || lx > 4 || ly < 3 || ly > 4) continue;
+    const x = parseInt(digits.slice(0, lx), 10);
+    const y = parseInt(digits.slice(lx), 10);
+    if (Number.isFinite(x) && Number.isFinite(y)) result.push({ x, y });
+  }
+  return result;
+}
+
+/** 紧凑数字串切分：取第一个合法候选（用于日志展示与自身位置读取）。 */
+export function splitDigitsToXY(digits: string): { x: number; y: number } | null {
+  return splitDigitsToXYCandidates(digits)[0] ?? null;
+}
+
+/**
+ * 从候选坐标中选出离主城堡最近的（分享矿都围绕主城堡螺旋搜索得到，
+ * 正确候选必然更靠近城堡；欧氏距离平方即可，无需开方）。
+ */
+export function pickNearestToHome(
+  candidates: Array<{ x: number; y: number }>,
+  home: { x: number; y: number }
+): { x: number; y: number } {
+  let best = candidates[0];
+  let bestDist = Infinity;
+  for (const c of candidates) {
+    const dx = c.x - home.x;
+    const dy = c.y - home.y;
+    const d = dx * dx + dy * dy;
+    if (d < bestDist) {
+      bestDist = d;
+      best = c;
+    }
+  }
+  return best;
+}
+
 /** 将 OCR 坐标转换为便于阅读的日志格式，避免 X/Y 连成一个数字串。 */
 export function formatCoordForLog(text: string): string | null {
   const tagged = text.match(/x\s*[:：]?\s*(\d+)\D+y\s*[:：]?\s*(\d+)/i);
@@ -67,8 +114,9 @@ export function formatCoordForLog(text: string): string | null {
 
   const digits = text.replace(/\D/g, '');
   if (!digits) return null;
-  const splitAt = Math.ceil(digits.length / 2);
-  return `x: ${digits.slice(0, splitAt)} y: ${digits.slice(splitAt)}`;
+  const coord = splitDigitsToXY(digits);
+  if (!coord) return null;
+  return `x: ${coord.x} y: ${coord.y}`;
 }
 
 export function shouldClickVerifiedGem(

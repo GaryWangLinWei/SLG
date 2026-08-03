@@ -4,6 +4,7 @@ import { ocrService } from '../../../core/ocr/OcrService';
 import { RokConfig } from '../index';
 import { sharedGemPool, SharedGemCoord } from '../state/sharedGemPool';
 import { locateByCoord } from '../utils/locateCoord';
+import { splitDigitsToXY } from './gatherGem';
 import { getCurrentLocation, tapWorldSwitchButton } from '../utils/location';
 import {
   dispatchToTeamPopup,
@@ -82,22 +83,10 @@ async function readCurrentCoord(ctx: PluginContext): Promise<SharedGemCoord | nu
     }
     // 兜底：readCoordinates 纯数字模式 → 从中间切分 4+3/3+4 位
     const digits = (await ocrService.readCoordinates(clipPath)).replace(/\D/g, '');
-    if (digits.length >= 6 && digits.length <= 8) {
-      // 万国觉醒 X/Y 都 3-4 位；假定二者位数相等或差 1，先试对半分
-      const mid = Math.floor(digits.length / 2);
-      const candidates: Array<[number, number]> = [
-        [mid, digits.length - mid],
-        [mid + 1, digits.length - mid - 1],
-      ];
-      for (const [lx, ly] of candidates) {
-        if (lx < 3 || lx > 4 || ly < 3 || ly > 4) continue;
-        const x = parseInt(digits.slice(0, lx), 10);
-        const y = parseInt(digits.slice(lx, lx + ly), 10);
-        if (Number.isFinite(x) && Number.isFinite(y)) {
-          ctx.log(`  [坐标兜底] "${digits}" → (${x},${y})`);
-          return { x, y };
-        }
-      }
+    const coord = splitDigitsToXY(digits);
+    if (coord) {
+      ctx.log(`  [坐标兜底] "${digits}" → (${coord.x},${coord.y})`);
+      return coord;
     }
     ctx.log(`  ⚠️ 当前坐标 OCR 无法解析: "${text.trim()}" / "${digits}"`);
     await saveDebugShot(ctx, 'readCurrentCoord_fail');
