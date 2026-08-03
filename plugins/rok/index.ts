@@ -852,8 +852,8 @@ export const RiseOfKingdomsPlugin: Plugin = {
     {
       id: 'share-gem',
       name: '分享宝石矿',
-      description: '从指定起点缩地螺旋搜宝石矿，自动分享给同盟主号',
-      run: async (ctx, params: { accountId?: string; poolAccountId?: string; startX?: number; startY?: number; searchWeights?: any; maxDistance?: number; recordedCoords?: string[]; targetCount?: number; skipShareClick?: boolean } = {}) => {
+      description: '从指定起点缩地螺旋搜宝石矿，记录坐标到分享池',
+      run: async (ctx, params: { accountId?: string; poolAccountId?: string; startX?: number; startY?: number; searchWeights?: any; maxDistance?: number; recordedCoords?: string[]; targetCount?: number } = {}) => {
         if (await ensureNoPopupBlocking(ctx, 'share-gem')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const outcome = await shareGem(ctx, config, {
@@ -863,11 +863,10 @@ export const RiseOfKingdomsPlugin: Plugin = {
           maxDistance: params.maxDistance,
           recordedCoords: params.recordedCoords,
           targetCount: params.targetCount,
-          skipShareClick: params.skipShareClick,
           accountId: params.accountId,
           poolAccountId: params.poolAccountId,
         });
-        ctx.log(`分享宝石矿: → ${outcome.result}，分享 ${outcome.shared} 个`);
+        ctx.log(`分享宝石矿: → ${outcome.result}，记录 ${outcome.shared} 个`);
       }
     },
     {
@@ -886,8 +885,8 @@ export const RiseOfKingdomsPlugin: Plugin = {
     {
       id: 'gather-shared-gem',
       name: '采集分享矿',
-      description: '从池出队坐标定位并派兵采集；池不足会先自动收集',
-      run: async (ctx, params: { accountId: string; poolAccountId?: string; teams?: number[]; teamPage?: 'gather' | 'attack' | 'other'; homeX?: number; homeY?: number; skipChatCollect?: boolean } = { accountId: '' }) => {
+      description: '从池出队坐标定位并派兵采集',
+      run: async (ctx, params: { accountId: string; poolAccountId?: string; teams?: number[]; teamPage?: 'gather' | 'attack' | 'other'; homeX?: number; homeY?: number } = { accountId: '' }) => {
         if (!params?.accountId) {
           ctx.log('❌ 缺少 accountId 参数');
           return;
@@ -902,7 +901,6 @@ export const RiseOfKingdomsPlugin: Plugin = {
           teamPage: params.teamPage ?? 'gather',
           homeX: params.homeX,
           homeY: params.homeY,
-          skipChatCollect: params.skipChatCollect,
         });
         ctx.log(`采集分享矿: → ${outcome.result}，采集 ${outcome.gathered} 队，pool=${sharedGemPool.size(poolAccountId)}`);
       }

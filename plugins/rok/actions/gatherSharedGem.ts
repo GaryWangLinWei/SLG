@@ -5,7 +5,6 @@ import { RokConfig } from '../index';
 import { sharedGemPool, SharedGemCoord } from '../state/sharedGemPool';
 import { locateByCoord } from '../utils/locateCoord';
 import { getCurrentLocation, tapWorldSwitchButton } from '../utils/location';
-import { collectSharedGemCoords } from './collectSharedGemCoords';
 import {
   dispatchToTeamPopup,
   verifyGemAtCenter,
@@ -18,8 +17,6 @@ import { TeamPage } from '../utils/teamPage';
 import * as path from 'path';
 import * as fs from 'fs/promises';
 import sharp from 'sharp';
-
-const REFILL_THRESHOLD = 5;
 
 // 与 gatherGemFocus 同源
 const ZHUZHA_BUTTON = { x: 800, y: 593 };
@@ -52,8 +49,6 @@ export interface GatherSharedGemOutcome {
 export interface GatherSharedGemParams {
   /** 组合模式下跨账号共用的池 key；普通模式默认使用 accountId。 */
   poolAccountId?: string;
-  /** Skip chat box collect (combo mode: coords from small accounts) */
-  skipChatCollect?: boolean;
   accountId: string;
   teams: number[];
   teamPage?: TeamPage;
@@ -70,20 +65,6 @@ async function ensureInWorldLite(ctx: PluginContext): Promise<void> {
   } else {
     ctx.log('  [位置] 已在城外');
   }
-}
-
-async function refillIfNeeded(
-  ctx: PluginContext,
-  poolAccountId: string,
-  skipChatCollect?: boolean
-): Promise<void> {
-  if (skipChatCollect) {
-    ctx.log(`[pool refill] combo mode, skip chat collect (from small accounts)`);
-    return;
-  }
-  ctx.log(`[pool refill] count ${sharedGemPool.size(poolAccountId)} < ${REFILL_THRESHOLD}，触发收集`);
-  await collectSharedGemCoords(ctx, poolAccountId);
-  await ensureInWorldLite(ctx);
 }
 
 /** OCR 顶部当前坐标 (400,11,137,32) → {x, y}，失败返回 null */
@@ -286,8 +267,6 @@ export async function gatherSharedGem(
 
   ctx.log(`[准备] 确保在城外`);
   await ensureInWorldLite(ctx);
-  await refillIfNeeded(ctx, poolAccountId, params.skipChatCollect);
-  ctx.log(`[准备] skipChatCollect = ${params.skipChatCollect}`);
   if (sharedGemPool.size(poolAccountId) === 0) {
     ctx.log(`[准备] 池为空，本轮结束`);
     return { result: 'empty', gathered: 0 };

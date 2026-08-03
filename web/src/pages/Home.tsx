@@ -1605,7 +1605,6 @@ export function HomePage() {
                 recordedCoords: memShared,
                 searchWeights: { spiral: 100, reverseSpiral: 0, randomWalk: 0, snake: 0 },
                 targetCount,
-                skipShareClick: comboGemActive,
               });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
@@ -1977,8 +1976,7 @@ export function HomePage() {
               const comboGemActive = isComboGemActive(fNow, isFeatureLocked('autoSwitchAccount'));
               const gemParams = useShared
                 ? { teams: fNow.gemGatherTeams, teamPage: fNow.gemGatherTeamPage, homeX: fNow.gemGatherHomeX, homeY: fNow.gemGatherHomeY, accountId: currentAccountId,
-                    poolAccountId: comboGemActive ? COMBO_GEM_POOL_ACCOUNT_ID : currentAccountId,
-                    skipChatCollect: comboGemActive }
+                    poolAccountId: comboGemActive ? COMBO_GEM_POOL_ACCOUNT_ID : currentAccountId }
                 : { teams: fNow.gemGatherTeams, teamPage: fNow.gemGatherTeamPage, searchWeights: fNow.gemSearchWeights, maxDistance: fNow.gemGatherMaxDistance, extraSwipePauseSec: fNow.gemGatherExtraSwipePauseSec ?? 0, collectedCoords: memCoords };
               const createResult = await createTask(currentAccountId, 'com.rok.automation', actionId, gemParams);
               if (createResult.success) {
