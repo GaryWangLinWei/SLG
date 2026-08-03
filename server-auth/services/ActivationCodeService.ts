@@ -19,6 +19,7 @@ function generateCode(): string {
 }
 
 const INVITE_BONUS_DAYS = 3;
+const MAX_INVITE_USES = 5;
 
 export function generateInviteCode(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O/1/I
@@ -344,6 +345,11 @@ export function processInviteCode(inviteCode: string, inviteeFingerprint: string
     return { success: false, error: '邀请码已失效' };
   }
 
+  // 拦截自邀请：邀请人不能使用自己的邀请码
+  if (inviteeFingerprint === codeRow.created_by) {
+    return { success: false, error: '不能使用自己的邀请码' };
+  }
+
   const alreadyInvited = db.prepare(
     'SELECT id FROM invitations WHERE invitee_fingerprint = ?'
   ).get(inviteeFingerprint);
@@ -370,6 +376,14 @@ export function processInviteCode(inviteCode: string, inviteeFingerprint: string
   `).get(inviteeFingerprint) as { id: number; expires_at: number } | undefined;
 
   const transaction = db.transaction(() => {
+    // 邀请码使用次数上限（检查与插入同事务，避免并发超发）
+    const usedCount = db.prepare(
+      'SELECT COUNT(*) as n FROM invitations WHERE invite_code_id = ?'
+    ).get(codeRow.id) as { n: number };
+    if (usedCount.n >= MAX_INVITE_USES) {
+      throw new Error('该邀请码使用次数已达上限');
+    }
+
     // 奖励邀请人：延长其激活码的到期时间
     if (inviterCode) {
       const newExpiresAt = Math.max(inviterCode.expires_at, now) + INVITE_BONUS_DAYS * 86400000;
