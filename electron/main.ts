@@ -124,6 +124,30 @@ function ensureNativeDlls(): void {
   }
 }
 
+// Verify that critical native binaries shipped in app.asar.unpacked are present.
+// A broken install or an incomplete auto-update can leave these missing, which
+// otherwise surfaces as an unreadable sharp/onnxruntime native-load stack trace.
+function verifyNativeBinaries(): void {
+  if (isDev) return;
+
+  const unpackedDir = path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules');
+  const required = [
+    path.join(unpackedDir, '@img', 'sharp-win32-x64', 'lib', 'sharp-win32-x64.node'),
+    path.join(unpackedDir, '@img', 'sharp-win32-x64', 'lib', 'libvips-42.dll'),
+    path.join(unpackedDir, 'onnxruntime-node', 'bin', 'napi-v6', 'win32', 'x64', 'onnxruntime_binding.node'),
+    path.join(unpackedDir, 'onnxruntime-node', 'bin', 'napi-v6', 'win32', 'x64', 'onnxruntime.dll'),
+  ];
+
+  const missing = required.filter((f) => !fs.existsSync(f));
+  if (missing.length > 0) {
+    const rel = missing.map((f) => path.relative(process.resourcesPath, f)).join('\n');
+    throw new Error(
+      `安装文件已损坏或自动更新不完整，缺少必要的运行时组件：\n${rel}\n\n`
+      + '请卸载当前版本后，下载最新完整安装包重新安装。',
+    );
+  }
+}
+
 // Start Koa backend server
 async function startServer() {
   try {
@@ -141,6 +165,7 @@ async function startServer() {
 
     // Ensure native DLLs are accessible before loading backend
     ensureNativeDlls();
+    verifyNativeBinaries();
 
     // In production, start the backend server from compiled JS
     if (!isDev) {
