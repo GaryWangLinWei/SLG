@@ -658,6 +658,12 @@ export function HomePage() {
 
   const handleConfigSwitch = async (newName: string) => {
     if (!currentAccountId || newName === activeConfigName) return;
+    // 运行中禁止手动切换配置：自动切号循环排队等锁期间若 profile 被手动换掉，
+    // 会导致本次自动切号被判定为过期决策而放弃。停止后再切换。
+    if (runningIntent) {
+      pushLog('⚠️ 运行中无法手动切换配置，请先停止');
+      return;
+    }
     // Cancel any pending debounce save
     if (saveTimerRef.current) { clearTimeout(saveTimerRef.current); saveTimerRef.current = null; }
     // Save current features to old config immediately
@@ -1245,7 +1251,14 @@ export function HomePage() {
           pendingAccountSwitch = false;
           const nextProfile = validIds[switchTargetIdx];
           pushLog(`🔀 切号 → ${nextProfile} (targetIdx=${switchTargetIdx}, validIds=[${validIds.join(',')}])`);
-          if (!await acquireLock()) { pushLog(`⏹️ 切号 acquireLock 中止（isStopped=${isStopped()}）`); break; }
+          if (!await acquireLock()) {
+            // 等锁期间用户停止 或 profile 已变（决策过期）。前者 break 退出循环；
+            // 后者 continue 回顶部等下一个 pendingAccountSwitch，不能 break——
+            // accountSwitchLoop 只在启动时拉起一次，break 后再无消费者，切号会永久失效。
+            if (isStopped()) break;
+            pushLog(`⏭️ 切号 acquireLock 时配置已切换，放弃本次过期切号，等待下一次`);
+            continue;
+          }
           try {
             const cfgRes = await api.config.getRokConfig(currentAccountId, nextProfile);
             const targetType: 'account' | 'linked' = (cfgRes.config as any)?.accountSwitch?.targetType === 'linked' ? 'linked' : 'account';
@@ -2748,7 +2761,9 @@ export function HomePage() {
               <select
                 value={activeConfigName}
                 onChange={e => handleConfigSwitch(e.target.value)}
-                className="ml-auto px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:border-emerald-400"
+                disabled={runningIntent}
+                title={runningIntent ? '运行中无法切换配置，请先停止' : undefined}
+                className="ml-auto px-3 py-1.5 bg-white border border-slate-200 rounded-lg text-sm text-slate-700 focus:outline-none focus:border-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {configNames.map(n => <option key={n} value={n}>📐 {n}</option>)}
               </select>
