@@ -1828,6 +1828,49 @@ export function HomePage() {
         }
       })();
 
+      // 联盟科技捐献独立循环 —— 每 4 小时执行一次
+      const allianceTechLoop = (async () => {
+        let first = true;
+        while (!isStopped()) {
+          if (first) { first = false; await sleep(10); continue; }
+          if (offlineActive) { await sleep(30); continue; }
+          if (!featuresRef.current.donateAllianceTechEnabled || featuresRef.current.autoWorldChat) {
+            await sleep(30); continue;
+          }
+          if (!await acquireLock()) continue;
+          if (offlineActive) { releaseLock(); await sleep(30); continue; }
+          await ensureGameRunning();
+          try {
+            const createResult = await createTask(currentAccountId, 'com.rok.automation', 'donate-alliance-tech');
+            if (createResult.success) {
+              runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
+              setRunningTaskIds([...runningTaskIdsRef.current]);
+              const runResult = await api.tasks.run(createResult.task.id);
+              runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
+              setRunningTaskIds([...runningTaskIdsRef.current]);
+              const logs = runResult.task?.logs ?? [];
+              const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
+              if (hasExpiredLog) {
+                pushLog(`⛔ 许可证已到期，停止运行`);
+                loopStopped = true;
+                setExpiredMessage('激活码已到期，请重新激活');
+                refreshStatus();
+              } else {
+                pushLog(`🔬 联盟科技捐献 完成`);
+                markRoundDone('alliance-tech');
+              }
+            }
+          } catch {} finally { releaseLock(); }
+
+          const intervalSec = 4 * 3600 * (0.85 + Math.random() * 0.3); // 3.4~4.6 小时
+          const startWait = monotonicNow();
+          const waitSeq = cooldownResetSeq;
+          while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < intervalSec * 1000) {
+            await sleep(1);
+          }
+        }
+      })();
+
       // 下线监控独立循环 — 每 30s 检查一次，边沿触发 kill / launch
       const offlineLoop = (async () => {
         while (!isStopped()) {
@@ -2335,7 +2378,7 @@ export function HomePage() {
           await sleep(1);
         }
       }
-      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, exploreLoop, caveLoop, produceMaterialLoop, allianceTerritoryLoop, offlineLoop, attackLoop, accountSwitchLoop, shareGemLoop]);
+      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, exploreLoop, caveLoop, produceMaterialLoop, allianceTerritoryLoop, allianceTechLoop, offlineLoop, attackLoop, accountSwitchLoop, shareGemLoop]);
       if (isCurrentLoopGeneration(myGen, loopGen)) {
         loopRunning = false;
         setLoopRunningState(false);
