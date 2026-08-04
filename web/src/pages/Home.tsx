@@ -3694,7 +3694,6 @@ export function HomePage() {
                 </div>
                 {/* 次级选项：0点之后捐献 */}
                 <div className={`flex items-center gap-2 mt-2 pl-8 ${(features.donateAllianceTechEnabled && !features.autoWorldChat) ? '' : 'opacity-50 pointer-events-none'}`}>
-                  <span className="text-xs text-slate-500 whitespace-nowrap">0点之后捐献（启动当天不捐，跨过0点后按4小时间隔执行）</span>
                   <label className="relative inline-flex items-center cursor-pointer">
                     <input type="checkbox" checked={features.donateAfterMidnight}
                       disabled={!features.donateAllianceTechEnabled || features.autoWorldChat}
@@ -3708,6 +3707,7 @@ export function HomePage() {
                       )}
                     </span>
                   </label>
+                  <span className="text-xs text-slate-500 whitespace-nowrap">0点之后捐献</span>
                 </div>
               </div>
             </div>
