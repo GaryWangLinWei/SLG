@@ -7,6 +7,7 @@ import { trainTroopsSingle } from './actions/trainTroops';
 import { explore } from './actions/explore';
 import { helpTeammates } from './actions/helpTeammates';
 import { claimAllianceTerritory } from './actions/claimAllianceTerritory';
+import { donateAllianceTech } from './actions/donateAllianceTech';
 import { readQueueOverview, resetQueueFilters } from './actions/readQueueOverview';
 import { rallyFort } from './actions/rallyFort';
 import { rallyFortSpiral } from './actions/rallyFortSpiral';
@@ -607,6 +608,15 @@ export const RiseOfKingdomsPlugin: Plugin = {
       run: async (ctx) => {
         if (await ensureNoPopupBlocking(ctx, 'claim-alliance-territory')) return;
         await claimAllianceTerritory(ctx);
+      }
+    },
+    {
+      id: 'donate-alliance-tech',
+      name: '联盟科技捐献',
+      description: '打开联盟科技，按推荐科技捐献剩余次数，每4小时执行',
+      run: async (ctx) => {
+        if (await ensureNoPopupBlocking(ctx, 'donate-alliance-tech')) return;
+        await donateAllianceTech(ctx);
       }
     },
     {
