@@ -1831,10 +1831,16 @@ export function HomePage() {
       // 联盟科技捐献独立循环 —— 每 4 小时执行一次
       const allianceTechLoop = (async () => {
         let first = true;
+        // 勾选"0点之后捐献"时：记录启动时的日期，只有跨过至少一个 0 点才执行
+        const startDate = new Date().toDateString();
         while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (!featuresRef.current.donateAllianceTechEnabled || featuresRef.current.autoWorldChat) {
+            await sleep(30); continue;
+          }
+          if (featuresRef.current.donateAfterMidnight && new Date().toDateString() === startDate) {
+            // 启动当天还没跨过 0 点，跳过；进入下一个 4 小时等待后再判定
             await sleep(30); continue;
           }
           if (!await acquireLock()) continue;
@@ -3672,18 +3678,37 @@ export function HomePage() {
                 </label>
               </div>
               {/* 联盟科技捐献 */}
-              <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0">
-                <span className="flex items-center gap-2 text-sm text-slate-700">
-                  <span className="w-6 h-6 bg-sky-100 rounded flex items-center justify-center text-xs">🔬</span>
-                  联盟科技捐献
-                </span>
-                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
-                  <input type="checkbox" checked={features.donateAllianceTechEnabled} disabled={features.autoWorldChat}
-                    onChange={(e) => setFeatures({ ...features, donateAllianceTechEnabled: e.target.checked })}
-                    className="sr-only" />
-                  <span className={`absolute inset-0 rounded-full transition-colors ${features.donateAllianceTechEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
-                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.donateAllianceTechEnabled ? 'translate-x-[18px]' : ''}`} />
-                </label>
+              <div className="py-2 border-b border-slate-100 last:border-b-0">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2 text-sm text-slate-700">
+                    <span className="w-6 h-6 bg-sky-100 rounded flex items-center justify-center text-xs">🔬</span>
+                    联盟科技捐献
+                  </span>
+                  <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+                    <input type="checkbox" checked={features.donateAllianceTechEnabled} disabled={features.autoWorldChat}
+                      onChange={(e) => setFeatures({ ...features, donateAllianceTechEnabled: e.target.checked })}
+                      className="sr-only" />
+                    <span className={`absolute inset-0 rounded-full transition-colors ${features.donateAllianceTechEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                    <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.donateAllianceTechEnabled ? 'translate-x-[18px]' : ''}`} />
+                  </label>
+                </div>
+                {/* 次级选项：0点之后捐献 */}
+                <div className={`flex items-center gap-2 mt-2 pl-8 ${(features.donateAllianceTechEnabled && !features.autoWorldChat) ? '' : 'opacity-50 pointer-events-none'}`}>
+                  <span className="text-xs text-slate-500 whitespace-nowrap">0点之后捐献（启动当天不捐，跨过0点后按4小时间隔执行）</span>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox" checked={features.donateAfterMidnight}
+                      disabled={!features.donateAllianceTechEnabled || features.autoWorldChat}
+                      onChange={(e) => setFeatures({ ...features, donateAfterMidnight: e.target.checked })}
+                      className="sr-only peer" />
+                    <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${features.donateAfterMidnight ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
+                      {features.donateAfterMidnight && (
+                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </span>
+                  </label>
+                </div>
               </div>
             </div>
 
