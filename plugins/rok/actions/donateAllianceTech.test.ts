@@ -17,5 +17,8 @@ describe('parseDonateCount', () => {
     expect(parseDonateCount('/20')).toBe(-1);
   });
   it('parses a bare number with no slash', () => { expect(parseDonateCount('7')).toBe(7); });
+  it('parses number with surrounding whitespace', () => {
+    expect(parseDonateCount(' 17 / 20 ')).toBe(17);
+  });
   it('fallback constant is 10', () => { expect(DONATE_FALLBACK_CLICKS).toBe(10); });
 });

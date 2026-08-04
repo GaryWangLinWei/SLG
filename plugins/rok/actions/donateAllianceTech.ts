@@ -47,59 +47,67 @@ export async function donateAllianceTech(ctx: PluginContext): Promise<void> {
   await ctx.tap(TECH_BUTTON.x, TECH_BUTTON.y);
   await ctx.sleep(1.5);
 
-  const tuijian = await ctx.findImageWithLocation(TUIJIAN_TEMPLATE, THRESHOLD);
-  if (!tuijian.found) {
-    ctx.log('未找到推荐科技图标，关闭科技与联盟界面，结束');
-    await ctx.tap(CLOSE_TECH.x, CLOSE_TECH.y);
-    await ctx.sleep(0.3);
-    await ctx.tap(CLOSE_ALLIANCE.x, CLOSE_ALLIANCE.y);
-    ctx.log('=== 联盟科技捐献结束（无推荐科技） ===');
-    return;
-  }
-
-  await ctx.tap(tuijian.x + TUIJIAN_OFFSET.dx, tuijian.y + TUIJIAN_OFFSET.dy);
-  await ctx.sleep(1.5);
-
-  const btn = await ctx.findImageWithLocation(
-    JUANXIAN_TEMPLATE, THRESHOLD, undefined, undefined, undefined, JUANXIAN_REGION,
-  );
-  if (!btn.found) {
-    ctx.log('❌ 找不到捐献按钮，关闭所有弹窗后结束');
-    await closeAll(ctx);
-    ctx.log('=== 联盟科技捐献结束（找不到捐献按钮） ===');
-    return;
-  }
-  ctx.log(`找到捐献按钮 (${btn.x}, ${btn.y})，confidence=${btn.confidence.toFixed(3)}`);
-
-  let clicks = DONATE_FALLBACK_CLICKS;
-  const regionPath = await ctx.captureRegion(COUNT_REGION.x, COUNT_REGION.y, COUNT_REGION.width, COUNT_REGION.height);
   try {
-    const text = await ocrService.readTeamCount(regionPath);
-    const n = parseDonateCount(text);
-    if (n < 0) {
-      ctx.log(`⚠️ 次数 OCR 解析失败，原文="${text.trim()}"，兜底点击 ${DONATE_FALLBACK_CLICKS} 次`);
+    const tuijian = await ctx.findImageWithLocation(TUIJIAN_TEMPLATE, THRESHOLD);
+    if (!tuijian.found) {
+      ctx.log('未找到推荐科技图标，关闭科技与联盟界面，结束');
+      await ctx.tap(CLOSE_TECH.x, CLOSE_TECH.y);
+      await ctx.sleep(0.3);
+      await ctx.tap(CLOSE_ALLIANCE.x, CLOSE_ALLIANCE.y);
+      ctx.log('=== 联盟科技捐献结束（无推荐科技） ===');
+      return;
+    }
+
+    await ctx.tap(tuijian.x + TUIJIAN_OFFSET.dx, tuijian.y + TUIJIAN_OFFSET.dy);
+    await ctx.sleep(1.5);
+
+    // 第 6 个参数是 searchRegion（限定在捐献按钮区域内匹配）
+    const btn = await ctx.findImageWithLocation(
+      JUANXIAN_TEMPLATE, THRESHOLD, undefined, undefined, undefined, JUANXIAN_REGION,
+    );
+    if (!btn.found) {
+      ctx.log('❌ 找不到捐献按钮，关闭所有弹窗后结束');
+      await closeAll(ctx);
+      ctx.log('=== 联盟科技捐献结束（找不到捐献按钮） ===');
+      return;
+    }
+    ctx.log(`找到捐献按钮 (${btn.x}, ${btn.y})，confidence=${btn.confidence.toFixed(3)}`);
+
+    let clicks = DONATE_FALLBACK_CLICKS;
+    const regionPath = await ctx.captureRegion(COUNT_REGION.x, COUNT_REGION.y, COUNT_REGION.width, COUNT_REGION.height);
+    try {
+      const text = await ocrService.readTeamCount(regionPath);
+      const n = parseDonateCount(text);
+      if (n < 0) {
+        ctx.log(`⚠️ 次数 OCR 解析失败，原文="${text.trim()}"，兜底点击 ${DONATE_FALLBACK_CLICKS} 次`);
+      } else {
+        clicks = n;
+        ctx.log(`OCR 剩余捐献次数: ${clicks}/20（原文="${text.trim()}"）`);
+      }
+    } catch (e: any) {
+      ctx.log(`⚠️ 次数 OCR 异常: ${e?.message || e}，兜底点击 ${DONATE_FALLBACK_CLICKS} 次`);
+    } finally {
+      await fs.unlink(regionPath).catch(() => {});
+    }
+
+    if (clicks > 0) {
+      for (let i = 0; i < clicks; i++) {
+        // ctx.tap/ctx.sleep 内部已轮询 stopRequested，停止会立即抛出
+        await ctx.tap(btn.x, btn.y);
+        await ctx.sleep(0.5);
+      }
+      ctx.log(`✅ 已捐献 ${clicks} 次`);
     } else {
-      clicks = n;
-      ctx.log(`OCR 剩余捐献次数: ${clicks}/20（原文="${text.trim()}"）`);
+      ctx.log('可捐献次数为 0，跳过点击');
     }
+
+    await closeAll(ctx);
+    ctx.log('=== 联盟科技捐献完成 ===');
   } catch (e: any) {
-    ctx.log(`⚠️ 次数 OCR 异常: ${e?.message || e}，兜底点击 ${DONATE_FALLBACK_CLICKS} 次`);
-  } finally {
-    await fs.unlink(regionPath).catch(() => {});
+    ctx.log(`❌ 联盟科技捐献异常: ${e?.message || e}`);
+    await closeAll(ctx);
+    return;
   }
-
-  if (clicks > 0) {
-    for (let i = 0; i < clicks; i++) {
-      await ctx.tap(btn.x, btn.y);
-      await ctx.sleep(0.5);
-    }
-    ctx.log(`✅ 已捐献 ${clicks} 次`);
-  } else {
-    ctx.log('可捐献次数为 0，跳过点击');
-  }
-
-  await closeAll(ctx);
-  ctx.log('=== 联盟科技捐献完成 ===');
 }
 
 async function closeAll(ctx: PluginContext): Promise<void> {
