@@ -10,7 +10,12 @@ interface DeviceConnection {
   deviceId: string;
   activationCode: string;
   connectedAt: number;
+  lastSeen: number;
 }
+
+// 设备心跳 30s 一次；超过此时长未收到任何消息视为僵尸连接（网络半开），服务端主动断开
+const DEVICE_TIMEOUT_MS = 70_000;
+const SWEEP_INTERVAL_MS = 15_000;
 
 interface UserConnection {
   ws: WebSocket;
@@ -23,9 +28,11 @@ class WebSocketHub {
   private wss: WebSocketServer | null = null;
   private devices: Map<string, DeviceConnection> = new Map();
   private users: Set<UserConnection> = new Set();
+  private sweepTimer: NodeJS.Timeout | null = null;
 
   attach(server: HttpServer): void {
     this.wss = new WebSocketServer({ server, path: '/ws/remote' });
+    this.startSweep();
     this.wss.on('connection', (ws, req) => {
       let authed = false;
       let connInfo: { role: 'device' | 'user'; deviceId: string } | null = null;
@@ -34,6 +41,12 @@ class WebSocketHub {
         let msg: WsMessage;
         try { msg = JSON.parse(raw.toString()); }
         catch { ws.close(1003, 'invalid json'); return; }
+
+        // 任意已认证消息都刷新该连接的存活时间，供僵尸连接清理使用
+        if (authed && connInfo?.role === 'device') {
+          const conn = this.devices.get(connInfo.deviceId);
+          if (conn && conn.ws === ws) conn.lastSeen = Date.now();
+        }
 
         if (!authed) {
           if (msg.type !== 'auth') { ws.close(1008, 'auth required'); return; }
@@ -65,8 +78,15 @@ class WebSocketHub {
       ws.on('close', () => {
         if (!connInfo) return;
         if (connInfo.role === 'device') {
-          this.devices.delete(connInfo.deviceId);
-          this.broadcastStatusToUsers(connInfo.deviceId, { online: false, runningTasks: [] });
+          // 只在当前登记的就是这条连接时才判定离线。
+          // 重连时新连接会替换旧连接，旧连接的 close 事件异步到达，若不校验会误删新连接，
+          // 导致手机端显示离线但设备实际仍在线运行。
+          const current = this.devices.get(connInfo.deviceId);
+          if (current && current.ws !== ws) return;
+          if (current) {
+            this.devices.delete(connInfo.deviceId);
+            this.broadcastStatusToUsers(connInfo.deviceId, { online: false, runningTasks: [] });
+          }
         } else {
           for (const u of this.users) if (u.ws === ws) { this.users.delete(u); break; }
         }
@@ -77,13 +97,32 @@ class WebSocketHub {
     console.log('[WS] WebSocketHub attached to /ws/remote');
   }
 
+  /**
+   * 周期性清理僵尸设备连接：客户端可能因网络半开而未触发 close 事件，
+   * 服务端长时间收不到任何消息（含心跳）就主动断开，触发客户端重连，
+   * 并正确广播离线状态。
+   */
+  private startSweep(): void {
+    if (this.sweepTimer) return;
+    this.sweepTimer = setInterval(() => {
+      const now = Date.now();
+      for (const [deviceId, conn] of this.devices) {
+        if (now - conn.lastSeen > DEVICE_TIMEOUT_MS) {
+          console.log(`[WS] device ${deviceId} timed out (no heartbeat ${DEVICE_TIMEOUT_MS}ms), closing`);
+          try { conn.ws.close(1001, 'heartbeat timeout'); } catch { /* ignore */ }
+          // close 事件会异步清理；这里不直接删，交由回调统一处理
+        }
+      }
+    }, SWEEP_INTERVAL_MS);
+  }
+
   private authenticate(ws: WebSocket, auth: AuthData): { success: boolean; deviceId?: string; error?: string } {
     if (auth.role === 'device') {
       if (!auth.token) return { success: false, error: '缺少 token' };
       const deviceId = auth.token;
       const old = this.devices.get(deviceId);
       if (old) old.ws.close(1000, 'replaced');
-      this.devices.set(deviceId, { ws, deviceId, activationCode: auth.token, connectedAt: Date.now() });
+      this.devices.set(deviceId, { ws, deviceId, activationCode: auth.token, connectedAt: Date.now(), lastSeen: Date.now() });
       this.broadcastStatusToUsers(deviceId, { online: true, runningTasks: [] });
       return { success: true, deviceId };
     } else {
@@ -103,7 +142,9 @@ class WebSocketHub {
 
   private routeMessage(role: 'device' | 'user', deviceId: string, msg: WsMessage): void {
     if (role === 'device') {
-      if (msg.type === 'log') {
+      if (msg.type === 'heartbeat') {
+        // 心跳仅用于刷新 lastSeen（已在 message 入口统一刷新），无需转发或回复
+      } else if (msg.type === 'log') {
         const log = msg.data as LogData;
         const device = this.devices.get(deviceId);
         if (device) {
