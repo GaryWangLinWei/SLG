@@ -815,7 +815,7 @@ export function HomePage() {
       (features.gemGatherEnabled && features.shareGemEnabled && !isFeatureLocked('shareGem')) ||
       features.produceMaterialEnabled ||
       features.claimAllianceTerritoryEnabled ||
-      (features.donateAllianceTechEnabled) ||
+      features.donateAllianceTechEnabled ||
       features.attackDetectEnabled;
     if (!hasAnyFeature) {
       alert('请先开启至少一个功能再运行');
@@ -3637,11 +3637,11 @@ export function HomePage() {
               )}
             </div>
 
-            {/* 社交与辅助 */}
+            {/* 联盟功能 */}
             <div className="flex flex-col gap-0 p-4 rounded-lg transition-colors border border-slate-200 hover:border-slate-300">
               <div className="flex items-center gap-2 mb-3">
-                <span className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center text-base">📋</span>
-                <span className="font-semibold text-sm text-slate-800">社交与辅助</span>
+                <span className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center text-base">🏛️</span>
+                <span className="font-semibold text-sm text-slate-800">联盟功能</span>
               </div>
               {/* 自动帮助盟友 */}
               <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0">
@@ -3670,6 +3670,28 @@ export function HomePage() {
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.claimAllianceTerritoryEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                   <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.claimAllianceTerritoryEnabled ? 'translate-x-[18px]' : ''}`} />
                 </label>
+              </div>
+              {/* 联盟科技捐献 */}
+              <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0">
+                <span className="flex items-center gap-2 text-sm text-slate-700">
+                  <span className="w-6 h-6 bg-sky-100 rounded flex items-center justify-center text-xs">🔬</span>
+                  联盟科技捐献
+                </span>
+                <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
+                  <input type="checkbox" checked={features.donateAllianceTechEnabled} disabled={features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, donateAllianceTechEnabled: e.target.checked })}
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.donateAllianceTechEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.donateAllianceTechEnabled ? 'translate-x-[18px]' : ''}`} />
+                </label>
+              </div>
+            </div>
+
+            {/* 社交与辅助 */}
+            <div className="flex flex-col gap-0 p-4 rounded-lg transition-colors border border-slate-200 hover:border-slate-300">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="w-8 h-8 bg-slate-100 rounded-lg flex items-center justify-center text-base">📋</span>
+                <span className="font-semibold text-sm text-slate-800">社交与辅助</span>
               </div>
               {/* 自动开盾（受攻击时触发） */}
               <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-b-0"
