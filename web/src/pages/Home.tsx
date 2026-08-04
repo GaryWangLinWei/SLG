@@ -815,6 +815,7 @@ export function HomePage() {
       (features.gemGatherEnabled && features.shareGemEnabled && !isFeatureLocked('shareGem')) ||
       features.produceMaterialEnabled ||
       features.claimAllianceTerritoryEnabled ||
+      (features.donateAllianceTechEnabled) ||
       features.attackDetectEnabled;
     if (!hasAnyFeature) {
       alert('请先开启至少一个功能再运行');
@@ -965,6 +966,7 @@ export function HomePage() {
       if (f.gemGatherEnabled && f.shareGemEnabled && !isFeatureLocked('shareGem')) exp.add('share-gem');
       if (f.produceMaterialEnabled) exp.add('produce-material');
       if (f.claimAllianceTerritoryEnabled) exp.add('alliance-territory');
+      if (f.donateAllianceTechEnabled) exp.add('alliance-tech');
       // gemGather 与 shareGem 互斥：勾了分享，gemLoop 会 skip，不计入 expected
       if (f.gemGatherEnabled && !isFeatureLocked('gemGather') && f.gemGatherTeams.length > 0 && !(f.shareGemEnabled && !isFeatureLocked('shareGem'))) exp.add('gem');
       if (f.upgradeBuildings || f.autoResearch || f.trainTroops) exp.add('main');
