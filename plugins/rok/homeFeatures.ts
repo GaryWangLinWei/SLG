@@ -70,6 +70,7 @@ export interface HomeFeatures {
   produceMaterialEnabled: boolean;
   produceMaterialType: 'leather' | 'iron' | 'ebony' | 'bone';
   claimAllianceTerritoryEnabled: boolean;
+  donateAllianceTechEnabled: boolean;
   attackDetectEnabled: boolean;
   autoShieldEnabled: boolean;
   autoSwitchAccount: boolean;
@@ -144,6 +145,7 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   produceMaterialEnabled: false,
   produceMaterialType: 'leather',
   claimAllianceTerritoryEnabled: false,
+  donateAllianceTechEnabled: false,
   attackDetectEnabled: false,
   autoShieldEnabled: false,
   autoSwitchAccount: false,
