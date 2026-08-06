@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAccount } from '../contexts/AccountContext';
+import { DeviceSettingsCard } from '../components/DeviceSettingsCard';
 
 interface BuildingPos {
   name: string;
@@ -296,11 +296,12 @@ export function ConfigPage() {
 
   if (!currentAccountId) {
     return (
-      <div className="text-center py-20 text-slate-500">
-        <p className="text-lg mb-4">请先选择或创建一个账号</p>
-        <Link to="/accounts" className="px-6 py-3 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 inline-block">
-          前往账号管理
-        </Link>
+      <div className="px-[80px] pt-4 pb-10">
+        <h1 className="text-2xl font-bold mb-2">坐标配置</h1>
+        <p className="text-sm text-slate-500 mb-4">先连接模拟器并创建默认账号，再标注建筑坐标</p>
+        <div className="max-w-xl">
+          <DeviceSettingsCard />
+        </div>
       </div>
     );
   }
@@ -308,7 +309,11 @@ export function ConfigPage() {
   return (
     <div className="px-[80px] pt-4 pb-10">
       <h1 className="text-2xl font-bold mb-2">坐标配置</h1>
-      <p className="text-sm text-slate-500 mb-6">截图后点击画面标注建筑坐标，保存到本地配置文件</p>
+      <p className="text-sm text-slate-500 mb-4">截图后点击画面标注建筑坐标，保存到本地配置文件</p>
+
+      <div className="mb-4 max-w-xl">
+        <DeviceSettingsCard />
+      </div>
 
       {/* 配置管理栏 */}
       <div className="flex items-center gap-2 mb-4 bg-white rounded-lg shadow-sm p-3 flex-wrap">

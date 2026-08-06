@@ -5,7 +5,6 @@ import { HomePage } from './pages/Home';
 import { PluginsPage } from './pages/Plugins';
 import { TasksPage } from './pages/Tasks';
 import { ConfigPage } from './pages/Config';
-import { AccountsPage } from './pages/Accounts';
 import ActivationPage from './pages/Activation';
 import RemoteAccessPage from './pages/RemoteAccess';
 import MobilePage from './pages/Mobile';
@@ -185,8 +184,6 @@ function NavBar() {
         </Link>
         <Link to="/" className={linkClass('/')} style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>首页</Link>
         <Link to="/config" className={linkClass('/config')} style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>坐标配置</Link>
-
-        <Link to="/accounts" className={linkClass('/accounts')} style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}>模拟器配置</Link>
 
         <button
           onClick={() => {
@@ -494,7 +491,6 @@ function AppContent() {
                     <Route path="/config" element={<ConfigPage />} />
                     <Route path="/plugins" element={<PluginsPage />} />
                     <Route path="/tasks" element={<TasksPage />} />
-                    <Route path="/accounts" element={<AccountsPage />} />
                   </Routes>
                 </div>
               </div>

@@ -3267,23 +3267,21 @@ export function HomePage() {
                     </span>
                     <span className="text-xs text-slate-700 whitespace-nowrap">体力不足使用药水</span>
                   </label>
-                  {import.meta.env.DEV && (
-                    <label title="勾选后，集结目标变成劫掠者城寨"
-                      className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
-                      features.rallyFortMarauder
-                        ? 'bg-amber-50 text-amber-700'
-                        : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
-                    } ${features.autoWorldChat ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}>
-                      <input type="checkbox" checked={features.rallyFortMarauder}
-                        disabled={features.autoWorldChat}
-                        onChange={(e) => setFeatures({ ...features, rallyFortMarauder: e.target.checked })}
-                        className="sr-only peer" />
-                      <span className={`w-[16px] h-[16px] rounded-[4px] border-2 flex items-center justify-center text-[11px] leading-none ${
-                        features.rallyFortMarauder ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-slate-300 text-transparent'
-                      }`}>✓</span>
-                      劫掠者城寨
-                    </label>
-                  )}
+                  <label title="勾选后，集结目标变成劫掠者城寨"
+                    className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors ${
+                    features.rallyFortMarauder
+                      ? 'bg-amber-50 text-amber-700'
+                      : 'bg-slate-50 text-slate-500 hover:bg-slate-100'
+                  } ${features.autoWorldChat ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}>
+                    <input type="checkbox" checked={features.rallyFortMarauder}
+                      disabled={features.autoWorldChat}
+                      onChange={(e) => setFeatures({ ...features, rallyFortMarauder: e.target.checked })}
+                      className="sr-only peer" />
+                    <span className={`w-[16px] h-[16px] rounded-[4px] border-2 flex items-center justify-center text-[11px] leading-none ${
+                      features.rallyFortMarauder ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-slate-300 text-transparent'
+                    }`}>✓</span>
+                    劫掠者城寨
+                  </label>
                 </div>
 
                 {/* 队伍页 + 部队推荐 */}
@@ -3683,6 +3681,7 @@ export function HomePage() {
                   <span className="flex items-center gap-2 text-sm text-slate-700">
                     <span className="w-6 h-6 bg-sky-100 rounded flex items-center justify-center text-xs">🔬</span>
                     联盟科技捐献
+                    <span className="text-xs text-slate-400">仅捐献推荐科技</span>
                   </span>
                   <label className="relative w-10 h-[22px] cursor-pointer flex-shrink-0">
                     <input type="checkbox" checked={features.donateAllianceTechEnabled} disabled={features.autoWorldChat}
