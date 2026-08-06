@@ -69,6 +69,11 @@ const FORT_MINUS_RECT = { x1: 102, y1: 467, x2: 137, y2: 501 };
 const FORT_PLUS_RECT = { x1: 539, y1: 467, x2: 576, y2: 501 };
 const FORT_SEARCH_ACTION_RECT = { x1: 244, y1: 561, x2: 436, y2: 626 };
 const RALLY_BUTTON_RECT = { x1: 1053, y1: 584, x2: 1280, y2: 649 };
+const RALLY_BUTTON_TEMPLATE = path.join(TEMPLATE_DIR, 'JiJie.png');
+// 集结按钮位于屏幕右下，限定搜索区域避免误匹配并加速
+const RALLY_BUTTON_REGION = { x: 1000, y: 560, width: 360, height: 130 };
+// 劫掠者城寨：集结按钮不可点时，先点此坐标（城寨目标项）后再集结
+const MARAUDER_RALLY_TARGET = { x: 764, y: 415 };
 const CONFIRM_TIME_BUTTON_RECT = { x1: 1062, y1: 359, x2: 1289, y2: 422 };
 const MARCH_BUTTON_RECT = { x1: 1031, y1: 754, x2: 1292, y2: 820 };
 const TEAM_BUTTONS_NO_PAGE: Record<number, { x: number; y: number }> = {
@@ -192,67 +197,78 @@ export async function rallyFort(
   }
   await ctx.sleep(1);
 
-  // [5/8] 设置等级并搜索
-  ctx.log(`  [5/8] 设置等级并搜索`);
-
-  // OCR 读当前等级，只点差值次数；失败则点重置按钮回 Lv.1 后再加
-  const ocrLevel = await readCurrentFortLevel(ctx);
-  let currentLevel = 1;
+  // [5/8] 设置等级并搜索（劫掠者城寨不设等级，直接搜索）
+  let currentLevel = targetLevel;
   let searchSuccess = false;
 
-  if (ocrLevel !== null) {
-    const diff = targetLevel - ocrLevel;
-    ctx.log(`  OCR 当前 Lv.${ocrLevel} → 目标 Lv.${targetLevel}: ${diff === 0 ? '无需调整' : (diff > 0 ? `+ ×${diff}` : `- ×${-diff}`)}`);
-    for (let i = 0; i < Math.abs(diff); i++) {
-      if (diff > 0) await ctx.tapRect(FORT_PLUS_RECT.x1, FORT_PLUS_RECT.y1, FORT_PLUS_RECT.x2, FORT_PLUS_RECT.y2);
-      else await ctx.tapRect(FORT_MINUS_RECT.x1, FORT_MINUS_RECT.y1, FORT_MINUS_RECT.x2, FORT_MINUS_RECT.y2);
-      await ctx.sleep(0.15);
-    }
-    currentLevel = targetLevel;
-  } else {
-    ctx.log(`  OCR 失败，fallback: 点击重置按钮回 Lv.1`);
-    await ctx.tap(FORT_LEVEL_RESET_BTN.x, FORT_LEVEL_RESET_BTN.y);
-    await ctx.sleep(0.3);
-    const plusClicks = targetLevel - 1;
-    if (plusClicks > 0) {
-      ctx.log(`  设置 Lv.${targetLevel}: + ×${plusClicks}`);
-      for (let i = 0; i < plusClicks; i++) {
-        await ctx.tapRect(FORT_PLUS_RECT.x1, FORT_PLUS_RECT.y1, FORT_PLUS_RECT.x2, FORT_PLUS_RECT.y2);
-        await ctx.sleep(0.15);
-      }
-    }
-    currentLevel = targetLevel;
-  }
-
-  // 搜索 + 降级重试
-  while (currentLevel >= 1) {
-    ctx.log(`  搜索 Lv.${currentLevel} (${fs.searchActionButton.x}, ${fs.searchActionButton.y})`);
+  if (marauder) {
+    ctx.log(`  [5/8] 劫掠者城寨：直接搜索，不设置等级`);
     const stateResult = await ctx.checkButtonStateChangeRect(
       FORT_SEARCH_ACTION_RECT.x1, FORT_SEARCH_ACTION_RECT.y1,
       FORT_SEARCH_ACTION_RECT.x2, FORT_SEARCH_ACTION_RECT.y2,
       0.05
     );
+    searchSuccess = stateResult.changed;
+  } else {
+    ctx.log(`  [5/8] 设置等级并搜索`);
 
-    if (stateResult.changed) {
-      if (currentLevel < targetLevel) {
-        ctx.log(`  Lv.${targetLevel} 未搜索到，降级至 Lv.${currentLevel} 搜索成功`);
+    // OCR 读当前等级，只点差值次数；失败则点重置按钮回 Lv.1 后再加
+    const ocrLevel = await readCurrentFortLevel(ctx);
+
+    if (ocrLevel !== null) {
+      const diff = targetLevel - ocrLevel;
+      ctx.log(`  OCR 当前 Lv.${ocrLevel} → 目标 Lv.${targetLevel}: ${diff === 0 ? '无需调整' : (diff > 0 ? `+ ×${diff}` : `- ×${-diff}`)}`);
+      for (let i = 0; i < Math.abs(diff); i++) {
+        if (diff > 0) await ctx.tapRect(FORT_PLUS_RECT.x1, FORT_PLUS_RECT.y1, FORT_PLUS_RECT.x2, FORT_PLUS_RECT.y2);
+        else await ctx.tapRect(FORT_MINUS_RECT.x1, FORT_MINUS_RECT.y1, FORT_MINUS_RECT.x2, FORT_MINUS_RECT.y2);
+        await ctx.sleep(0.15);
       }
-      searchSuccess = true;
-      break;
+      currentLevel = targetLevel;
+    } else {
+      ctx.log(`  OCR 失败，fallback: 点击重置按钮回 Lv.1`);
+      await ctx.tap(FORT_LEVEL_RESET_BTN.x, FORT_LEVEL_RESET_BTN.y);
+      await ctx.sleep(0.3);
+      const plusClicks = targetLevel - 1;
+      if (plusClicks > 0) {
+        ctx.log(`  设置 Lv.${targetLevel}: + ×${plusClicks}`);
+        for (let i = 0; i < plusClicks; i++) {
+          await ctx.tapRect(FORT_PLUS_RECT.x1, FORT_PLUS_RECT.y1, FORT_PLUS_RECT.x2, FORT_PLUS_RECT.y2);
+          await ctx.sleep(0.15);
+        }
+      }
+      currentLevel = targetLevel;
     }
 
-    if (downgrade && currentLevel > 1) {
-      ctx.log(`  Lv.${currentLevel} 未搜索到，降级重试...`);
-      await ctx.tapRect(FORT_MINUS_RECT.x1, FORT_MINUS_RECT.y1, FORT_MINUS_RECT.x2, FORT_MINUS_RECT.y2);
-      await ctx.sleep(0.15);
-      currentLevel--;
-    } else {
-      break;
+    // 搜索 + 降级重试
+    while (currentLevel >= 1) {
+      ctx.log(`  搜索 Lv.${currentLevel} (${fs.searchActionButton.x}, ${fs.searchActionButton.y})`);
+      const stateResult = await ctx.checkButtonStateChangeRect(
+        FORT_SEARCH_ACTION_RECT.x1, FORT_SEARCH_ACTION_RECT.y1,
+        FORT_SEARCH_ACTION_RECT.x2, FORT_SEARCH_ACTION_RECT.y2,
+        0.05
+      );
+
+      if (stateResult.changed) {
+        if (currentLevel < targetLevel) {
+          ctx.log(`  Lv.${targetLevel} 未搜索到，降级至 Lv.${currentLevel} 搜索成功`);
+        }
+        searchSuccess = true;
+        break;
+      }
+
+      if (downgrade && currentLevel > 1) {
+        ctx.log(`  Lv.${currentLevel} 未搜索到，降级重试...`);
+        await ctx.tapRect(FORT_MINUS_RECT.x1, FORT_MINUS_RECT.y1, FORT_MINUS_RECT.x2, FORT_MINUS_RECT.y2);
+        await ctx.sleep(0.15);
+        currentLevel--;
+      } else {
+        break;
+      }
     }
   }
 
   if (!searchSuccess) {
-    ctx.log(`  ❌ 未搜索到 Lv.${targetLevel} 城寨`);
+    ctx.log(`  ❌ 未搜索到城寨`);
     // 点击2次切换按钮：第1次退出搜索面板，第2次回到城内
     ctx.log(`  退出搜索面板并返回城内`);
     await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
@@ -264,15 +280,28 @@ export async function rallyFort(
 
   await ctx.sleep(2.5);
 
-  // [6/8] 点击集结按钮并检测
-  ctx.log(`  [6/8] 点击集结按钮并检测 (${fs.rallyButton.x}, ${fs.rallyButton.y})`);
-  const rallyResult = await ctx.checkButtonStateChangeRect(
-    RALLY_BUTTON_RECT.x1, RALLY_BUTTON_RECT.y1,
-    RALLY_BUTTON_RECT.x2, RALLY_BUTTON_RECT.y2,
-    0.05
-  );
+  // [6/8] 模板匹配集结按钮并点击
+  ctx.log(`  [6/8] 匹配集结按钮 JiJie.png`);
+  let rallyBtn = await ctx.findImageWithLocation(RALLY_BUTTON_TEMPLATE, 0.7, [0.9, 1.0, 1.1], false, undefined, RALLY_BUTTON_REGION);
+
+  // 劫掠者城寨：匹配不到集结按钮时，先点城寨目标项再重新匹配
+  if (!rallyBtn.found && marauder) {
+    ctx.log(`  劫掠者：未匹配到集结按钮，点击城寨目标 (${MARAUDER_RALLY_TARGET.x}, ${MARAUDER_RALLY_TARGET.y}) 后重新匹配`);
+    await ctx.tap(MARAUDER_RALLY_TARGET.x, MARAUDER_RALLY_TARGET.y);
+    await ctx.sleep(1);
+    rallyBtn = await ctx.findImageWithLocation(RALLY_BUTTON_TEMPLATE, 0.7, [0.9, 1.0, 1.1], false, undefined, RALLY_BUTTON_REGION);
+  }
+
+  if (!rallyBtn.found) {
+    ctx.log(`  ⚠️ 未找到集结按钮（conf=${rallyBtn.confidence.toFixed(3)}），队伍已满或界面异常`);
+    await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
+    await ctx.sleep(2);
+    return { result: 'rally_full', dispatched: 0, foundLevel: currentLevel };
+  }
+  ctx.log(`  集结按钮位置 (${rallyBtn.x}, ${rallyBtn.y}) conf=${rallyBtn.confidence.toFixed(3)}，点击并检测弹窗`);
+  const rallyResult = await ctx.checkButtonStateChange(rallyBtn.x, rallyBtn.y, 150, 50, 0.05);
   if (!rallyResult.changed) {
-    ctx.log(`  ⚠️ 集结按钮无变化，队伍已满`);
+    ctx.log(`  ⚠️ 集结按钮点击后无变化，队伍已满`);
     await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
     await ctx.sleep(2);
     return { result: 'rally_full', dispatched: 0, foundLevel: currentLevel };

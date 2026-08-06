@@ -12,9 +12,11 @@ const router = new Router({ prefix: '/api/device' });
 // 扫描所有可用 ADB 设备
 router.get('/scan', async (ctx) => {
   try {
-    // MuMu 多开步进: 7555, 7565, 7575... (每多开一个实例 +10)
+    // MuMu6 多开步进: 7555, 7565, 7575... (每多开一个实例 +10)
     const ports: number[] = [];
     for (let p = 7555; p <= 7655; p += 10) ports.push(p);
+    // MuMu12 多开步进: 16384, 16416, 16448... (每多开一个实例 +32)
+    for (let p = 16384; p <= 16512; p += 32) ports.push(p);
 
     const batch = 10;
     for (let i = 0; i < ports.length; i += batch) {
