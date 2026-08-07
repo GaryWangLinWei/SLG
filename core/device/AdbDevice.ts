@@ -32,6 +32,8 @@ const DEFAULT_RAND_CONFIG: RandomizationConfig = {
 export class AdbDevice implements Device {
   private connected: boolean = false;
   private deviceId: string;
+  /** 最近一次 connect() 是否执行了 adb kill-server/start-server 重置 */
+  private connectResetAdb: boolean = false;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 3; // 最多重连 3 次
   private reconnectDelayMs = 3000; // 重连间隔 3 秒
@@ -88,28 +90,71 @@ export class AdbDevice implements Device {
     return this.deviceId;
   }
 
+  /** 最近一次 connect() 是否触发了 adb server 重置（用于给用户更准确的提示） */
+  didResetAdbOnLastConnect(): boolean {
+    return this.connectResetAdb;
+  }
+
   async connect(): Promise<boolean> {
+    this.connectResetAdb = false;
     try {
-      // 仅对 host:port 形式的设备执行 adb connect（USB 设备如 emulator-5554 无需）
-      if (this.deviceId.includes(':')) {
-        await this.execAsync(`"${getAdbPath()}" connect ${this.deviceId}`).catch(() => {});
-      }
-
-      const { stdout } = await this.execAsync(`"${getAdbPath()}" devices`);
-      const devices = stdout.split('\n')
-        .filter(line => line.includes('\tdevice'))
-        .map(line => line.split('\t')[0].trim());
-
-      if (devices.includes(this.deviceId)) {
+      if (await this.tryConnectOnce()) {
         this.connected = true;
         this.reconnectAttempts = 0;
         return true;
       }
+
+      // 首次连接失败：ADB server 可能处于坏状态（版本冲突、残留僵死进程等）。
+      // 用户反馈"重启电脑后能连上"即根因在此——重启会重置 adb server。
+      // 这里自动 kill-server / start-server 后重试一次，避免用户重启电脑。
+      console.log(`[ADB] 首次连接 ${this.deviceId} 未找到设备，重置 adb server 后重试...`);
+      this.connectResetAdb = true;
+      try {
+        await this.execAsync(`"${getAdbPath()}" kill-server`);
+      } catch (e) {
+        console.log(`[ADB] kill-server 异常（可忽略）: ${(e as Error).message}`);
+      }
+      try {
+        await this.execAsync(`"${getAdbPath()}" start-server`);
+      } catch (e) {
+        console.error(`[ADB] start-server 失败:`, e);
+      }
+
+      if (await this.tryConnectOnce()) {
+        this.connected = true;
+        this.reconnectAttempts = 0;
+        console.log(`[ADB] 重置 adb server 后连接 ${this.deviceId} 成功`);
+        return true;
+      }
+
+      console.error(`ADB连接失败 (${this.deviceId}): 重置 adb server 后仍未找到设备`);
       return false;
     } catch (e) {
-      console.error(`ADB连接失败 (${this.deviceId}):`, e);
+      console.error(`ADB连接异常 (${this.deviceId}):`, e);
       return false;
     }
+  }
+
+  /**
+   * 执行一次 connect + devices 查询，返回设备是否在线。
+   * 仅 host:port 形式（网络设备）需要 adb connect；USB 设备如 emulator-5554 无需。
+   */
+  private async tryConnectOnce(): Promise<boolean> {
+    if (this.deviceId.includes(':')) {
+      try {
+        const { stdout } = await this.execAsync(`"${getAdbPath()}" connect ${this.deviceId}`);
+        if (stdout && stdout.trim()) console.log(`[ADB] connect ${this.deviceId}: ${stdout.trim()}`);
+      } catch (e) {
+        console.log(`[ADB] connect ${this.deviceId} 异常: ${(e as Error).message}`);
+      }
+    }
+
+    const { stdout } = await this.execAsync(`"${getAdbPath()}" devices`);
+    const devices = stdout.split('\n')
+      .filter(line => line.includes('\tdevice'))
+      .map(line => line.split('\t')[0].trim());
+
+    return devices.includes(this.deviceId);
   }
 
   async disconnect(): Promise<void> {

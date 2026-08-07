@@ -17,8 +17,18 @@ class DeviceService {
     try {
       const device = await this.getOrCreateDevice(accountId);
       const connected = await device.connect();
-      if (connected) return { connected: true, message: '设备连接成功' };
-      return { connected: false, message: '未找到设备，请确保模拟器已启动且 deviceId 正确' };
+      if (connected) {
+        return {
+          connected: true,
+          message: device.didResetAdbOnLastConnect()
+            ? `设备连接成功（已自动重置 ADB 后连上 ${device.getDeviceId()}）`
+            : '设备连接成功',
+        };
+      }
+      return {
+        connected: false,
+        message: `未找到设备（${device.getDeviceId()}）。已尝试重置 ADB server 仍失败，请确认模拟器已启动、ADB 端口正确，或重启模拟器后重试`,
+      };
     } catch (error) {
       return { connected: false, message: `连接失败: ${error}` };
     }
