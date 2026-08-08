@@ -54,6 +54,47 @@ function randInt(min: number, max: number): number {
 }
 
 /**
+ * 等长数字串是否匹配：要求除 0↔9 外完全一致，且 0↔9 不一致的位置最多 1 个。
+ * 游戏小号字体 OCR 下 0 和 9 最易互相误识；其他任何数字（如 1↔8）对不上即判定不匹配。
+ */
+function fuzzyEqualLength(ocrDigits: string, target: string): boolean {
+  if (ocrDigits.length !== target.length) return false;
+  let zeroNineMismatch = 0;
+  for (let i = 0; i < target.length; i++) {
+    const a = ocrDigits[i];
+    const b = target[i];
+    if (a === b) continue;
+    const isZeroNine = (a === '0' && b === '9') || (a === '9' && b === '0');
+    if (!isZeroNine) return false;
+    zeroNineMismatch++;
+    if (zeroNineMismatch > 1) return false;
+  }
+  return true;
+}
+
+/**
+ * 判断 OCR 文本中是否包含目标账号编号（容许 1 位数字误差，0↔9 视为相同）。
+ *
+ * OCR 可能把编号周围文本一起读入、或在首尾多读/漏读字符。策略：
+ * 提取所有长度 ≥ 目标长度的纯数字串，对其取与目标等长的滑动窗口逐一模糊比对，
+ * 任一窗口命中即认为匹配。
+ */
+export function accountIdMatches(ocrText: string, target: string): boolean {
+  if (!ocrText || !target) return false;
+  if (ocrText.replace(/\D/g, '').includes(target)) return true;
+
+  const candidates = ocrText.match(/\d+/g) || [];
+  for (const cand of candidates) {
+    if (cand.length < target.length) continue;
+    for (let i = 0; i + target.length <= cand.length; i++) {
+      const window = cand.slice(i, i + target.length);
+      if (fuzzyEqualLength(window, target)) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * 切换游戏账号：头像 → 设置 → 账号 → 切换账号 → 展开下拉 → OCR 匹配 → 登录 → 等加载
  * @param targetName 目标账号编号（如 "241872258"），OCR 结果用 includes 匹配
  */
@@ -140,8 +181,8 @@ async function switchAccountOnce(ctx: PluginContext, targetName: string): Promis
     // 两区都空 → 下拉未展开，重点一次
     if (lastText1 === '' && lastText2 === '') continue;
 
-    if (text1.includes(targetName)) tap = REGION1.tap;
-    else if (text2.includes(targetName)) tap = REGION2.tap;
+    if (accountIdMatches(text1, targetName)) tap = REGION1.tap;
+    else if (accountIdMatches(text2, targetName)) tap = REGION2.tap;
     break; // OCR 有结果就跳出，成功匹配走下面点击，不匹配 → not_found
   }
 
