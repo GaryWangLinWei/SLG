@@ -263,11 +263,18 @@ export async function joinRally(
 
   // [5/6] 识别编队按钮
   ctx.log('  [5/6] 识别编队按钮...');
-  const bianduiResult = await ctx.findImageWithLocation(
+  let bianduiResult = await ctx.findImageWithLocation(
     BTN_BIANDUI_TEMPLATE, 0.6
   );
   if (!bianduiResult.found) {
-    ctx.log('  未检测到编队按钮，点击回城按钮并结束');
+    ctx.log('  未检测到编队按钮，等待 2s 后重试一次');
+    await ctx.sleep(2);
+    bianduiResult = await ctx.findImageWithLocation(
+      BTN_BIANDUI_TEMPLATE, 0.6
+    );
+  }
+  if (!bianduiResult.found) {
+    ctx.log('  重试后仍未检测到编队按钮，点击回城按钮并结束');
     await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
     await ctx.sleep(0.5);
     // 点击回城按钮（左下角）
