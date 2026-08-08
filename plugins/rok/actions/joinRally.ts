@@ -225,16 +225,6 @@ export async function joinRally(
 
     const distPath = await ctx.captureRegion(col.distance.x, col.distance.y, col.distance.width, col.distance.height);
     const distText = await ocrService.readDistance(distPath);
-    // 调试：保存 OCR 区域截图（文件名后缀带识别结果）
-    try {
-      const debugDir = path.join(process.cwd(), 'temp', 'debug', 'joinrally_ocr');
-      await fs.mkdir(debugDir, { recursive: true });
-      const saved = path.join(debugDir, `dist_${Date.now()}_d${distText || 'x'}.png`);
-      await fs.copyFile(distPath, saved);
-      ctx.log(`    [调试] OCR 区域已保存: ${saved}`);
-    } catch (e) {
-      ctx.log(`    [调试] 保存截图失败: ${(e as Error).message}`);
-    }
     await fs.unlink(distPath).catch(() => {});
     ctx.log(`    距离 OCR: "${distText}"`);
 
