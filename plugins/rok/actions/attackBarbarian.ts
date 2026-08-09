@@ -6,6 +6,7 @@ import { ensureTeamPage, TeamPage } from '../utils/teamPage';
 import { detectTeamStates } from '../utils/teamStateDetection';
 import { handleMarchWithStamina } from '../utils/stamina';
 import { ocrService } from '../../../core/ocr/OcrService';
+import { parseTeamCount } from './rallyFort';
 import * as path from 'path';
 import * as fsp from 'fs/promises';
 import sharp from 'sharp';
@@ -178,10 +179,6 @@ async function searchWithNeighbors(
   const candidates = [initialLevel, ...neighborLevelOrder(initialLevel, BARB_MAX_LEVEL)];
   for (let i = 0; i < candidates.length; i++) {
     const lv = candidates[i];
-    if (i > 0) {
-      await ctx.tapRect(SEARCH_ENTRY_RECT.x1, SEARCH_ENTRY_RECT.y1, SEARCH_ENTRY_RECT.x2, SEARCH_ENTRY_RECT.y2);
-      await ctx.sleep(1.5);
-    }
     const r = await searchAndAttack(ctx, lv);
     if (r === 'attacked') return { level: lv, attackState: 'attacked' };
     if (r === 'no_attack_button') return { level: lv, attackState: 'no_attack_button' };
@@ -191,6 +188,14 @@ async function searchWithNeighbors(
 
 /** 点击回城按钮 */
 async function backToCity(ctx: PluginContext): Promise<void> {
+  await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
+  await ctx.sleep(2);
+}
+
+/** 从仍打开的搜索面板退出：第一次关面板，第二次回城 */
+async function backFromSearchPanel(ctx: PluginContext): Promise<void> {
+  await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
+  await ctx.sleep(1);
   await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
   await ctx.sleep(2);
 }
@@ -250,7 +255,7 @@ async function selectTeamAndMarch(
     TILI_BUTTON_REGION,
     usePotion,
     async () => {
-      ctx.log(`  点击行军 (1154,791)`);
+      ctx.log(`  点击行军 (${MARCH_BUTTON.x},${MARCH_BUTTON.y})`);
       await ctx.tapRect(MARCH_BUTTON_RECT.x1, MARCH_BUTTON_RECT.y1, MARCH_BUTTON_RECT.x2, MARCH_BUTTON_RECT.y2);
       const surego = await ctx.findImageWithLocation(SUREGO_TEMPLATE, 0.6, [0.95, 1.0, 1.05]);
       if (surego.found) {
@@ -322,7 +327,8 @@ export async function attackBarbarian(
   config: RokConfig,
   params: AttackBarbarianParams,
 ): Promise<{ result: AttackBarbarianResult }> {
-  const { count, team, teamPage, usePotion } = params;
+  const { team, teamPage, usePotion } = params;
+  const count = Math.max(1, Math.round(params.count) || 1);
   let currentLevel = Math.min(Math.max(1, Math.round(params.level)), BARB_MAX_LEVEL);
   ctx.log(`=== 自动打野 Lv.${currentLevel} 队伍${team} 共${count}次 ===`);
 
@@ -331,14 +337,11 @@ export async function attackBarbarian(
   try {
     const text = (await ocrService.readTeamCount(shot)).trim();
     ctx.log(`[预备] 队伍计数 OCR: "${text}"`);
-    const m = text.match(/(\d+)\s*\/\s*(\d+)/);
-    if (m) {
-      const used = parseInt(m[1], 10), total = parseInt(m[2], 10);
-      if (used >= total) {
-        ctx.log(`⏭️ 无空闲队伍 (${used}/${total})，跳过打野`);
-        await backToCity(ctx);
-        return { result: 'team_unavailable' };
-      }
+    const teamCount = parseTeamCount(text);
+    if (teamCount && teamCount.used >= teamCount.total) {
+      ctx.log(`⏭️ 无空闲队伍 (${teamCount.used}/${teamCount.total})，跳过打野`);
+      await backToCity(ctx);
+      return { result: 'team_unavailable' };
     }
   } finally {
     await fsp.unlink(shot).catch(() => {});
@@ -356,7 +359,7 @@ export async function attackBarbarian(
       await ctx.sleep(1);
 
       const r = await searchWithNeighbors(ctx, currentLevel, false);
-      if (!r) { await backToCity(ctx); return { result: 'not_found' }; }
+      if (!r) { await backFromSearchPanel(ctx); return { result: 'not_found' }; }
       if (r.attackState === 'no_attack_button') { await closeAndCity(ctx); return { result: 'no_attack_button' }; }
       currentLevel = r.level;
 
@@ -367,7 +370,7 @@ export async function attackBarbarian(
       if (mr === 'stamina_insufficient') { return { result: 'stamina_insufficient' }; }
     } else {
       const r = await searchWithNeighbors(ctx, currentLevel, true);
-      if (!r) { await backToCity(ctx); return { result: 'not_found' }; }
+      if (!r) { await backFromSearchPanel(ctx); return { result: 'not_found' }; }
       if (r.attackState === 'no_attack_button') { await closeAndCity(ctx); return { result: 'no_attack_button' }; }
       currentLevel = r.level;
 
