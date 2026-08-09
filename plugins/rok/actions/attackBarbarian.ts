@@ -48,7 +48,7 @@ const ZHUZHA_WAIT_TIMEOUT_SEC = 300;
 const ZHUZHA_POLL_INTERVAL_SEC = 5;
 
 export type AttackBarbarianResult =
-  | 'success' | 'not_found' | 'no_attack_button' | 'no_march_button' | 'no_biandui'
+  | 'success' | 'not_found' | 'no_march_button' | 'no_biandui'
   | 'team_unavailable' | 'stamina_insufficient' | 'zhuzha_timeout';
 
 export interface AttackBarbarianParams {
@@ -136,46 +136,46 @@ async function setSearchLevel(ctx: PluginContext, targetLevel: number): Promise<
   return targetLevel;
 }
 
-type SearchAttackState = 'attacked' | 'not_found' | 'no_attack_button';
+type SearchAttackState = 'attacked' | 'not_found';
 
-/** 设级并搜索一次，返回搜索结果 */
+/**
+ * 设级并搜索一次。
+ * 注意：搜索按钮自身的按下动画会让 checkButtonStateChangeRect 误判为"有变化"，
+ * 因此最终以"攻击按钮是否真的出现"作为搜到目标的判据；没出现就视为该等级未搜到，
+ * 交由上层降级重试相邻等级。
+ */
 async function searchAndAttack(ctx: PluginContext, level: number): Promise<SearchAttackState> {
   await setSearchLevel(ctx, level);
   ctx.log(`  点击搜索按钮 Lv.${level}`);
-  const changed = await ctx.checkButtonStateChangeRect(
+  await ctx.checkButtonStateChangeRect(
     SEARCH_ACTION_RECT.x1, SEARCH_ACTION_RECT.y1, SEARCH_ACTION_RECT.x2, SEARCH_ACTION_RECT.y2, 0.05,
   );
-  if (!changed) {
-    ctx.log(`  ❌ Lv.${level} 未搜索到野蛮人`);
-    return 'not_found';
-  }
   await ctx.sleep(2.5);
   const atk = await ctx.findImageWithLocation(BTN_ATTACK_TEMPLATE, 0.7, [0.9, 1.0, 1.1]);
   if (!atk.found) {
-    ctx.log(`  ❌ 未找到攻击按钮 (conf=${atk.confidence.toFixed(3)})`);
-    return 'no_attack_button';
+    ctx.log(`  ❌ Lv.${level} 附近未找到野蛮人（无攻击按钮 conf=${atk.confidence.toFixed(3)}），尝试相邻等级`);
+    return 'not_found';
   }
   await ctx.tap(atk.x, atk.y);
   await ctx.sleep(1.5);
   return 'attacked';
 }
 
-/** 从 initialLevel 开始，依次尝试相邻等级；reopenPanel 控制首次是否需要重开面板 */
+/** 从 initialLevel 开始，依次尝试相邻等级；reopenPanel 控制首次是否需要重开面板。
+ *  全部等级都搜不到时返回 null。 */
 async function searchWithNeighbors(
   ctx: PluginContext,
   initialLevel: number,
   reopenPanel: boolean,
-): Promise<{ level: number; attackState: 'attacked' | 'no_attack_button' } | null> {
+): Promise<{ level: number } | null> {
   if (reopenPanel) {
     await ctx.tapRect(SEARCH_ENTRY_RECT.x1, SEARCH_ENTRY_RECT.y1, SEARCH_ENTRY_RECT.x2, SEARCH_ENTRY_RECT.y2);
     await ctx.sleep(1.5);
   }
   const candidates = [initialLevel, ...neighborLevelOrder(initialLevel, BARB_MAX_LEVEL)];
-  for (let i = 0; i < candidates.length; i++) {
-    const lv = candidates[i];
+  for (const lv of candidates) {
     const r = await searchAndAttack(ctx, lv);
-    if (r === 'attacked') return { level: lv, attackState: 'attacked' };
-    if (r === 'no_attack_button') return { level: lv, attackState: 'no_attack_button' };
+    if (r === 'attacked') return { level: lv };
   }
   return null;
 }
@@ -395,7 +395,6 @@ export async function attackBarbarian(
 
       const r = await searchWithNeighbors(ctx, currentLevel, false);
       if (!r) { await backFromSearchPanel(ctx); return { result: 'not_found' }; }
-      if (r.attackState === 'no_attack_button') { await closeAndCity(ctx); return { result: 'no_attack_button' }; }
       currentLevel = r.level;
 
       if (!await tapBiandui(ctx)) { await closeAndCity(ctx); return { result: 'no_biandui' }; }
@@ -406,7 +405,6 @@ export async function attackBarbarian(
     } else {
       const r = await searchWithNeighbors(ctx, currentLevel, true);
       if (!r) { await backFromSearchPanel(ctx); return { result: 'not_found' }; }
-      if (r.attackState === 'no_attack_button') { await closeAndCity(ctx); return { result: 'no_attack_button' }; }
       currentLevel = r.level;
 
       const gr = await marchFromGarrison(ctx, usePotion);
