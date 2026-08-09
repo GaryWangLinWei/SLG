@@ -327,6 +327,7 @@ async function marchFromGarrison(
         marchBtnMissing = true;
         return;
       }
+      marchBtnMissing = false;
       await ctx.tap(b.x, b.y);
       const surego = await ctx.findImageWithLocation(SUREGO_TEMPLATE, 0.6, [0.95, 1.0, 1.05]);
       if (surego.found) {
