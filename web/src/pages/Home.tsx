@@ -1421,17 +1421,20 @@ export function HomePage() {
       })();
 
       // 自动打野独立循环 — 每 10min
+      // 自动打野独立循环 — 每轮（启动 / 切号）只执行一次，无 CD，跑完即等待下一轮
       const attackBarbarianLoop = (async () => {
         let first = true;
+        // 已执行过的轮次序号（cooldownResetSeq）；切号时该序号自增，从而在新账号上再执行一次
+        let ranSeq = -1;
         while (!isStopped()) {
-          if (first) { first = false; await sleep(12); continue; }
+          if (first) { first = false; await sleep(12); }
           if (offlineActive) { await sleep(30); continue; }
-          if (featuresRef.current.autoAttackBarbarian && featuresRef.current.attackBarbarianLevel > 0 && !featuresRef.current.autoWorldChat) {
-            if (isStopped()) break;
+          const enabled = featuresRef.current.autoAttackBarbarian && featuresRef.current.attackBarbarianLevel > 0 && !featuresRef.current.autoWorldChat;
+          // 当前轮次还没跑过且功能开启 → 执行一次
+          if (enabled && ranSeq !== cooldownResetSeq && !isStopped()) {
             if (!await acquireLock()) continue;
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
-            let cd = 600;
             try {
               const createResult = await createTask(currentAccountId, 'com.rok.automation', 'attack-barbarian', { level: featuresRef.current.attackBarbarianLevel, count: featuresRef.current.attackBarbarianCount, team: featuresRef.current.attackBarbarianTeam, teamPage: featuresRef.current.attackBarbarianTeamPage, usePotion: featuresRef.current.attackBarbarianUsePotion });
               if (createResult.success) {
@@ -1451,39 +1454,24 @@ export function HomePage() {
                 const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
                 const isSuccess = logs.some((l: string) => l.includes(': success'));
                 const isStamina = logs.some((l: string) => l.includes(': stamina_insufficient'));
-                if (isStamina) {
-                  cd = 4500;
-                } else if (isSuccess) {
-                  cd = 600;
-                } else {
-                  cd = 120;
-                }
                 if (hasExpiredLog) {
                   pushLog(`⛔ 许可证已到期，停止运行`);
                   loopStopped = true;
                   setExpiredMessage('激活码已到期，请重新激活');
                   refreshStatus();
                 } else {
-                  const cdLabel = isStamina ? '75分钟' : isSuccess ? '10分钟' : '2分钟';
-                  pushLog(`${isSuccess ? '✅' : isStamina ? '🔋' : '⚠️'} 打野 Lv.${featuresRef.current.attackBarbarianLevel} ×${featuresRef.current.attackBarbarianCount} 队伍${featuresRef.current.attackBarbarianTeam} ${isSuccess ? '完成' : isStamina ? '行动力不足' : '未完成'}，CD ${cdLabel}`);
+                  pushLog(`${isSuccess ? '✅' : isStamina ? '🔋' : '⚠️'} 打野 Lv.${featuresRef.current.attackBarbarianLevel} ×${featuresRef.current.attackBarbarianCount} 队伍${featuresRef.current.attackBarbarianTeam} ${isSuccess ? '完成' : isStamina ? '行动力不足' : '未完成'}`);
                   markRoundDone('attack-barbarian', isSuccess);
                 }
               }
             } catch {} finally { releaseLock(); }
-            if (isStopped()) break;
-            const cdJitter = cd * (0.85 + Math.random() * 0.3);
-            pushLog(`⚔️ 打野完成，${cdJitter.toFixed(0)} 秒后下一轮`);
-            const startWait = monotonicNow();
-            const waitSeq = cooldownResetSeq;
-            while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < cdJitter * 1000) {
-              await sleep(1);
-            }
-          } else {
-            const waitSeq = cooldownResetSeq;
-            const startIdle = monotonicNow();
-            while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startIdle) < 60000) {
-              await sleep(1);
-            }
+            // 标记本轮已执行（无论成功失败都不再重试，等下一轮/切号）
+            ranSeq = cooldownResetSeq;
+          }
+          // 空闲等待：1s 一跳，切号（cooldownResetSeq 变化）或停止时立即唤醒
+          const waitSeq = cooldownResetSeq;
+          while (!isStopped() && cooldownResetSeq === waitSeq) {
+            await sleep(1);
           }
         }
       })();
