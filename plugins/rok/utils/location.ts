@@ -18,11 +18,8 @@ export async function tapWorldSwitchButton(ctx: PluginContext): Promise<void> {
 }
 
 /**
- * 选中建筑。
- *
- * 暂时：直接点击建筑坐标（不再拖到屏幕中心）。
- * 原逻辑为从建筑坐标到 (800,450) 的直线滑动 + 连点打断惯性，因真机滑动表现
- * 不稳定暂时注释；需要恢复时把下方点击改回滑动即可。
+ * 把建筑拖到屏幕中心并点击选中：从建筑坐标到 (800,450) 的一段直线滑动，
+ * 随后连点中心打断惯性。
  */
 export async function swipeBuildingToCenter(
   ctx: PluginContext,
@@ -30,19 +27,14 @@ export async function swipeBuildingToCenter(
   label?: string
 ): Promise<void> {
   const name = label || '建筑';
-  ctx.log(`  直接点击 ${name} (${buildPos.x},${buildPos.y})（暂不拖到中心）`);
-  await ctx.tap(buildPos.x, buildPos.y);
+  ctx.log(`  拖动 ${name} 到屏幕中心 (${buildPos.x},${buildPos.y}) → (800,450)`);
+  await ctx.swipe(buildPos.x, buildPos.y, 800, 450, 1000, false, true);  // singleShot：一条 input swipe，不分段
+  await ctx.tap(800, 450);  // 打断惯性
+  await ctx.sleep(0.3);
+  await ctx.tap(800, 450);
+  await ctx.sleep(0.5);
+  await ctx.tap(800, 450);
   await ctx.sleep(1);
-
-  // --- 原"拖到屏幕中心"逻辑，暂时注释 ---
-  // ctx.log(`  拖动 ${name} 到屏幕中心 (${buildPos.x},${buildPos.y}) → (800,450)`);
-  // await ctx.swipe(buildPos.x, buildPos.y, 800, 450, 1000);
-  // await ctx.tap(800, 450);  // 打断惯性
-  // await ctx.sleep(0.3);
-  // await ctx.tap(800, 450);
-  // await ctx.sleep(0.5);
-  // await ctx.tap(800, 450);
-  // await ctx.sleep(1);
 }
 
 // 切换按钮区域配置（中心点 + 区域大小）
