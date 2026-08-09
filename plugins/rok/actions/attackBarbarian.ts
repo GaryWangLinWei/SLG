@@ -40,6 +40,8 @@ const MARCH_BUTTON = { x: 1154, y: 791 };
 
 const LARGE_REGION = { x: 1443, y: 53, w: 152, h: 753 };
 const AVATAR_OFFSET = { dx: -25, dy: -25 };
+/** 召回部队按钮（点开驻扎队伍信息面板后） */
+const RECALL_BUTTON = { x: 924, y: 570 };
 const TOP_SLOT_REGION = { x1: 1530, y1: 220, x2: 1582, y2: 310 };
 
 const ZHUZHA_WAIT_TIMEOUT_SEC = 300;
@@ -286,6 +288,25 @@ async function waitForTopZhuzha(ctx: PluginContext): Promise<boolean> {
   return false;
 }
 
+/** 末次攻击后：点开最上方驻扎队伍并召回部队 */
+async function recallTopGarrison(ctx: PluginContext): Promise<boolean> {
+  const states = await detectTeamStates(ctx, ['zhuzha']);
+  const found = states.find(s =>
+    s.x >= TOP_SLOT_REGION.x1 && s.x <= TOP_SLOT_REGION.x2 &&
+    s.y >= TOP_SLOT_REGION.y1 && s.y <= TOP_SLOT_REGION.y2,
+  );
+  if (!found) {
+    ctx.log(`  ⚠️ 未在最上方槽位找到驻扎队伍，跳过召回`);
+    return false;
+  }
+  await ctx.tap(found.x + AVATAR_OFFSET.dx, found.y + AVATAR_OFFSET.dy);
+  await ctx.sleep(1);
+  ctx.log(`  点击召回部队 (${RECALL_BUTTON.x},${RECALL_BUTTON.y})`);
+  await ctx.tap(RECALL_BUTTON.x, RECALL_BUTTON.y);
+  await ctx.sleep(1.5);
+  return true;
+}
+
 /** 点击驻扎中队伍头像并点行军，继续攻击下一个目标（含体力/胜算处理） */
 async function marchFromGarrison(
   ctx: PluginContext,
@@ -393,14 +414,18 @@ export async function attackBarbarian(
       if (gr === 'stamina_insufficient') { return { result: 'stamina_insufficient' }; }
     }
 
-    if (i === count - 1) break;
-
+    // 每次攻击后都等待驻扎；末次等待是为了确认部队驻扎后召回
     ctx.log(`  等待队伍驻扎...`);
     const ok = await waitForTopZhuzha(ctx);
     if (!ok) {
       ctx.log(`  ⚠️ 等待驻扎超时（${ZHUZHA_WAIT_TIMEOUT_SEC}s）`);
       await backToCity(ctx);
       return { result: 'zhuzha_timeout' };
+    }
+
+    if (i === count - 1) {
+      ctx.log(`  末次攻击完成，召回部队`);
+      await recallTopGarrison(ctx);
     }
   }
 
