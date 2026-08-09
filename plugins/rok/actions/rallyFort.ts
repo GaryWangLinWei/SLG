@@ -4,6 +4,7 @@ import { getTemplatesDir } from '../../../core/resourcePath';
 import { ensureInWorld } from '../utils/location';
 import { ensureTeamPage, TeamPage } from '../utils/teamPage';
 import { ocrService } from '../../../core/ocr/OcrService';
+import { handleMarchWithStamina } from '../utils/stamina';
 import * as path from 'path';
 import * as fsp from 'fs/promises';
 import sharp from 'sharp';
@@ -124,64 +125,8 @@ const MARCH_BUTTON = { x: 1154, y: 791 };
 const CLOSE_POPUP_BUTTON = { x: 1392, y: 57 };
 const CLOSE_TEAM_PANEL_BUTTON = { x: 1394, y: 60 };
 const CONFIRM_TIME_BUTTON = { x: 1177, y: 396 };
-const SWITCH_IN_CITY_TEMPLATE = path.join(TEMPLATE_DIR, 'switch_in_city.png');
-const SWITCH_IN_WORLD_TEMPLATE = path.join(TEMPLATE_DIR, 'switch_in_world.png');
-const TILI_BUTTON_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_tili.png');
 const TILI_BUTTON_REGION = { x: 1014, y: 242, width: 1358 - 1014, height: 407 - 242 };
-const STAMINA_BAR_RECT = { x1: 557, y1: 174, x2: 575, y2: 197 };
-const POTION_USE_BUTTON = { x: 1200, y: 326 };
 const CLOSE_STAMINA_POPUP = { x: 1363, y: 103 };
-const MAX_FREE_TILI_CLICKS = 2;
-const MAX_POTION_USES = 10;
-
-type StaminaColor = 'green' | 'yellow' | 'unknown';
-
-/** 采样体力条区域平均 RGB，判定绿/黄/未知 */
-async function readStaminaColor(ctx: PluginContext): Promise<StaminaColor> {
-  let shot: string | null = null;
-  try {
-    shot = await ctx.captureRegion(
-      STAMINA_BAR_RECT.x1, STAMINA_BAR_RECT.y1,
-      STAMINA_BAR_RECT.x2 - STAMINA_BAR_RECT.x1,
-      STAMINA_BAR_RECT.y2 - STAMINA_BAR_RECT.y1,
-    );
-    const { data, info } = await sharp(shot).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-    let sumR = 0, sumG = 0, sumB = 0;
-    const pixels = info.width * info.height;
-    for (let i = 0; i < data.length; i += 3) {
-      sumR += data[i];
-      sumG += data[i + 1];
-      sumB += data[i + 2];
-    }
-    const r = sumR / pixels, g = sumG / pixels, b = sumB / pixels;
-    ctx.log(`  [体力条] RGB=(${r.toFixed(0)},${g.toFixed(0)},${b.toFixed(0)})`);
-    // 绿：G 明显大于 R
-    if (g > r + 20 && g > b + 20) return 'green';
-    // 黄：R 与 G 都高且接近，B 较低
-    if (r > 120 && g > 90 && Math.abs(r - g) < 60 && b < Math.min(r, g) - 40) return 'yellow';
-    return 'unknown';
-  } catch (e) {
-    ctx.log(`  [体力条] 采样异常: ${(e as Error).message}`);
-    return 'unknown';
-  } finally {
-    if (shot) await fsp.unlink(shot).catch(() => {});
-  }
-}
-
-/** 循环点击 btn_tili 领取免费体力，最多 MAX_FREE_TILI_CLICKS 次或按钮消失 */
-async function claimAllFreeStamina(ctx: PluginContext): Promise<number> {
-  let claimed = 0;
-  for (let i = 0; i < MAX_FREE_TILI_CLICKS; i++) {
-    const btn = await ctx.findImageWithLocation(TILI_BUTTON_TEMPLATE, 0.8, [0.9, 1.0, 1.1], false, undefined, TILI_BUTTON_REGION);
-    ctx.log(`  [体力] 免费按钮检测 #${i + 1}: found=${btn.found} conf=${btn.confidence.toFixed(3)}`);
-    if (!btn.found) break;
-    ctx.log(`  [体力] 点击免费按钮 (${btn.x}, ${btn.y})`);
-    await ctx.tap(btn.x, btn.y);
-    await ctx.sleep(0.8);
-    claimed++;
-  }
-  return claimed;
-}
 
 export interface RallyFortOutcome {
   result: 'success' | 'not_found' | 'team_unavailable' | 'rally_full' | 'stamina_insufficient';
@@ -501,82 +446,26 @@ export async function rallyFort(
     teamBtn = fbBtn;
   }
 
-  // 点击行军；若弹出行动力不足且存在免费体力，领取后重试一次
-  for (let marchAttempt = 1; marchAttempt <= 2; marchAttempt++) {
-    await ctx.sleep(0.5);
-    ctx.log(`  点击行军按钮 (${MARCH_BUTTON.x}, ${MARCH_BUTTON.y})${marchAttempt > 1 ? '（领取体力后重试）' : ''}`);
-    await ctx.tapRect(MARCH_BUTTON_RECT.x1, MARCH_BUTTON_RECT.y1, MARCH_BUTTON_RECT.x2, MARCH_BUTTON_RECT.y2);
-    await ctx.sleep(1);
-
-    // 检测行动力不足弹窗：城内外切换按钮不可见则认为被弹窗遮挡
-    const switchCityResult = await ctx.findImageWithLocation(SWITCH_IN_CITY_TEMPLATE, 0.7);
-    const switchWorldResult = await ctx.findImageWithLocation(SWITCH_IN_WORLD_TEMPLATE, 0.7);
-    ctx.log(`  切换按钮: city=${switchCityResult.found ? switchCityResult.confidence.toFixed(3) : 'not found'}, world=${switchWorldResult.found ? switchWorldResult.confidence.toFixed(3) : 'not found'}`);
-    const isStaminaInsufficient = !switchCityResult.found && !switchWorldResult.found;
-    if (!isStaminaInsufficient) {
-      ctx.log(`  ✅ 队伍${team} 已发起 Lv.${currentLevel} 城寨集结`);
-      return { result: 'success', dispatched: 1, foundLevel: currentLevel };
-    }
-
-    ctx.log(`  ⚠️ 切换按钮不可见 → 行动力不足弹窗`);
-
-    if (marchAttempt >= 2) {
-      // 第二次仍失败，兜底关闭返回
+  const staminaResult = await handleMarchWithStamina(
+    ctx,
+    TILI_BUTTON_REGION,
+    usePotion,
+    async () => {
+      ctx.log(`  点击行军按钮 (${MARCH_BUTTON.x}, ${MARCH_BUTTON.y})`);
+      await ctx.tapRect(MARCH_BUTTON_RECT.x1, MARCH_BUTTON_RECT.y1, MARCH_BUTTON_RECT.x2, MARCH_BUTTON_RECT.y2);
+    },
+    async () => {
       await ctx.tap(CLOSE_STAMINA_POPUP.x, CLOSE_STAMINA_POPUP.y);
       await ctx.sleep(0.5);
       await ctx.tap(CLOSE_TEAM_PANEL_BUTTON.x, CLOSE_TEAM_PANEL_BUTTON.y);
       await ctx.sleep(0.5);
       await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
       await ctx.sleep(2);
-      return { result: 'stamina_insufficient', dispatched: 0, foundLevel: currentLevel };
-    }
-
-    // Step A: 循环领免费体力（最多 2 次，或按钮消失）
-    const claimed = await claimAllFreeStamina(ctx);
-    ctx.log(`  [体力] 免费领取 ${claimed} 次`);
-
-    // Step B: 采样体力条颜色
-    const color = await readStaminaColor(ctx);
-    ctx.log(`  [体力] 判定颜色: ${color}`);
-
-    if (color === 'green') {
-      ctx.log(`  [体力] 充足 → 关闭弹窗重试行军`);
-      await ctx.tap(CLOSE_STAMINA_POPUP.x, CLOSE_STAMINA_POPUP.y);
-      await ctx.sleep(0.8);
-      continue;
-    }
-
-    // 非绿：视为体力不足
-    if (color === 'yellow' && usePotion) {
-      // Step C: 循环使用体力药水直到变绿
-      let becameGreen = false;
-      for (let i = 0; i < MAX_POTION_USES; i++) {
-        ctx.log(`  [体力] 使用药水 #${i + 1} → (${POTION_USE_BUTTON.x}, ${POTION_USE_BUTTON.y})`);
-        await ctx.tap(POTION_USE_BUTTON.x, POTION_USE_BUTTON.y);
-        await ctx.sleep(0.9);
-        const c = await readStaminaColor(ctx);
-        if (c === 'green') { becameGreen = true; break; }
-      }
-      if (becameGreen) {
-        ctx.log(`  [体力] 药水补至绿 → 关闭弹窗重试行军`);
-        await ctx.tap(CLOSE_STAMINA_POPUP.x, CLOSE_STAMINA_POPUP.y);
-        await ctx.sleep(0.8);
-        continue;
-      }
-      ctx.log(`  [体力] 药水用尽仍未转绿 → 放弃`);
-    } else {
-      ctx.log(`  [体力] 不足（color=${color}, usePotion=${usePotion}）→ 放弃`);
-    }
-
-    // 关闭 → 关队伍面板 → 切城内 → 返回
-    await ctx.tap(CLOSE_STAMINA_POPUP.x, CLOSE_STAMINA_POPUP.y);
-    await ctx.sleep(0.5);
-    await ctx.tap(CLOSE_TEAM_PANEL_BUTTON.x, CLOSE_TEAM_PANEL_BUTTON.y);
-    await ctx.sleep(0.5);
-    await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
-    await ctx.sleep(2);
+    },
+  );
+  if (staminaResult === 'insufficient') {
     return { result: 'stamina_insufficient', dispatched: 0, foundLevel: currentLevel };
   }
-
-  return { result: 'stamina_insufficient', dispatched: 0, foundLevel: currentLevel };
+  ctx.log(`  ✅ 队伍${team} 已发起 Lv.${currentLevel} 城寨集结`);
+  return { result: 'success', dispatched: 1, foundLevel: currentLevel };
 }
