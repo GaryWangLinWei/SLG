@@ -3409,68 +3409,6 @@ export function HomePage() {
 
             </div>
 
-            {/* 自动打野 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : features.autoAttackBarbarian ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
-              <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center text-base">⚔️</span>自动打野</span>
-                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
-                  <input type="checkbox" checked={features.autoAttackBarbarian}
-                    disabled={features.autoWorldChat}
-                    onChange={(e) => setFeatures({ ...features, autoAttackBarbarian: e.target.checked })}
-                    className="sr-only" />
-                  <span className={`absolute inset-0 rounded-full transition-colors ${features.autoAttackBarbarian ? 'bg-emerald-500' : 'bg-slate-200'}`} />
-                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoAttackBarbarian ? 'translate-x-[18px]' : ''}`} />
-                </label>
-              </div>
-              <div className="flex flex-col mt-2 -mx-4">
-                {/* 野蛮人等级 + 次数 */}
-                <div className="flex items-center gap-2 px-4 py-2.5 border-t border-slate-100">
-                  <span className="text-xs text-slate-500 whitespace-nowrap w-16">野蛮人等级</span>
-                  <input type="number" min={1} max={40}
-                    value={features.attackBarbarianLevel}
-                    disabled={features.autoWorldChat}
-                    onChange={(e) => setFeatures({ ...features, attackBarbarianLevel: Math.min(40, Math.max(1, Number(e.target.value) || 1)) })}
-                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-20" />
-                  <span className="text-xs text-slate-500 whitespace-nowrap ml-3">次数</span>
-                  <input type="number" min={1}
-                    value={features.attackBarbarianCount}
-                    disabled={features.autoWorldChat}
-                    onChange={(e) => setFeatures({ ...features, attackBarbarianCount: Math.max(1, Number(e.target.value) || 1) })}
-                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-20" />
-                </div>
-
-                {/* 派遣队伍 + 队伍页 */}
-                <div className="flex items-center gap-2 px-4 py-2.5 border-t border-slate-100">
-                  <span className="text-xs text-slate-500 whitespace-nowrap w-16">派遣第</span>
-                  <select value={features.attackBarbarianTeam}
-                    disabled={features.autoWorldChat}
-                    onChange={(e) => setFeatures({ ...features, attackBarbarianTeam: Number(e.target.value) })}
-                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-14">
-                    {[1,2,3,4,5].map(t => (<option key={t} value={t}>{t}</option>))}
-                  </select>
-                  <span className="text-xs text-slate-700 whitespace-nowrap">队伍</span>
-                  <span className="text-xs text-slate-500 whitespace-nowrap ml-3">队伍页</span>
-                  {renderTeamPageSelect(features.attackBarbarianTeamPage, (v) => setFeatures({ ...features, attackBarbarianTeamPage: v }), features.autoWorldChat)}
-                </div>
-
-                {/* 打野等级范围 */}
-                <div className="flex flex-col gap-1 px-4 py-2.5 border-t border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500 whitespace-nowrap w-16">等级范围</span>
-                    <select value={features.attackBarbarianLevelMode}
-                      disabled={features.autoWorldChat}
-                      onChange={(e) => setFeatures({ ...features, attackBarbarianLevelMode: e.target.value as 'fixed' | 'plusMinus1' | 'plusMinus2' })}
-                      className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs">
-                      <option value="fixed">固定</option>
-                      <option value="plusMinus1">±1</option>
-                      <option value="plusMinus2">±2</option>
-                    </select>
-                  </div>
-                  <span className="text-[11px] text-slate-400 pl-16">建议选择加减等级打野，防止一直打同一等级的野怪，跑太远</span>
-                </div>
-              </div>
-            </div>
-
             {/* 加入集结 */}
             <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${
               (features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' :
@@ -3678,6 +3616,68 @@ export function HomePage() {
                     清除已完成
                   </button>
                 )}
+              </div>
+            </div>
+
+            {/* 自动打野 */}
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : features.autoAttackBarbarian ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center text-base">⚔️</span>自动打野</span>
+                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                  <input type="checkbox" checked={features.autoAttackBarbarian}
+                    disabled={features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, autoAttackBarbarian: e.target.checked })}
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.autoAttackBarbarian ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoAttackBarbarian ? 'translate-x-[18px]' : ''}`} />
+                </label>
+              </div>
+              <div className="flex flex-col mt-2 -mx-4">
+                {/* 野蛮人等级 + 次数 */}
+                <div className="flex items-center gap-2 px-4 py-2.5 border-t border-slate-100">
+                  <span className="text-xs text-slate-500 whitespace-nowrap w-16">野蛮人等级</span>
+                  <input type="number" min={1} max={40}
+                    value={features.attackBarbarianLevel}
+                    disabled={features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, attackBarbarianLevel: Math.min(40, Math.max(1, Number(e.target.value) || 1)) })}
+                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-20" />
+                  <span className="text-xs text-slate-500 whitespace-nowrap ml-3">次数</span>
+                  <input type="number" min={1}
+                    value={features.attackBarbarianCount}
+                    disabled={features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, attackBarbarianCount: Math.max(1, Number(e.target.value) || 1) })}
+                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-20" />
+                </div>
+
+                {/* 派遣队伍 + 队伍页 */}
+                <div className="flex items-center gap-2 px-4 py-2.5 border-t border-slate-100">
+                  <span className="text-xs text-slate-500 whitespace-nowrap w-16">派遣第</span>
+                  <select value={features.attackBarbarianTeam}
+                    disabled={features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, attackBarbarianTeam: Number(e.target.value) })}
+                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-14">
+                    {[1,2,3,4,5].map(t => (<option key={t} value={t}>{t}</option>))}
+                  </select>
+                  <span className="text-xs text-slate-700 whitespace-nowrap">队伍</span>
+                  <span className="text-xs text-slate-500 whitespace-nowrap ml-3">队伍页</span>
+                  {renderTeamPageSelect(features.attackBarbarianTeamPage, (v) => setFeatures({ ...features, attackBarbarianTeamPage: v }), features.autoWorldChat)}
+                </div>
+
+                {/* 打野等级范围 */}
+                <div className="flex flex-col gap-1 px-4 py-2.5 border-t border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500 whitespace-nowrap w-16">等级范围</span>
+                    <select value={features.attackBarbarianLevelMode}
+                      disabled={features.autoWorldChat}
+                      onChange={(e) => setFeatures({ ...features, attackBarbarianLevelMode: e.target.value as 'fixed' | 'plusMinus1' | 'plusMinus2' })}
+                      className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs">
+                      <option value="fixed">固定</option>
+                      <option value="plusMinus1">±1</option>
+                      <option value="plusMinus2">±2</option>
+                    </select>
+                  </div>
+                  <span className="text-[11px] text-slate-400 pl-16">建议选择加减等级打野，防止一直打同一等级的野怪，跑太远</span>
+                </div>
               </div>
             </div>
 
