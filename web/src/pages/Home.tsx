@@ -1436,7 +1436,7 @@ export function HomePage() {
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
             try {
-              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'attack-barbarian', { level: featuresRef.current.attackBarbarianLevel, count: featuresRef.current.attackBarbarianCount, team: featuresRef.current.attackBarbarianTeam, teamPage: featuresRef.current.attackBarbarianTeamPage, usePotion: featuresRef.current.attackBarbarianUsePotion });
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'attack-barbarian', { level: featuresRef.current.attackBarbarianLevel, count: featuresRef.current.attackBarbarianCount, team: featuresRef.current.attackBarbarianTeam, teamPage: featuresRef.current.attackBarbarianTeamPage, usePotion: true });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -3450,25 +3450,6 @@ export function HomePage() {
                   <span className="text-xs text-slate-700 whitespace-nowrap">队伍</span>
                   <span className="text-xs text-slate-500 whitespace-nowrap ml-3">队伍页</span>
                   {renderTeamPageSelect(features.attackBarbarianTeamPage, (v) => setFeatures({ ...features, attackBarbarianTeamPage: v }), features.autoWorldChat)}
-                </div>
-
-                {/* 体力药水勾选 */}
-                <div className="flex items-center gap-5 px-4 py-2.5 border-t border-slate-100">
-                  <label className={`flex items-center gap-1.5 ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
-                    title="体力不足时自动使用体力药水补充；未勾选则行动力不足时等 75 分钟">
-                    <input type="checkbox" checked={features.attackBarbarianUsePotion}
-                      disabled={features.autoWorldChat}
-                      onChange={(e) => setFeatures({ ...features, attackBarbarianUsePotion: e.target.checked })}
-                      className="sr-only peer" />
-                    <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors flex-shrink-0 ${features.attackBarbarianUsePotion ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
-                      {features.attackBarbarianUsePotion && (
-                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                        </svg>
-                      )}
-                    </span>
-                    <span className="text-xs text-slate-700 whitespace-nowrap">体力不足使用药水</span>
-                  </label>
                 </div>
               </div>
             </div>

@@ -129,7 +129,7 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   attackBarbarianCount: 5,
   attackBarbarianTeam: 1,
   attackBarbarianTeamPage: 'attack',
-  attackBarbarianUsePotion: false,
+  attackBarbarianUsePotion: true,
   shareGemEnabled: false,
   shareGemStopCondition: 'spiral',
   gemGatherEnabled: false,
