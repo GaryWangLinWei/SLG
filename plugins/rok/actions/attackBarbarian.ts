@@ -33,7 +33,6 @@ const BTN_BIANDUI_TEMPLATE = path.join(TEMPLATE_DIR, 'jijie', 'btn_biandui.png')
 const BTN_XINGJUN_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_xingjun.png');
 const BTN_XINGJUN_REGION = { x: 1068, y: 20, width: 362, height: 860 };
 const PAGE_INDICATOR_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_page_indicator.png');
-const SUREGO_TEMPLATE = path.join(TEMPLATE_DIR, 'jijie', 'btn_surego.png');
 
 const MARCH_BUTTON_RECT = { x1: 1031, y1: 754, x2: 1292, y2: 820 };
 const MARCH_BUTTON = { x: 1154, y: 791 };
@@ -250,12 +249,6 @@ async function selectTeamAndMarch(
     async () => {
       ctx.log(`  点击行军 (${MARCH_BUTTON.x},${MARCH_BUTTON.y})`);
       await ctx.tapRect(MARCH_BUTTON_RECT.x1, MARCH_BUTTON_RECT.y1, MARCH_BUTTON_RECT.x2, MARCH_BUTTON_RECT.y2);
-      const surego = await ctx.findImageWithLocation(SUREGO_TEMPLATE, 0.6, [0.95, 1.0, 1.05]);
-      if (surego.found) {
-        ctx.log(`  胜算不足，点击确认强行军`);
-        await ctx.tap(surego.x, surego.y);
-        await ctx.sleep(0.5);
-      }
     },
     async () => {
       await ctx.tap(CLOSE_STAMINA_POPUP.x, CLOSE_STAMINA_POPUP.y);
@@ -337,7 +330,7 @@ async function recallTopGarrison(ctx: PluginContext): Promise<boolean> {
   return true;
 }
 
-/** 点击驻扎中队伍头像并点行军，继续攻击下一个目标（含体力/胜算处理） */
+/** 点击驻扎中队伍头像并点行军，继续攻击下一个目标（含体力处理） */
 async function marchFromGarrison(
   ctx: PluginContext,
   usePotion: boolean,
@@ -371,11 +364,6 @@ async function marchFromGarrison(
     usePotion,
     async () => {
       await ctx.tap(btn.x, btn.y);
-      const surego = await ctx.findImageWithLocation(SUREGO_TEMPLATE, 0.6, [0.95, 1.0, 1.05]);
-      if (surego.found) {
-        await ctx.tap(surego.x, surego.y);
-        await ctx.sleep(0.5);
-      }
     },
     async () => {
       await ctx.tap(CLOSE_STAMINA_POPUP.x, CLOSE_STAMINA_POPUP.y);
