@@ -270,6 +270,7 @@ async function selectTeamAndMarch(
 /** 等待最上方槽位出现驻扎状态，超时返回 false */
 async function waitForTopZhuzha(ctx: PluginContext): Promise<boolean> {
   const deadline = Date.now() + ZHUZHA_WAIT_TIMEOUT_SEC * 1000;
+  let probeCount = 0;
   while (Date.now() < deadline) {
     const states = await detectTeamStates(ctx, ['zhuzha']);
     const found = states.find(s =>
@@ -280,12 +281,41 @@ async function waitForTopZhuzha(ctx: PluginContext): Promise<boolean> {
       ctx.log(`  队伍已驻扎 (${found.x},${found.y}) conf=${(found.confidence * 100).toFixed(1)}%`);
       return true;
     }
+    // [临时诊断] 每 6 次探测（约 30s）仍检不到时，存全屏截图并用低阈值全类别重跑
+    probeCount++;
+    if (probeCount % 6 === 0) {
+      await dumpZhuzhaDiagnostics(ctx, probeCount);
+    }
     ctx.log(`  等待驻扎中...（每 ${ZHUZHA_POLL_INTERVAL_SEC}s 检测）`);
     for (let i = 0; i < ZHUZHA_POLL_INTERVAL_SEC; i++) {
       await ctx.sleep(1);
     }
   }
   return false;
+}
+
+/** [临时诊断] 保存当前全屏截图，并用 0.2 低阈值跑全类别 state.onnx，打印原始候选 */
+async function dumpZhuzhaDiagnostics(ctx: PluginContext, probeCount: number): Promise<void> {
+  let shot: string | null = null;
+  try {
+    shot = await ctx.captureRegion(0, 0, 1600, 900);
+    const saved = path.join(process.cwd(), 'temp', `zhuzha-diag-${probeCount}-${Date.now()}.png`);
+    await fsp.copyFile(shot, saved);
+    ctx.log(`  [诊断] 已保存截图: ${saved}`);
+    const raw = await ctx.detectStateImage(shot, 0.2, [0, 1, 2, 3]);
+    if (raw.length === 0) {
+      ctx.log(`  [诊断] 低阈值(0.2)全类别检测仍无任何候选`);
+    } else {
+      const names = ['back', 'caiji', 'totarget', 'zhuzha'];
+      ctx.log(`  [诊断] 低阈值候选 ${raw.length} 个: ` + raw
+        .map(d => `${names[d.classIndex] ?? d.classIndex}(${Math.round(d.x)},${Math.round(d.y)})=${(d.confidence * 100).toFixed(1)}%`)
+        .join(', '));
+    }
+  } catch (e) {
+    ctx.log(`  [诊断] 异常: ${(e as Error).message}`);
+  } finally {
+    if (shot) await fsp.unlink(shot).catch(() => {});
+  }
 }
 
 /** 末次攻击后：点开最上方驻扎队伍并召回部队 */
