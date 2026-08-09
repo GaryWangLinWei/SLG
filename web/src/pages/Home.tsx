@@ -3439,22 +3439,6 @@ export function HomePage() {
                     className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-20" />
                 </div>
 
-                {/* 打野等级范围 */}
-                <div className="flex flex-col gap-1 px-4 py-2.5 border-t border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500 whitespace-nowrap w-16">等级范围</span>
-                    <select value={features.attackBarbarianLevelMode}
-                      disabled={features.autoWorldChat}
-                      onChange={(e) => setFeatures({ ...features, attackBarbarianLevelMode: e.target.value as 'fixed' | 'plusMinus1' | 'plusMinus2' })}
-                      className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs flex-1">
-                      <option value="fixed">固定打野等级</option>
-                      <option value="plusMinus1">加减1打野等级</option>
-                      <option value="plusMinus2">加减2打野等级</option>
-                    </select>
-                  </div>
-                  <span className="text-[11px] text-slate-400 pl-16">建议选择加减等级打野，防止一直打同一等级的野怪，跑太远</span>
-                </div>
-
                 {/* 派遣队伍 + 队伍页 */}
                 <div className="flex items-center gap-2 px-4 py-2.5 border-t border-slate-100">
                   <span className="text-xs text-slate-500 whitespace-nowrap w-16">派遣第</span>
@@ -3467,6 +3451,22 @@ export function HomePage() {
                   <span className="text-xs text-slate-700 whitespace-nowrap">队伍</span>
                   <span className="text-xs text-slate-500 whitespace-nowrap ml-3">队伍页</span>
                   {renderTeamPageSelect(features.attackBarbarianTeamPage, (v) => setFeatures({ ...features, attackBarbarianTeamPage: v }), features.autoWorldChat)}
+                </div>
+
+                {/* 打野等级范围 */}
+                <div className="flex flex-col gap-1 px-4 py-2.5 border-t border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500 whitespace-nowrap w-16">等级范围</span>
+                    <select value={features.attackBarbarianLevelMode}
+                      disabled={features.autoWorldChat}
+                      onChange={(e) => setFeatures({ ...features, attackBarbarianLevelMode: e.target.value as 'fixed' | 'plusMinus1' | 'plusMinus2' })}
+                      className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs">
+                      <option value="fixed">固定</option>
+                      <option value="plusMinus1">±1</option>
+                      <option value="plusMinus2">±2</option>
+                    </select>
+                  </div>
+                  <span className="text-[11px] text-slate-400 pl-16">建议选择加减等级打野，防止一直打同一等级的野怪，跑太远</span>
                 </div>
               </div>
             </div>
