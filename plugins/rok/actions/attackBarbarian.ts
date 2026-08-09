@@ -3,6 +3,7 @@ import { RokConfig } from '../index';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import { ensureInWorld } from '../utils/location';
 import { ensureTeamPage, TeamPage } from '../utils/teamPage';
+import { getTeamButtons } from '../utils/teamButtons';
 import { detectTeamStates } from '../utils/teamStateDetection';
 import { handleMarchWithStamina } from '../utils/stamina';
 import { ocrService } from '../../../core/ocr/OcrService';
@@ -36,15 +37,6 @@ const SUREGO_TEMPLATE = path.join(TEMPLATE_DIR, 'jijie', 'btn_surego.png');
 
 const MARCH_BUTTON_RECT = { x1: 1031, y1: 754, x2: 1292, y2: 820 };
 const MARCH_BUTTON = { x: 1154, y: 791 };
-
-const TEAM_BUTTONS_NO_PAGE: Record<number, { x: number; y: number }> = {
-  1: { x: 1378, y: 362 }, 2: { x: 1378, y: 430 },
-  3: { x: 1378, y: 497 }, 4: { x: 1378, y: 566 }, 5: { x: 1378, y: 633 },
-};
-const TEAM_BUTTONS_PAGED: Record<number, { x: number; y: number }> = {
-  1: { x: 1378, y: 397 }, 2: { x: 1378, y: 463 },
-  3: { x: 1378, y: 533 }, 4: { x: 1378, y: 600 }, 5: { x: 1378, y: 671 },
-};
 
 const LARGE_REGION = { x: 1443, y: 53, w: 152, h: 753 };
 const AVATAR_OFFSET = { dx: -25, dy: -25 };
@@ -236,13 +228,12 @@ async function selectTeamAndMarch(
 ): Promise<SelectMarchResult> {
   const page = await ctx.findImageWithLocation(PAGE_INDICATOR_TEMPLATE, 0.8);
   if (page.found) {
-    const ok = await ensureTeamPage(
-      ctx, teamPage, { x: page.x, y: page.y }, { x: 1361, y: 378, w: 36, h: 35 },
-    );
+    const ok = await ensureTeamPage(ctx, teamPage, { x: page.x, y: page.y });
     if (!ok) return 'team_unavailable';
   }
 
-  const buttons = page.found ? TEAM_BUTTONS_PAGED : TEAM_BUTTONS_NO_PAGE;
+  // 选队弹窗布局与采集一致（非 joinRally 的集结列表），共用 teamButtons 坐标表
+  const buttons = getTeamButtons(page.found);
   const btn = buttons[team];
   if (!btn) return 'team_unavailable';
 
