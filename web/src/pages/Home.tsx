@@ -812,6 +812,7 @@ export function HomePage() {
       features.autoExplore ||
       (features.autoWorldChat && features.worldChatMessages.some((m: string) => m.trim())) ||
       (features.autoRallyFort && features.rallyFortLevel > 0) ||
+      (features.autoAttackBarbarian && features.attackBarbarianLevel > 0) ||
       (features.gemGatherEnabled && (features.gemGatherEnabled && features.gemGatherMode === 'focus')) ||
       (features.gemGatherEnabled && features.gemGatherTeams.some((t: number) => t)) ||
       features.autoCaveExplore ||
