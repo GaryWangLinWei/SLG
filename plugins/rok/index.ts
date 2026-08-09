@@ -748,10 +748,10 @@ export const RiseOfKingdomsPlugin: Plugin = {
         if (await ensureNoPopupBlocking(ctx, 'attack-barbarian')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const outcome = await attackBarbarian(ctx, config, {
-          level: params.level || 5,
-          count: Math.max(1, params.count || 5),
-          team: params.team || 1,
-          teamPage: params.teamPage || 'attack',
+          level: params.level ?? 5,
+          count: Math.max(1, params.count ?? 5),
+          team: params.team ?? 1,
+          teamPage: params.teamPage ?? 'attack',
           usePotion: params.usePotion === true,
         });
         ctx.log(`自动打野: ${outcome.result}`);

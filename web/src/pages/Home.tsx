@@ -432,6 +432,12 @@ export function HomePage() {
         if (!isTeamPageChoice(merged.rallyFortTeamPage)) merged.rallyFortTeamPage = DEFAULT_FEATURES.rallyFortTeamPage;
         if (!isTeamPageChoice(merged.resourceGatherTeamPage)) merged.resourceGatherTeamPage = DEFAULT_FEATURES.resourceGatherTeamPage;
         if (!isTeamPageChoice(merged.gemGatherTeamPage)) merged.gemGatherTeamPage = DEFAULT_FEATURES.gemGatherTeamPage;
+        if (typeof merged.attackBarbarianLevel !== 'number') merged.attackBarbarianLevel = DEFAULT_FEATURES.attackBarbarianLevel;
+        if (typeof merged.attackBarbarianCount !== 'number') merged.attackBarbarianCount = DEFAULT_FEATURES.attackBarbarianCount;
+        if (typeof merged.attackBarbarianTeam !== 'number') merged.attackBarbarianTeam = DEFAULT_FEATURES.attackBarbarianTeam;
+        if (!isTeamPageChoice(merged.attackBarbarianTeamPage)) merged.attackBarbarianTeamPage = DEFAULT_FEATURES.attackBarbarianTeamPage;
+        if (typeof merged.attackBarbarianUsePotion !== 'boolean') merged.attackBarbarianUsePotion = DEFAULT_FEATURES.attackBarbarianUsePotion;
+        if (typeof merged.autoAttackBarbarian !== 'boolean') merged.autoAttackBarbarian = DEFAULT_FEATURES.autoAttackBarbarian;
         if (typeof merged.rallyFortDowngrade !== 'boolean') merged.rallyFortDowngrade = DEFAULT_FEATURES.rallyFortDowngrade;
         if (typeof merged.rallyFortUsePotion !== 'boolean') merged.rallyFortUsePotion = DEFAULT_FEATURES.rallyFortUsePotion;
         if (typeof merged.rallyFortMarauder !== 'boolean') merged.rallyFortMarauder = DEFAULT_FEATURES.rallyFortMarauder;

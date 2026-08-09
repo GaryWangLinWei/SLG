@@ -314,21 +314,21 @@ async function marchFromGarrison(
   await ctx.tap(z.x + AVATAR_OFFSET.dx, z.y + AVATAR_OFFSET.dy);
   await ctx.sleep(1);
 
-  let marchBtnMissing = false;
+  // 先确认行军按钮存在，再进入体力流程；否则 util 会在没点行军的情况下误判体力弹窗并误点药水
+  const btn = await ctx.findImageWithLocation(
+    BTN_XINGJUN_TEMPLATE, 0.7, [0.9, 1.0, 1.1], false, undefined, BTN_XINGJUN_REGION,
+  );
+  if (!btn.found) {
+    ctx.log(`  ⚠️ 未找到行军按钮 (conf=${btn.confidence.toFixed(3)})`);
+    return 'no_march_button';
+  }
+
   const result = await handleMarchWithStamina(
     ctx,
     TILI_BUTTON_REGION,
     usePotion,
     async () => {
-      const b = await ctx.findImageWithLocation(
-        BTN_XINGJUN_TEMPLATE, 0.7, [0.9, 1.0, 1.1], false, undefined, BTN_XINGJUN_REGION,
-      );
-      if (!b.found) {
-        marchBtnMissing = true;
-        return;
-      }
-      marchBtnMissing = false;
-      await ctx.tap(b.x, b.y);
+      await ctx.tap(btn.x, btn.y);
       const surego = await ctx.findImageWithLocation(SUREGO_TEMPLATE, 0.6, [0.95, 1.0, 1.05]);
       if (surego.found) {
         await ctx.tap(surego.x, surego.y);
@@ -342,7 +342,6 @@ async function marchFromGarrison(
     },
   );
 
-  if (marchBtnMissing) return 'no_march_button';
   return result === 'marched' ? 'marched' : 'stamina_insufficient';
 }
 
