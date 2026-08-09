@@ -64,8 +64,7 @@ export async function trainTroopsSingle(
   // 第 2 步: 图像识别训练按钮，首次缩放识别后缓存坐标
   // ============================================
   ctx.log('--- 第 2 步: 识别弹出训练按钮 ---');
-  const TRAIN_SEARCH_REGION = { x: 741, y: 445, width: 338, height: 355 };
-  const popup = await ctx.findImageWithLocation(trainTemplatePath, 0.6, [0.7, 0.8, 0.9, 1.0, 1.1], false, undefined, TRAIN_SEARCH_REGION);
+  const popup = await ctx.findImageWithLocation(trainTemplatePath, 0.6, [0.7, 0.8, 0.9, 1.0, 1.1]);
   ctx.log(`  训练按钮最高置信度: ${popup.confidence.toFixed(3)}`);
   if (!popup.found) {
     ctx.log(`❌ 未找到弹出训练按钮`);
