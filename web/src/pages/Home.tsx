@@ -930,7 +930,7 @@ export function HomePage() {
       // 切号后新号所有子任务都要从头跑，等价于重启循环：
       bottomBarChecked = false;
       relaunchRequested = true;    // 让宝石 active/rest 循环 break 出去重新开始
-      cooldownResetSeq += 1;       // 让 rally/joinRally/cave/produceMaterial 的 CD 等待打断
+      cooldownResetSeq += 1;       // 让 rally/attackBarbarian/joinRally/cave/produceMaterial 的 CD 等待打断
       moduleGemInitialCount = null;
       moduleGemCollectedCount = 0;
       moduleGemRestActive = false;
@@ -1314,7 +1314,7 @@ export function HomePage() {
                   const nextCfg = await api.config.getRokConfig(currentAccountId, nextProfile);
                   const hf = nextCfg.success ? (nextCfg.config?.homeFeatures ?? {}) : {};
                   const hasHF = nextCfg.success && !!nextCfg.config?.homeFeatures;
-                  pushLog(`  🔍 载入 ${nextProfile} homeFeatures: hasHF=${hasHF}, autoRallyFort=${(hf as any).autoRallyFort}, joinRallyEnabled=${(hf as any).joinRallyEnabled}`);
+                  pushLog(`  🔍 载入 ${nextProfile} homeFeatures: hasHF=${hasHF}, autoRallyFort=${(hf as any).autoRallyFort}, autoAttackBarbarian=${(hf as any).autoAttackBarbarian}, joinRallyEnabled=${(hf as any).joinRallyEnabled}`);
                   setActiveConfigName(nextProfile);
                   activeConfigNameRef.current = nextProfile;
                   const merged = preserveGlobalFields(featuresRef.current, padGatherTasks({
@@ -1327,7 +1327,7 @@ export function HomePage() {
                   // switchProfileIds 顺序保持不变；UI 通过对比 activeConfigName 判定激活态
                   featuresRef.current = merged as any;
                   setFeatures(merged as any);
-                  pushLog(`  🔍 已应用: autoRallyFort=${(merged as any).autoRallyFort}, joinRallyEnabled=${(merged as any).joinRallyEnabled}`);
+                  pushLog(`  🔍 已应用: autoRallyFort=${(merged as any).autoRallyFort}, autoAttackBarbarian=${(merged as any).autoAttackBarbarian}, joinRallyEnabled=${(merged as any).joinRallyEnabled}`);
                 } catch (e: any) {
                   pushLog(`  ⚠️ 载入 ${nextProfile} features 失败: ${e?.message || e}`);
                 }
