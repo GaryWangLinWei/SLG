@@ -54,7 +54,7 @@ const ZHUZHA_WAIT_TIMEOUT_SEC = 300;
 const ZHUZHA_POLL_INTERVAL_SEC = 5;
 
 export type AttackBarbarianResult =
-  | 'success' | 'not_found' | 'no_attack_button' | 'no_biandui'
+  | 'success' | 'not_found' | 'no_attack_button' | 'no_march_button' | 'no_biandui'
   | 'team_unavailable' | 'stamina_insufficient' | 'zhuzha_timeout';
 
 export interface AttackBarbarianParams {
@@ -295,8 +295,11 @@ async function waitForTopZhuzha(ctx: PluginContext): Promise<boolean> {
   return false;
 }
 
-/** 点击驻扎中队伍头像并点行军，继续攻击下一个目标 */
-async function marchFromGarrison(ctx: PluginContext): Promise<boolean> {
+/** 点击驻扎中队伍头像并点行军，继续攻击下一个目标（含体力/胜算处理） */
+async function marchFromGarrison(
+  ctx: PluginContext,
+  usePotion: boolean,
+): Promise<'marched' | 'no_march_button' | 'stamina_insufficient'> {
   const states = await detectTeamStates(ctx, ['zhuzha']);
   const garrisons = states.filter(s =>
     s.x >= LARGE_REGION.x && s.x <= LARGE_REGION.x + LARGE_REGION.w &&
@@ -305,21 +308,41 @@ async function marchFromGarrison(ctx: PluginContext): Promise<boolean> {
   garrisons.sort((a, b) => a.y - b.y);
   const z = garrisons[0];
   if (!z) {
-    ctx.log(`  未找到驻扎中的队伍`);
-    return false;
+    ctx.log(`  ⚠️ 未找到驻扎队伍`);
+    return 'no_march_button';
   }
   await ctx.tap(z.x + AVATAR_OFFSET.dx, z.y + AVATAR_OFFSET.dy);
   await ctx.sleep(1);
-  const march = await ctx.findImageWithLocation(
-    BTN_XINGJUN_TEMPLATE, 0.7, [0.9, 1.0, 1.1], false, undefined, BTN_XINGJUN_REGION,
+
+  let marchBtnMissing = false;
+  const result = await handleMarchWithStamina(
+    ctx,
+    TILI_BUTTON_REGION,
+    usePotion,
+    async () => {
+      const b = await ctx.findImageWithLocation(
+        BTN_XINGJUN_TEMPLATE, 0.7, [0.9, 1.0, 1.1], false, undefined, BTN_XINGJUN_REGION,
+      );
+      if (!b.found) {
+        marchBtnMissing = true;
+        return;
+      }
+      await ctx.tap(b.x, b.y);
+      const surego = await ctx.findImageWithLocation(SUREGO_TEMPLATE, 0.6, [0.95, 1.0, 1.05]);
+      if (surego.found) {
+        await ctx.tap(surego.x, surego.y);
+        await ctx.sleep(0.5);
+      }
+    },
+    async () => {
+      await ctx.tap(CLOSE_STAMINA_POPUP.x, CLOSE_STAMINA_POPUP.y);
+      await ctx.sleep(0.5);
+      await closeAndCity(ctx);
+    },
   );
-  if (!march.found) {
-    ctx.log(`  未找到行军按钮 (conf=${march.confidence.toFixed(3)})`);
-    return false;
-  }
-  await ctx.tap(march.x, march.y);
-  await ctx.sleep(1);
-  return true;
+
+  if (marchBtnMissing) return 'no_march_button';
+  return result === 'marched' ? 'marched' : 'stamina_insufficient';
 }
 
 export async function attackBarbarian(
@@ -374,7 +397,9 @@ export async function attackBarbarian(
       if (r.attackState === 'no_attack_button') { await closeAndCity(ctx); return { result: 'no_attack_button' }; }
       currentLevel = r.level;
 
-      if (!await marchFromGarrison(ctx)) { await closeAndCity(ctx); return { result: 'no_attack_button' }; }
+      const gr = await marchFromGarrison(ctx, usePotion);
+      if (gr === 'no_march_button') { await closeAndCity(ctx); return { result: 'no_march_button' }; }
+      if (gr === 'stamina_insufficient') { return { result: 'stamina_insufficient' }; }
     }
 
     if (i === count - 1) break;
