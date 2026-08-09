@@ -12,6 +12,7 @@ import { readQueueOverview, resetQueueFilters } from './actions/readQueueOvervie
 import { rallyFort } from './actions/rallyFort';
 import { rallyFortSpiral } from './actions/rallyFortSpiral';
 import { joinRally } from './actions/joinRally';
+import { attackBarbarian } from './actions/attackBarbarian';
 import { gatherGem } from './actions/gatherGem';
 import { gatherGemFocus } from './actions/gatherGemFocus';
 import { shareGem } from './actions/shareGem';
@@ -737,6 +738,23 @@ export const RiseOfKingdomsPlugin: Plugin = {
 
         const outcome = await rallyFort(ctx, config, level, team, downgrade, params.teamPage ?? 'attack', params.usePotion === true, params.troopType ?? 'any', params.fallbackTeam === true, params.fallbackTeamNum || 2, params.fallbackTroopType ?? 'any', params.marauder === true);
         ctx.log(`城寨集结: Lv.${outcome.foundLevel || level} 队伍${team} → ${outcome.result}`);
+      }
+    },
+    {
+      id: 'attack-barbarian',
+      name: '自动打野',
+      description: '搜索并攻击野蛮人，循环复用驻扎队伍连续攻击',
+      run: async (ctx, params: { level?: number; count?: number; team?: number; teamPage?: TeamPage; usePotion?: boolean } = {}) => {
+        if (await ensureNoPopupBlocking(ctx, 'attack-barbarian')) return;
+        const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
+        const outcome = await attackBarbarian(ctx, config, {
+          level: params.level || 5,
+          count: Math.max(1, params.count || 5),
+          team: params.team || 1,
+          teamPage: params.teamPage || 'attack',
+          usePotion: params.usePotion === true,
+        });
+        ctx.log(`自动打野: ${outcome.result}`);
       }
     },
     {
