@@ -1,6 +1,6 @@
 import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
-import { resetCityView, swipeBuildingToCenter } from '../utils/location';
+import { resetCityView } from '../utils/location';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import * as path from 'path';
 import sharp from 'sharp';
@@ -64,9 +64,11 @@ export async function caveExplore(
     await resetCityView(ctx, config);
 
     // ============================================
-    // 第 1 步: 拖动斥候营地到屏幕中心，点击
+    // 第 1 步: 直接点击斥候营地（不再拖到屏幕中心）
     // ============================================
-    await swipeBuildingToCenter(ctx, buildPos, buildingKey);
+    ctx.log(`[1/10] 点击斥候营地 (${buildPos.x},${buildPos.y})`);
+    await ctx.tap(buildPos.x, buildPos.y);
+    await ctx.sleep(1);
 
     // ============================================
     // 第 2 步: 识别弹出侦查按钮
