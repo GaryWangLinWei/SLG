@@ -85,12 +85,20 @@ export async function handleMarchWithStamina(
   for (let marchAttempt = 1; marchAttempt <= 2; marchAttempt++) {
     await ctx.sleep(0.5);
     await marchTap();
-    await ctx.sleep(1);
 
-    const switchCityResult = await ctx.findImageWithLocation(switchInCityTpl, 0.7);
-    const switchWorldResult = await ctx.findImageWithLocation(switchInWorldTpl, 0.7);
-    ctx.log(`  切换按钮: city=${switchCityResult.found ? switchCityResult.confidence.toFixed(3) : 'not found'}, world=${switchWorldResult.found ? switchWorldResult.confidence.toFixed(3) : 'not found'}`);
-    const isStaminaInsufficient = !switchCityResult.found && !switchWorldResult.found;
+    // 出兵后会有部队出发动画/镜头平移，切换按钮可能 1s 内还没出现；
+    // 轮询最多约 4s 确认，避免把"动画中"误判成体力不足弹窗而重试点行军。
+    let isStaminaInsufficient = true;
+    for (let probe = 0; probe < 4; probe++) {
+      await ctx.sleep(1);
+      const switchCityResult = await ctx.findImageWithLocation(switchInCityTpl, 0.7);
+      const switchWorldResult = await ctx.findImageWithLocation(switchInWorldTpl, 0.7);
+      ctx.log(`  切换按钮[${probe + 1}/4]: city=${switchCityResult.found ? switchCityResult.confidence.toFixed(3) : 'not found'}, world=${switchWorldResult.found ? switchWorldResult.confidence.toFixed(3) : 'not found'}`);
+      if (switchCityResult.found || switchWorldResult.found) {
+        isStaminaInsufficient = false;
+        break;
+      }
+    }
     if (!isStaminaInsufficient) {
       return 'marched';
     }
