@@ -113,18 +113,50 @@ class OcrService {
   }
 
   /**
-   * 识别队列倒计时（格式如 "01:23:45" 或 "1h 23m"）
+   * 识别队列倒计时（格式如 "01:23:45" 或 "1h 23m"）。
+   *
+   * 倒计时文字通常很小，直接 OCR 容易把 "09" 识别成 "502" 等。先做图像预处理：
+   * 2 倍放大 → 灰度 → 自适应阈值二值化，提升白字小数字的识别率。
    */
   async readCountdown(imagePath: string): Promise<string> {
+    let processedPath: string | null = null;
+    try {
+      const meta = await sharp(imagePath).metadata();
+      const w = (meta.width || 200) * 2;
+      const h = (meta.height || 60) * 2;
+
+      const { data } = await sharp(imagePath)
+        .removeAlpha()
+        .resize({ width: w, height: h, fit: 'fill' })
+        .grayscale()
+        .linear(1.4, -40)        // 提高对比度、压暗暗背景
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+
+      // 简单二值化：>=150 判白，否则黑
+      const out = Buffer.alloc(data.length);
+      for (let i = 0; i < data.length; i++) out[i] = data[i] >= 150 ? 255 : 0;
+
+      processedPath = path.join(path.dirname(imagePath), `countdown-${Date.now()}.png`);
+      await sharp(out, { raw: { width: w, height: h, channels: 1 } })
+        .png()
+        .toFile(processedPath);
+    } catch {
+      processedPath = null; // 预处理失败，退回原图
+    }
+
     const worker = await this.getWorker();
     await worker.setParameters({
       tessedit_char_whitelist: '0123456789:hHmM',
     });
     try {
-      return await this.recognizeWithTimeout(worker, imagePath);
+      return await this.recognizeWithTimeout(worker, processedPath ?? imagePath);
     } finally {
       if (this.worker === worker) {
         await worker.setParameters({ tessedit_char_whitelist: '' }).catch(() => {});
+      }
+      if (processedPath) {
+        await fs.unlink(processedPath).catch(() => {});
       }
     }
   }
