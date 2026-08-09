@@ -188,3 +188,204 @@ async function searchWithNeighbors(
   }
   return null;
 }
+
+/** 点击回城按钮 */
+async function backToCity(ctx: PluginContext): Promise<void> {
+  await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
+  await ctx.sleep(2);
+}
+
+/** 关闭弹窗并回城 */
+async function closeAndCity(ctx: PluginContext): Promise<void> {
+  await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
+  await ctx.sleep(0.5);
+  await backToCity(ctx);
+}
+
+/** 点击编队按钮，未检测到时等待 2s 重试一次 */
+async function tapBiandui(ctx: PluginContext): Promise<boolean> {
+  let btn = await ctx.findImageWithLocation(BTN_BIANDUI_TEMPLATE, 0.6);
+  if (!btn.found) {
+    ctx.log(`  未检测到编队按钮，等待 2s 后重试一次`);
+    await ctx.sleep(2);
+    btn = await ctx.findImageWithLocation(BTN_BIANDUI_TEMPLATE, 0.6);
+  }
+  if (!btn.found) {
+    ctx.log(`  重试后仍未检测到编队按钮`);
+    return false;
+  }
+  await ctx.tap(btn.x, btn.y);
+  await ctx.sleep(1);
+  return true;
+}
+
+type SelectMarchResult = 'marched' | 'team_unavailable' | 'stamina_insufficient';
+
+/** 选队并行军（含体力处理） */
+async function selectTeamAndMarch(
+  ctx: PluginContext,
+  team: number,
+  teamPage: TeamPage,
+  usePotion: boolean,
+  logPrefix: string,
+): Promise<SelectMarchResult> {
+  const page = await ctx.findImageWithLocation(PAGE_INDICATOR_TEMPLATE, 0.8);
+  if (page.found) {
+    const ok = await ensureTeamPage(
+      ctx, teamPage, { x: page.x, y: page.y }, { x: 1361, y: 378, w: 36, h: 35 },
+    );
+    if (!ok) return 'team_unavailable';
+  }
+
+  const buttons = page.found ? TEAM_BUTTONS_PAGED : TEAM_BUTTONS_NO_PAGE;
+  const btn = buttons[team];
+  if (!btn) return 'team_unavailable';
+
+  ctx.log(`${logPrefix} 选择队伍${team} 并检测选中状态`);
+  const changed = await ctx.checkButtonStateChange(btn.x, btn.y, 150, 50, 0.1);
+  if (!changed) return 'team_unavailable';
+
+  const r = await handleMarchWithStamina(
+    ctx,
+    TILI_BUTTON_REGION,
+    usePotion,
+    async () => {
+      ctx.log(`  点击行军 (1154,791)`);
+      await ctx.tapRect(MARCH_BUTTON_RECT.x1, MARCH_BUTTON_RECT.y1, MARCH_BUTTON_RECT.x2, MARCH_BUTTON_RECT.y2);
+      const surego = await ctx.findImageWithLocation(SUREGO_TEMPLATE, 0.6, [0.95, 1.0, 1.05]);
+      if (surego.found) {
+        ctx.log(`  胜算不足，点击确认强行军`);
+        await ctx.tap(surego.x, surego.y);
+        await ctx.sleep(0.5);
+      }
+    },
+    async () => {
+      await ctx.tap(CLOSE_STAMINA_POPUP.x, CLOSE_STAMINA_POPUP.y);
+      await ctx.sleep(0.5);
+      await closeAndCity(ctx);
+    },
+  );
+
+  return r === 'marched' ? 'marched' : 'stamina_insufficient';
+}
+
+/** 等待最上方槽位出现驻扎状态，超时返回 false */
+async function waitForTopZhuzha(ctx: PluginContext): Promise<boolean> {
+  const deadline = Date.now() + ZHUZHA_WAIT_TIMEOUT_SEC * 1000;
+  while (Date.now() < deadline) {
+    const states = await detectTeamStates(ctx, ['zhuzha']);
+    const found = states.find(s =>
+      s.x >= TOP_SLOT_REGION.x1 && s.x <= TOP_SLOT_REGION.x2 &&
+      s.y >= TOP_SLOT_REGION.y1 && s.y <= TOP_SLOT_REGION.y2,
+    );
+    if (found) {
+      ctx.log(`  队伍已驻扎 (${found.x},${found.y}) conf=${(found.confidence * 100).toFixed(1)}%`);
+      return true;
+    }
+    ctx.log(`  等待驻扎中...（每 ${ZHUZHA_POLL_INTERVAL_SEC}s 检测）`);
+    for (let i = 0; i < ZHUZHA_POLL_INTERVAL_SEC; i++) {
+      await ctx.sleep(1);
+    }
+  }
+  return false;
+}
+
+/** 点击驻扎中队伍头像并点行军，继续攻击下一个目标 */
+async function marchFromGarrison(ctx: PluginContext): Promise<boolean> {
+  const states = await detectTeamStates(ctx, ['zhuzha']);
+  const garrisons = states.filter(s =>
+    s.x >= LARGE_REGION.x && s.x <= LARGE_REGION.x + LARGE_REGION.w &&
+    s.y >= LARGE_REGION.y && s.y <= LARGE_REGION.y + LARGE_REGION.h,
+  );
+  garrisons.sort((a, b) => a.y - b.y);
+  const z = garrisons[0];
+  if (!z) {
+    ctx.log(`  未找到驻扎中的队伍`);
+    return false;
+  }
+  await ctx.tap(z.x + AVATAR_OFFSET.dx, z.y + AVATAR_OFFSET.dy);
+  await ctx.sleep(1);
+  const march = await ctx.findImageWithLocation(
+    BTN_XINGJUN_TEMPLATE, 0.7, [0.9, 1.0, 1.1], false, undefined, BTN_XINGJUN_REGION,
+  );
+  if (!march.found) {
+    ctx.log(`  未找到行军按钮 (conf=${march.confidence.toFixed(3)})`);
+    return false;
+  }
+  await ctx.tap(march.x, march.y);
+  await ctx.sleep(1);
+  return true;
+}
+
+export async function attackBarbarian(
+  ctx: PluginContext,
+  config: RokConfig,
+  params: AttackBarbarianParams,
+): Promise<{ result: AttackBarbarianResult }> {
+  const { count, team, teamPage, usePotion } = params;
+  let currentLevel = Math.min(Math.max(1, Math.round(params.level)), BARB_MAX_LEVEL);
+  ctx.log(`=== 自动打野 Lv.${currentLevel} 队伍${team} 共${count}次 ===`);
+
+  // 预备：OCR 队伍计数，满队跳过
+  const shot = await ctx.captureRegion(1507, 169, 55, 31);
+  try {
+    const text = (await ocrService.readTeamCount(shot)).trim();
+    ctx.log(`[预备] 队伍计数 OCR: "${text}"`);
+    const m = text.match(/(\d+)\s*\/\s*(\d+)/);
+    if (m) {
+      const used = parseInt(m[1], 10), total = parseInt(m[2], 10);
+      if (used >= total) {
+        ctx.log(`⏭️ 无空闲队伍 (${used}/${total})，跳过打野`);
+        await backToCity(ctx);
+        return { result: 'team_unavailable' };
+      }
+    }
+  } finally {
+    await fsp.unlink(shot).catch(() => {});
+  }
+
+  await ensureInWorld(ctx, config, { resetView: false });
+
+  for (let i = 0; i < count; i++) {
+    ctx.log(`--- 第 ${i + 1}/${count} 次攻击 ---`);
+
+    if (i === 0) {
+      await ctx.tapRect(SEARCH_ENTRY_RECT.x1, SEARCH_ENTRY_RECT.y1, SEARCH_ENTRY_RECT.x2, SEARCH_ENTRY_RECT.y2);
+      await ctx.sleep(1.5);
+      await ctx.tap(BARBARIAN_TAB_POINT.x, BARBARIAN_TAB_POINT.y);
+      await ctx.sleep(1);
+
+      const r = await searchWithNeighbors(ctx, currentLevel, false);
+      if (!r) { await backToCity(ctx); return { result: 'not_found' }; }
+      if (r.attackState === 'no_attack_button') { await closeAndCity(ctx); return { result: 'no_attack_button' }; }
+      currentLevel = r.level;
+
+      if (!await tapBiandui(ctx)) { await closeAndCity(ctx); return { result: 'no_biandui' }; }
+
+      const mr = await selectTeamAndMarch(ctx, team, teamPage, usePotion, '[首次]');
+      if (mr === 'team_unavailable') { await closeAndCity(ctx); return { result: 'team_unavailable' }; }
+      if (mr === 'stamina_insufficient') { return { result: 'stamina_insufficient' }; }
+    } else {
+      const r = await searchWithNeighbors(ctx, currentLevel, true);
+      if (!r) { await backToCity(ctx); return { result: 'not_found' }; }
+      if (r.attackState === 'no_attack_button') { await closeAndCity(ctx); return { result: 'no_attack_button' }; }
+      currentLevel = r.level;
+
+      if (!await marchFromGarrison(ctx)) { await closeAndCity(ctx); return { result: 'no_attack_button' }; }
+    }
+
+    if (i === count - 1) break;
+
+    ctx.log(`  等待队伍驻扎...`);
+    const ok = await waitForTopZhuzha(ctx);
+    if (!ok) {
+      ctx.log(`  ⚠️ 等待驻扎超时（${ZHUZHA_WAIT_TIMEOUT_SEC}s）`);
+      await backToCity(ctx);
+      return { result: 'zhuzha_timeout' };
+    }
+  }
+
+  await backToCity(ctx);
+  ctx.log(`=== 自动打野完成，共 ${count} 次 ===`);
+  return { result: 'success' };
+}
