@@ -73,3 +73,118 @@ export function neighborLevelOrder(target: number, maxLevel: number): number[] {
   }
   return order;
 }
+
+/** OCR 读取搜索面板当前野蛮人等级，失败返回 null */
+async function readCurrentLevel(ctx: PluginContext): Promise<number | null> {
+  let shot: string | null = null;
+  let processed: string | null = null;
+  try {
+    shot = await ctx.captureRegion(
+      LEVEL_OCR_RECT.x1, LEVEL_OCR_RECT.y1,
+      LEVEL_OCR_RECT.x2 - LEVEL_OCR_RECT.x1,
+      LEVEL_OCR_RECT.y2 - LEVEL_OCR_RECT.y1,
+    );
+    processed = shot.replace(/\.png$/i, '_lvl.png');
+    await sharp(shot)
+      .resize({ width: (LEVEL_OCR_RECT.x2 - LEVEL_OCR_RECT.x1) * 3, kernel: 'nearest' })
+      .grayscale()
+      .normalise()
+      .toFile(processed);
+
+    const txt = await ocrService.readChineseText(processed);
+    ctx.log(`  [OCR] 打野等级原始识别: "${txt.replace(/\s+/g, ' ')}"`);
+
+    const m = txt.match(/等\s*级[^\d]{0,5}(\d{1,2})/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      if (n >= 1 && n <= BARB_MAX_LEVEL) return n;
+    }
+    const nums = txt.match(/\d{1,2}/g) || [];
+    for (const s of nums) {
+      const n = parseInt(s, 10);
+      if (n >= 1 && n <= BARB_MAX_LEVEL) return n;
+    }
+    return null;
+  } catch (e) {
+    ctx.log(`  [OCR] 打野等级识别异常: ${(e as Error).message}`);
+    return null;
+  } finally {
+    if (shot) await fsp.unlink(shot).catch(() => {});
+    if (processed) await fsp.unlink(processed).catch(() => {});
+  }
+}
+
+/** 设置搜索等级到 targetLevel，返回 targetLevel */
+async function setSearchLevel(ctx: PluginContext, targetLevel: number): Promise<number> {
+  const ocrLevel = await readCurrentLevel(ctx);
+  if (ocrLevel !== null) {
+    const diff = targetLevel - ocrLevel;
+    if (diff > 0) {
+      for (let i = 0; i < diff; i++) {
+        await ctx.tapRect(LEVEL_PLUS_RECT.x1, LEVEL_PLUS_RECT.y1, LEVEL_PLUS_RECT.x2, LEVEL_PLUS_RECT.y2);
+        await ctx.sleep(0.15);
+      }
+    } else if (diff < 0) {
+      for (let i = 0; i < -diff; i++) {
+        await ctx.tapRect(LEVEL_MINUS_RECT.x1, LEVEL_MINUS_RECT.y1, LEVEL_MINUS_RECT.x2, LEVEL_MINUS_RECT.y2);
+        await ctx.sleep(0.15);
+      }
+    }
+    return targetLevel;
+  }
+  await ctx.tap(LEVEL_RESET_BTN.x, LEVEL_RESET_BTN.y);
+  await ctx.sleep(0.3);
+  for (let i = 0; i < targetLevel - 1; i++) {
+    await ctx.tapRect(LEVEL_PLUS_RECT.x1, LEVEL_PLUS_RECT.y1, LEVEL_PLUS_RECT.x2, LEVEL_PLUS_RECT.y2);
+    await ctx.sleep(0.15);
+  }
+  return targetLevel;
+}
+
+type SearchAttackState = 'attacked' | 'not_found' | 'no_attack_button';
+
+/** 设级并搜索一次，返回搜索结果 */
+async function searchAndAttack(ctx: PluginContext, level: number): Promise<SearchAttackState> {
+  await setSearchLevel(ctx, level);
+  ctx.log(`  点击搜索按钮 Lv.${level}`);
+  const changed = await ctx.checkButtonStateChangeRect(
+    SEARCH_ACTION_RECT.x1, SEARCH_ACTION_RECT.y1, SEARCH_ACTION_RECT.x2, SEARCH_ACTION_RECT.y2, 0.05,
+  );
+  if (!changed) {
+    ctx.log(`  ❌ Lv.${level} 未搜索到野蛮人`);
+    return 'not_found';
+  }
+  await ctx.sleep(2.5);
+  const atk = await ctx.findImageWithLocation(BTN_ATTACK_TEMPLATE, 0.7, [0.9, 1.0, 1.1]);
+  if (!atk.found) {
+    ctx.log(`  ❌ 未找到攻击按钮 (conf=${atk.confidence.toFixed(3)})`);
+    return 'no_attack_button';
+  }
+  await ctx.tap(atk.x, atk.y);
+  await ctx.sleep(1.5);
+  return 'attacked';
+}
+
+/** 从 initialLevel 开始，依次尝试相邻等级；reopenPanel 控制首次是否需要重开面板 */
+async function searchWithNeighbors(
+  ctx: PluginContext,
+  initialLevel: number,
+  reopenPanel: boolean,
+): Promise<{ level: number; attackState: 'attacked' | 'no_attack_button' } | null> {
+  if (reopenPanel) {
+    await ctx.tapRect(SEARCH_ENTRY_RECT.x1, SEARCH_ENTRY_RECT.y1, SEARCH_ENTRY_RECT.x2, SEARCH_ENTRY_RECT.y2);
+    await ctx.sleep(1.5);
+  }
+  const candidates = [initialLevel, ...neighborLevelOrder(initialLevel, BARB_MAX_LEVEL)];
+  for (let i = 0; i < candidates.length; i++) {
+    const lv = candidates[i];
+    if (i > 0) {
+      await ctx.tapRect(SEARCH_ENTRY_RECT.x1, SEARCH_ENTRY_RECT.y1, SEARCH_ENTRY_RECT.x2, SEARCH_ENTRY_RECT.y2);
+      await ctx.sleep(1.5);
+    }
+    const r = await searchAndAttack(ctx, lv);
+    if (r === 'attacked') return { level: lv, attackState: 'attacked' };
+    if (r === 'no_attack_button') return { level: lv, attackState: 'no_attack_button' };
+  }
+  return null;
+}
