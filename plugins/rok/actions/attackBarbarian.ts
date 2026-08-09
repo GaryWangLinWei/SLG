@@ -45,7 +45,7 @@ const RECALL_BUTTON = { x: 924, y: 570 };
 const TOP_SLOT_Y_MIN = 202;
 const TOP_SLOT_Y_MAX = 320;
 
-const ZHUZHA_WAIT_TIMEOUT_SEC = 300;
+const ZHUZHA_WAIT_TIMEOUT_SEC = 600;
 const ZHUZHA_POLL_INTERVAL_SEC = 5;
 
 export type AttackBarbarianResult =
