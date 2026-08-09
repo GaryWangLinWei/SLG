@@ -47,6 +47,8 @@ export interface HomeFeatures {
   attackBarbarianTeam: number;
   attackBarbarianTeamPage: TeamPageChoice;
   attackBarbarianUsePotion: boolean;
+  /** 打野等级范围：固定 / ±1 / ±2，每次攻击在范围内随机起点 */
+  attackBarbarianLevelMode: 'fixed' | 'plusMinus1' | 'plusMinus2';
   shareGemEnabled: boolean;
   shareGemStopCondition: 'spiral' | 'count5' | 'count10' | 'count15' | 'count100';
   gemGatherEnabled: boolean;
@@ -130,6 +132,7 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   attackBarbarianTeam: 1,
   attackBarbarianTeamPage: 'attack',
   attackBarbarianUsePotion: true,
+  attackBarbarianLevelMode: 'plusMinus1',
   shareGemEnabled: false,
   shareGemStopCondition: 'spiral',
   gemGatherEnabled: false,

@@ -52,22 +52,53 @@ export type AttackBarbarianResult =
   | 'success' | 'not_found' | 'no_march_button' | 'no_biandui'
   | 'team_unavailable' | 'stamina_insufficient' | 'zhuzha_timeout';
 
+export type AttackLevelMode = 'fixed' | 'plusMinus1' | 'plusMinus2';
+
 export interface AttackBarbarianParams {
   level: number;
   count: number;
   team: number;
   teamPage: TeamPage;
   usePotion: boolean;
+  levelMode: AttackLevelMode;
 }
 
-export function neighborLevelOrder(target: number, maxLevel: number): number[] {
-  const order: number[] = [];
-  const seen = new Set<number>([target]);
-  for (const d of [-1, +1, -2, +2]) {
-    const lv = target + d;
-    if (lv >= 1 && lv <= maxLevel && !seen.has(lv)) { order.push(lv); seen.add(lv); }
+const LEVEL_MODE_DELTA: Record<AttackLevelMode, number> = {
+  fixed: 0,
+  plusMinus1: 1,
+  plusMinus2: 2,
+};
+
+export function isAttackLevelMode(v: unknown): v is AttackLevelMode {
+  return v === 'fixed' || v === 'plusMinus1' || v === 'plusMinus2';
+}
+
+/** 按模式得到本次打野允许的等级范围（已 clamp 到 [1, maxLevel]），升序 */
+export function levelRange(target: number, maxLevel: number, mode: AttackLevelMode): number[] {
+  const delta = LEVEL_MODE_DELTA[mode];
+  const lo = Math.max(1, target - delta);
+  const hi = Math.min(maxLevel, target + delta);
+  const out: number[] = [];
+  for (let lv = lo; lv <= hi; lv++) out.push(lv);
+  return out;
+}
+
+/** 在范围内从 start 开始按就近（±1, ±2...）排列，不越出 range */
+export function fallbackOrderWithinRange(start: number, range: Set<number>): number[] {
+  const order = [start];
+  if (!range.has(start)) return order;
+  for (let d = 1; d < 100; d++) {
+    if (!range.has(start - d) && !range.has(start + d)) break;
+    if (range.has(start - d)) order.push(start - d);
+    if (range.has(start + d)) order.push(start + d);
   }
   return order;
+}
+
+/** 从候选中按注入 rng 选一个；rng 返回 [0,1) */
+export function pickRandomLevel(candidates: number[], rng: () => number): number {
+  const idx = Math.min(candidates.length - 1, Math.floor(rng() * candidates.length));
+  return candidates[idx];
 }
 
 /** OCR 读取搜索面板当前野蛮人等级，失败返回 null */
@@ -162,18 +193,19 @@ async function searchAndAttack(ctx: PluginContext, level: number): Promise<Searc
   return 'attacked';
 }
 
-/** 从 initialLevel 开始，依次尝试相邻等级；reopenPanel 控制首次是否需要重开面板。
+/** 从 startLevel 开始，在允许范围内按就近依次尝试；reopenPanel 控制首次是否需要重开面板。
  *  全部等级都搜不到时返回 null。 */
-async function searchWithNeighbors(
+async function searchWithinRange(
   ctx: PluginContext,
-  initialLevel: number,
+  startLevel: number,
+  allowedRange: Set<number>,
   reopenPanel: boolean,
 ): Promise<{ level: number } | null> {
   if (reopenPanel) {
     await ctx.tapRect(SEARCH_ENTRY_RECT.x1, SEARCH_ENTRY_RECT.y1, SEARCH_ENTRY_RECT.x2, SEARCH_ENTRY_RECT.y2);
     await ctx.sleep(1.5);
   }
-  const candidates = [initialLevel, ...neighborLevelOrder(initialLevel, BARB_MAX_LEVEL)];
+  const candidates = fallbackOrderWithinRange(startLevel, allowedRange);
   for (const lv of candidates) {
     const r = await searchAndAttack(ctx, lv);
     if (r === 'attacked') return { level: lv };
@@ -366,8 +398,12 @@ export async function attackBarbarian(
 ): Promise<{ result: AttackBarbarianResult }> {
   const { team, teamPage, usePotion } = params;
   const count = Math.max(1, Math.round(params.count) || 1);
-  let currentLevel = Math.min(Math.max(1, Math.round(params.level)), BARB_MAX_LEVEL);
-  ctx.log(`=== 自动打野 Lv.${currentLevel} 队伍${team} 共${count}次 ===`);
+  const baseLevel = Math.min(Math.max(1, Math.round(params.level)), BARB_MAX_LEVEL);
+  const levelMode = isAttackLevelMode(params.levelMode) ? params.levelMode : 'plusMinus1';
+  // 本轮允许的等级范围（固定/±1/±2），每次攻击在范围内随机起点，搜不到只在本范围内回退
+  const allowedLevels = new Set(levelRange(baseLevel, BARB_MAX_LEVEL, levelMode));
+  const modeLabel = levelMode === 'fixed' ? '固定' : `±${LEVEL_MODE_DELTA[levelMode]}`;
+  ctx.log(`=== 自动打野 基准Lv.${baseLevel}（${modeLabel}）队伍${team} 共${count}次 ===`);
 
   // 预备：OCR 队伍计数，满队跳过
   const shot = await ctx.captureRegion(1507, 169, 55, 31);
@@ -387,7 +423,10 @@ export async function attackBarbarian(
   await ensureInWorld(ctx, config, { resetView: false });
 
   for (let i = 0; i < count; i++) {
-    ctx.log(`--- 第 ${i + 1}/${count} 次攻击 ---`);
+    // 每次攻击都在允许范围内随机一个搜索起点等级
+    const candidates = levelRange(baseLevel, BARB_MAX_LEVEL, levelMode);
+    const startLevel = pickRandomLevel(candidates, Math.random);
+    ctx.log(`--- 第 ${i + 1}/${count} 次攻击，本次搜索 Lv.${startLevel}（范围 ${candidates[0]}-${candidates[candidates.length - 1]}）---`);
 
     if (i === 0) {
       await ctx.tapRect(SEARCH_ENTRY_RECT.x1, SEARCH_ENTRY_RECT.y1, SEARCH_ENTRY_RECT.x2, SEARCH_ENTRY_RECT.y2);
@@ -395,9 +434,8 @@ export async function attackBarbarian(
       await ctx.tap(BARBARIAN_TAB_POINT.x, BARBARIAN_TAB_POINT.y);
       await ctx.sleep(1);
 
-      const r = await searchWithNeighbors(ctx, currentLevel, false);
+      const r = await searchWithinRange(ctx, startLevel, allowedLevels, false);
       if (!r) { await backFromSearchPanel(ctx); return { result: 'not_found' }; }
-      currentLevel = r.level;
 
       if (!await tapBiandui(ctx)) { await closeAndCity(ctx); return { result: 'no_biandui' }; }
 
@@ -405,9 +443,8 @@ export async function attackBarbarian(
       if (mr === 'team_unavailable') { await closeAndCity(ctx); return { result: 'team_unavailable' }; }
       if (mr === 'stamina_insufficient') { return { result: 'stamina_insufficient' }; }
     } else {
-      const r = await searchWithNeighbors(ctx, currentLevel, true);
+      const r = await searchWithinRange(ctx, startLevel, allowedLevels, true);
       if (!r) { await backFromSearchPanel(ctx); return { result: 'not_found' }; }
-      currentLevel = r.level;
 
       const gr = await marchFromGarrison(ctx, usePotion);
       if (gr === 'no_march_button') { await closeAndCity(ctx); return { result: 'no_march_button' }; }

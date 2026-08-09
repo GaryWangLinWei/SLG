@@ -437,6 +437,7 @@ export function HomePage() {
         if (typeof merged.attackBarbarianTeam !== 'number') merged.attackBarbarianTeam = DEFAULT_FEATURES.attackBarbarianTeam;
         if (!isTeamPageChoice(merged.attackBarbarianTeamPage)) merged.attackBarbarianTeamPage = DEFAULT_FEATURES.attackBarbarianTeamPage;
         if (typeof merged.attackBarbarianUsePotion !== 'boolean') merged.attackBarbarianUsePotion = DEFAULT_FEATURES.attackBarbarianUsePotion;
+        if (!['fixed', 'plusMinus1', 'plusMinus2'].includes(merged.attackBarbarianLevelMode)) merged.attackBarbarianLevelMode = DEFAULT_FEATURES.attackBarbarianLevelMode;
         if (typeof merged.autoAttackBarbarian !== 'boolean') merged.autoAttackBarbarian = DEFAULT_FEATURES.autoAttackBarbarian;
         if (typeof merged.rallyFortDowngrade !== 'boolean') merged.rallyFortDowngrade = DEFAULT_FEATURES.rallyFortDowngrade;
         if (typeof merged.rallyFortUsePotion !== 'boolean') merged.rallyFortUsePotion = DEFAULT_FEATURES.rallyFortUsePotion;
@@ -1436,7 +1437,7 @@ export function HomePage() {
             if (offlineActive) { releaseLock(); await sleep(30); continue; }
             await ensureGameRunning();
             try {
-              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'attack-barbarian', { level: featuresRef.current.attackBarbarianLevel, count: featuresRef.current.attackBarbarianCount, team: featuresRef.current.attackBarbarianTeam, teamPage: featuresRef.current.attackBarbarianTeamPage, usePotion: true });
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'attack-barbarian', { level: featuresRef.current.attackBarbarianLevel, count: featuresRef.current.attackBarbarianCount, team: featuresRef.current.attackBarbarianTeam, teamPage: featuresRef.current.attackBarbarianTeamPage, usePotion: true, levelMode: featuresRef.current.attackBarbarianLevelMode });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -3436,6 +3437,22 @@ export function HomePage() {
                     disabled={features.autoWorldChat}
                     onChange={(e) => setFeatures({ ...features, attackBarbarianCount: Math.max(1, Number(e.target.value) || 1) })}
                     className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-20" />
+                </div>
+
+                {/* 打野等级范围 */}
+                <div className="flex flex-col gap-1 px-4 py-2.5 border-t border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-500 whitespace-nowrap w-16">等级范围</span>
+                    <select value={features.attackBarbarianLevelMode}
+                      disabled={features.autoWorldChat}
+                      onChange={(e) => setFeatures({ ...features, attackBarbarianLevelMode: e.target.value as 'fixed' | 'plusMinus1' | 'plusMinus2' })}
+                      className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs flex-1">
+                      <option value="fixed">固定打野等级</option>
+                      <option value="plusMinus1">加减1打野等级</option>
+                      <option value="plusMinus2">加减2打野等级</option>
+                    </select>
+                  </div>
+                  <span className="text-[11px] text-slate-400 pl-16">建议选择加减等级打野，防止一直打同一等级的野怪，跑太远</span>
                 </div>
 
                 {/* 派遣队伍 + 队伍页 */}
