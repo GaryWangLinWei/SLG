@@ -67,7 +67,8 @@ export async function claimAllFreeStamina(ctx: PluginContext, region: Rect): Pro
 
 /**
  * 点击行军并根据行动力不足弹窗自动领免费体力/用药水，失败重试一次。
- * marchTap：点击行军按钮的动作（含必要的二次确认，如胜算不足）。
+ * marchTap：点击行军按钮的动作，回调只执行点击（含点击后立即出现的二次确认，如胜算不足 surego），
+ *   不要在回调里加行军后的 settle 延迟——工具会在回调返回后统一等待 1s 再检测切换按钮等结果。
  * closePopupAndCity：关闭弹窗并回城的兜底动作。
  * 返回 'marched' 表示行军已发起，'insufficient' 表示体力不足已回城。
  */

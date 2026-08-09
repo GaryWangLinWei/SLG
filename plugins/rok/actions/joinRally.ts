@@ -294,7 +294,6 @@ export async function joinRally(
       marchTapCount++;
       ctx.log(`  点击行军按钮 (${MARCH_BUTTON.x}, ${MARCH_BUTTON.y})${marchTapCount > 1 ? '（领取体力后重试）' : ''}`);
       await ctx.tapRect(MARCH_BUTTON_RECT.x1, MARCH_BUTTON_RECT.y1, MARCH_BUTTON_RECT.x2, MARCH_BUTTON_RECT.y2);
-      await ctx.sleep(1);
 
       // 先检测胜算不足弹窗：识别 jijie/btn_surego.png 二次确认行军按钮
       const sureGoResult = await ctx.findImageWithLocation(SUREGO_TEMPLATE, 0.6, [0.95, 1.0, 1.05]);
@@ -302,7 +301,8 @@ export async function joinRally(
       if (sureGoResult.found) {
         ctx.log(`  ⚠️ 检测到胜算不足弹窗，点击二次确认行军 (${sureGoResult.x}, ${sureGoResult.y})`);
         await ctx.tap(sureGoResult.x, sureGoResult.y);
-        await ctx.sleep(1.5);
+        // 弹窗内确认点击后的短暂反应时间；行军后的 settle 由 handleMarchWithStamina 统一等待 1s
+        await ctx.sleep(0.5);
       }
     },
     async () => {
