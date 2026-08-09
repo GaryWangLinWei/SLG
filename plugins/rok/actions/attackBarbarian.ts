@@ -42,7 +42,7 @@ const LARGE_REGION = { x: 1443, y: 53, w: 152, h: 753 };
 const AVATAR_OFFSET = { dx: -25, dy: -25 };
 /** 召回部队按钮（点开驻扎队伍信息面板后） */
 const RECALL_BUTTON = { x: 924, y: 570 };
-const TOP_SLOT_REGION = { x1: 1530, y1: 220, x2: 1582, y2: 310 };
+const TOP_SLOT_REGION = { x1: 1537, y1: 252, x2: 1575, y2: 299 };
 
 const ZHUZHA_WAIT_TIMEOUT_SEC = 300;
 const ZHUZHA_POLL_INTERVAL_SEC = 5;
@@ -299,7 +299,7 @@ async function recallTopGarrison(ctx: PluginContext): Promise<boolean> {
     ctx.log(`  ⚠️ 未在最上方槽位找到驻扎队伍，跳过召回`);
     return false;
   }
-  await ctx.tap(found.x + AVATAR_OFFSET.dx, found.y + AVATAR_OFFSET.dy);
+  await ctx.tap(found.x, found.y);
   await ctx.sleep(1);
   ctx.log(`  点击召回部队 (${RECALL_BUTTON.x},${RECALL_BUTTON.y})`);
   await ctx.tap(RECALL_BUTTON.x, RECALL_BUTTON.y);
