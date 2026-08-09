@@ -753,7 +753,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
           team: params.team ?? 1,
           teamPage: params.teamPage ?? 'attack',
           usePotion: params.usePotion === true,
-          levelMode: isAttackLevelMode(params.levelMode) ? params.levelMode : 'plusMinus1',
+          levelMode: isAttackLevelMode(params.levelMode) ? params.levelMode : 'plusMinus2',
         });
         ctx.log(`自动打野: ${outcome.result}`);
       }

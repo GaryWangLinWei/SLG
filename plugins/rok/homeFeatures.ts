@@ -132,7 +132,7 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   attackBarbarianTeam: 1,
   attackBarbarianTeamPage: 'attack',
   attackBarbarianUsePotion: true,
-  attackBarbarianLevelMode: 'plusMinus1',
+  attackBarbarianLevelMode: 'plusMinus2',
   shareGemEnabled: false,
   shareGemStopCondition: 'spiral',
   gemGatherEnabled: false,

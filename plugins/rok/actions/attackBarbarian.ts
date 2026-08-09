@@ -399,7 +399,7 @@ export async function attackBarbarian(
   const { team, teamPage, usePotion } = params;
   const count = Math.max(1, Math.round(params.count) || 1);
   const baseLevel = Math.min(Math.max(1, Math.round(params.level)), BARB_MAX_LEVEL);
-  const levelMode = isAttackLevelMode(params.levelMode) ? params.levelMode : 'plusMinus1';
+  const levelMode = isAttackLevelMode(params.levelMode) ? params.levelMode : 'plusMinus2';
   // 本轮允许的等级范围（固定/±1/±2），每次攻击在范围内随机起点，搜不到只在本范围内回退
   const allowedLevels = new Set(levelRange(baseLevel, BARB_MAX_LEVEL, levelMode));
   const modeLabel = levelMode === 'fixed' ? '固定' : `±${LEVEL_MODE_DELTA[levelMode]}`;
