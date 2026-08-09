@@ -961,6 +961,7 @@ export function HomePage() {
       if (f.collectResources) exp.add('collect');
       if (f.gatherResources && f.gatherTasks.some((t: any) => t.type)) exp.add('gather');
       if (f.autoRallyFort && f.rallyFortLevel > 0) exp.add('rally-fort');
+      if (f.autoAttackBarbarian && f.attackBarbarianLevel > 0) exp.add('attack-barbarian');
       if (f.joinRallyEnabled && !isFeatureLocked('joinRally')) exp.add('join-rally');
       if (f.autoCaveExplore) exp.add('cave');
       if (f.gemGatherEnabled && f.shareGemEnabled && !isFeatureLocked('shareGem')) exp.add('share-gem');
@@ -1403,6 +1404,74 @@ export function HomePage() {
             }
           } else {
             // 未开启城寨功能，短周期唤醒便于切号/开关变化后快速响应
+            const waitSeq = cooldownResetSeq;
+            const startIdle = monotonicNow();
+            while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startIdle) < 60000) {
+              await sleep(1);
+            }
+          }
+        }
+      })();
+
+      // 自动打野独立循环 — 每 10min
+      const attackBarbarianLoop = (async () => {
+        let first = true;
+        while (!isStopped()) {
+          if (first) { first = false; await sleep(12); continue; }
+          if (offlineActive) { await sleep(30); continue; }
+          if (featuresRef.current.autoAttackBarbarian && featuresRef.current.attackBarbarianLevel > 0 && !featuresRef.current.autoWorldChat) {
+            if (isStopped()) break;
+            if (!await acquireLock()) continue;
+            if (offlineActive) { releaseLock(); await sleep(30); continue; }
+            await ensureGameRunning();
+            let cd = 600;
+            try {
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'attack-barbarian', { level: featuresRef.current.attackBarbarianLevel, count: featuresRef.current.attackBarbarianCount, team: featuresRef.current.attackBarbarianTeam, teamPage: featuresRef.current.attackBarbarianTeamPage, usePotion: featuresRef.current.attackBarbarianUsePotion });
+              if (createResult.success) {
+                runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
+                setRunningTaskIds([...runningTaskIdsRef.current]);
+                const runResult = await api.tasks.run(createResult.task.id);
+                runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
+                setRunningTaskIds([...runningTaskIdsRef.current]);
+
+                if (runResult.task?.status === 'stopped') {
+                  loopStopped = true;
+                  pushLog(`⏹️ ${createResult.task.actionId} 已被停止`);
+                  return;
+                }
+
+                const logs = runResult.task?.logs ?? [];
+                const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
+                const isSuccess = logs.some((l: string) => l.includes(': success'));
+                const isStamina = logs.some((l: string) => l.includes(': stamina_insufficient'));
+                if (isStamina) {
+                  cd = 4500;
+                } else if (isSuccess) {
+                  cd = 600;
+                } else {
+                  cd = 120;
+                }
+                if (hasExpiredLog) {
+                  pushLog(`⛔ 许可证已到期，停止运行`);
+                  loopStopped = true;
+                  setExpiredMessage('激活码已到期，请重新激活');
+                  refreshStatus();
+                } else {
+                  const cdLabel = isStamina ? '75分钟' : isSuccess ? '10分钟' : '2分钟';
+                  pushLog(`${isSuccess ? '✅' : isStamina ? '🔋' : '⚠️'} 打野 Lv.${featuresRef.current.attackBarbarianLevel} ×${featuresRef.current.attackBarbarianCount} 队伍${featuresRef.current.attackBarbarianTeam} ${isSuccess ? '完成' : isStamina ? '行动力不足' : '未完成'}，CD ${cdLabel}`);
+                  markRoundDone('attack-barbarian', isSuccess);
+                }
+              }
+            } catch {} finally { releaseLock(); }
+            if (isStopped()) break;
+            const cdJitter = cd * (0.85 + Math.random() * 0.3);
+            pushLog(`⚔️ 打野完成，${cdJitter.toFixed(0)} 秒后下一轮`);
+            const startWait = monotonicNow();
+            const waitSeq = cooldownResetSeq;
+            while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < cdJitter * 1000) {
+              await sleep(1);
+            }
+          } else {
             const waitSeq = cooldownResetSeq;
             const startIdle = monotonicNow();
             while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startIdle) < 60000) {
@@ -2384,7 +2453,7 @@ export function HomePage() {
           await sleep(1);
         }
       }
-      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, exploreLoop, caveLoop, produceMaterialLoop, allianceTerritoryLoop, allianceTechLoop, offlineLoop, attackLoop, accountSwitchLoop, shareGemLoop]);
+      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, attackBarbarianLoop, exploreLoop, caveLoop, produceMaterialLoop, allianceTerritoryLoop, allianceTechLoop, offlineLoop, attackLoop, accountSwitchLoop, shareGemLoop]);
       if (isCurrentLoopGeneration(myGen, loopGen)) {
         loopRunning = false;
         setLoopRunningState(false);
@@ -3342,6 +3411,71 @@ export function HomePage() {
                 </div>
               </div>
 
+            </div>
+
+            {/* 自动打野 */}
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : features.autoAttackBarbarian ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center text-base">⚔️</span>自动打野</span>
+                <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                  <input type="checkbox" checked={features.autoAttackBarbarian}
+                    disabled={features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, autoAttackBarbarian: e.target.checked })}
+                    className="sr-only" />
+                  <span className={`absolute inset-0 rounded-full transition-colors ${features.autoAttackBarbarian ? 'bg-emerald-500' : 'bg-slate-200'}`} />
+                  <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoAttackBarbarian ? 'translate-x-[18px]' : ''}`} />
+                </label>
+              </div>
+              <div className="flex flex-col mt-2 -mx-4">
+                {/* 野蛮人等级 + 次数 */}
+                <div className="flex items-center gap-2 px-4 py-2.5 border-t border-slate-100">
+                  <span className="text-xs text-slate-500 whitespace-nowrap w-16">野蛮人等级</span>
+                  <input type="number" min={1} max={40}
+                    value={features.attackBarbarianLevel}
+                    disabled={features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, attackBarbarianLevel: Math.min(40, Math.max(1, Number(e.target.value) || 1)) })}
+                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-20" />
+                  <span className="text-xs text-slate-500 whitespace-nowrap ml-3">次数</span>
+                  <input type="number" min={1}
+                    value={features.attackBarbarianCount}
+                    disabled={features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, attackBarbarianCount: Math.max(1, Number(e.target.value) || 1) })}
+                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-20" />
+                </div>
+
+                {/* 派遣队伍 + 队伍页 */}
+                <div className="flex items-center gap-2 px-4 py-2.5 border-t border-slate-100">
+                  <span className="text-xs text-slate-500 whitespace-nowrap w-16">派遣第</span>
+                  <select value={features.attackBarbarianTeam}
+                    disabled={features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, attackBarbarianTeam: Number(e.target.value) })}
+                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-14">
+                    {[1,2,3,4,5].map(t => (<option key={t} value={t}>{t}</option>))}
+                  </select>
+                  <span className="text-xs text-slate-700 whitespace-nowrap">队伍</span>
+                  <span className="text-xs text-slate-500 whitespace-nowrap ml-3">队伍页</span>
+                  {renderTeamPageSelect(features.attackBarbarianTeamPage, (v) => setFeatures({ ...features, attackBarbarianTeamPage: v }), features.autoWorldChat)}
+                </div>
+
+                {/* 体力药水勾选 */}
+                <div className="flex items-center gap-5 px-4 py-2.5 border-t border-slate-100">
+                  <label className={`flex items-center gap-1.5 ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}
+                    title="体力不足时自动使用体力药水补充；未勾选则行动力不足时等 75 分钟">
+                    <input type="checkbox" checked={features.attackBarbarianUsePotion}
+                      disabled={features.autoWorldChat}
+                      onChange={(e) => setFeatures({ ...features, attackBarbarianUsePotion: e.target.checked })}
+                      className="sr-only peer" />
+                    <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors flex-shrink-0 ${features.attackBarbarianUsePotion ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
+                      {features.attackBarbarianUsePotion && (
+                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </span>
+                    <span className="text-xs text-slate-700 whitespace-nowrap">体力不足使用药水</span>
+                  </label>
+                </div>
+              </div>
             </div>
 
             {/* 加入集结 */}

@@ -41,6 +41,12 @@ export interface HomeFeatures {
   rallyFortFallbackTeamNum: number;
   rallyFortFallbackTroopType: 'any' | 'infantry' | 'cavalry' | 'archer';
   rallyFortTroopType: 'any' | 'infantry' | 'cavalry' | 'archer';
+  autoAttackBarbarian: boolean;
+  attackBarbarianLevel: number;
+  attackBarbarianCount: number;
+  attackBarbarianTeam: number;
+  attackBarbarianTeamPage: TeamPageChoice;
+  attackBarbarianUsePotion: boolean;
   shareGemEnabled: boolean;
   shareGemStopCondition: 'spiral' | 'count5' | 'count10' | 'count15' | 'count100';
   gemGatherEnabled: boolean;
@@ -118,6 +124,12 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   rallyFortFallbackTeamNum: 2,
   rallyFortFallbackTroopType: 'any',
   rallyFortTroopType: 'any',
+  autoAttackBarbarian: false,
+  attackBarbarianLevel: 5,
+  attackBarbarianCount: 5,
+  attackBarbarianTeam: 1,
+  attackBarbarianTeamPage: 'attack',
+  attackBarbarianUsePotion: false,
   shareGemEnabled: false,
   shareGemStopCondition: 'spiral',
   gemGatherEnabled: false,
