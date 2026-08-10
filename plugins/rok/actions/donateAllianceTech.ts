@@ -53,8 +53,9 @@ export async function donateAllianceTech(ctx: PluginContext): Promise<void> {
       if (!tuijian.found) {
         ctx.log('未找到推荐科技图标，关闭科技与联盟界面，结束');
         await ctx.tap(CLOSE_TECH.x, CLOSE_TECH.y);
-        await ctx.sleep(0.3);
+        await ctx.sleep(0.6);
         await ctx.tap(CLOSE_ALLIANCE.x, CLOSE_ALLIANCE.y);
+        await ctx.sleep(1.2);
         ctx.log('=== 联盟科技捐献结束（无推荐科技） ===');
         return;
       }
@@ -117,8 +118,11 @@ export async function donateAllianceTech(ctx: PluginContext): Promise<void> {
 
 async function closeAll(ctx: PluginContext): Promise<void> {
   await ctx.tap(CLOSE_DONATE.x, CLOSE_DONATE.y);
-  await ctx.sleep(0.3);
+  await ctx.sleep(0.6);
   await ctx.tap(CLOSE_TECH.x, CLOSE_TECH.y);
-  await ctx.sleep(0.3);
+  await ctx.sleep(0.6);
   await ctx.tap(CLOSE_ALLIANCE.x, CLOSE_ALLIANCE.y);
+  // 等关闭动画播完、画面回到城内，底部栏状态稳定后再让调用方检测收回，
+  // 否则过渡帧会被误判成"已收回"，导致底部栏没被收起。
+  await ctx.sleep(1.2);
 }
