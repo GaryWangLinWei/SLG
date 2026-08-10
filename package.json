@@ -1,6 +1,6 @@
 {
   "name": "rok-automation",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "description": "万国觉醒自动化助手",
   "main": "dist/electron/main.js",
   "scripts": {
@@ -21,7 +21,7 @@
     "appId": "com.rok.automation",
     "productName": "ROK助手",
     "releaseInfo": {
-      "releaseNotes": "1.2.6更新内容\n1.增加新功能\"自动打野\"\n2.修复连接模拟器失败bug\n3.优化野蛮人城寨流程\n4.修复迷雾探索bug\n5.修复联盟科技捐献和联盟领土收益领取后未收回底部栏的bug"
+      "releaseNotes": "1.2.7更新内容\n1.修复练兵bug\n2.修改自动打野等级范围：1-55\n3.修复自动打野拉取错误队列bug\n4.修复运行日志不显示bug"
     },
     "directories": {
       "output": "release"
