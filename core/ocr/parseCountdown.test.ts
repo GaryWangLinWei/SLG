@@ -1,20 +1,23 @@
 import { parseCountdown } from './parseCountdown';
 
 describe('parseCountdown', () => {
-  it('parses days + HH:MM:SS', () => {
+  it('parses days + HH:MM:SS (e.g. 1天01:49:12)', () => {
+    expect(parseCountdown('1天01:49:12')).toBe(86400 + 1 * 3600 + 49 * 60 + 12);
     expect(parseCountdown('1天10:09:20')).toBe(122960);
     expect(parseCountdown('2天00:00:00')).toBe(172800);
   });
 
-  it('parses HH:MM:SS', () => {
-    expect(parseCountdown('2:30:00')).toBe(9000);
-    expect(parseCountdown('1:00:00')).toBe(3600);
-    expect(parseCountdown('0:05:30')).toBe(330);
+  it('parses HH:MM:SS without days (e.g. 00:59:26)', () => {
+    expect(parseCountdown('00:59:26')).toBe(59 * 60 + 26);
+    expect(parseCountdown('01:00:00')).toBe(3600);
+    expect(parseCountdown('00:05:30')).toBe(330);
   });
 
-  it('parses MM:SS', () => {
-    expect(parseCountdown('45:30')).toBe(2730);
-    expect(parseCountdown('05:00')).toBe(300);
+  it('rejects MM:SS — game never uses this format', () => {
+    // 游戏倒计时恒为 HH:MM:SS 或 N天HH:MM:SS，不存在 M:SS。
+    expect(parseCountdown('45:30')).toBeNull();
+    expect(parseCountdown('05:00')).toBeNull();
+    expect(parseCountdown('00:00')).toBeNull();
   });
 
   it('rejects bare numbers (idle/Chinese misread as digits)', () => {
@@ -24,8 +27,7 @@ describe('parseCountdown', () => {
   });
 
   it('rejects single-digit seconds ("已完成" misread as "h 54:4")', () => {
-    // "已完成"被 OCR 误识成 "h 54:4"。真实倒计时秒位恒为两位补零（如 54:04），
-    // 出现单数字秒说明是中文被误识别，不能当成 54 分 4 秒。
+    // "已完成"被 OCR 误识成 "h 54:4"，不能当成 54 分 4 秒。
     expect(parseCountdown('h 54:4')).toBeNull();
     expect(parseCountdown('54:4')).toBeNull();
   });
@@ -35,15 +37,15 @@ describe('parseCountdown', () => {
   });
 
   it('handles OCR errors: dots instead of colons', () => {
-    expect(parseCountdown('2.30.00')).toBe(9000);
+    expect(parseCountdown('02.30.00')).toBe(9000);
   });
 
   it('handles OCR errors: fullwidth colons', () => {
-    expect(parseCountdown('45：30')).toBe(2730);
+    expect(parseCountdown('00：59：26')).toBe(59 * 60 + 26);
   });
 
   it('handles OCR errors: trailing noise', () => {
-    expect(parseCountdown(' 2:30:00 ')).toBe(9000);
+    expect(parseCountdown(' 02:30:00 ')).toBe(9000);
   });
 
   it('handles garbled day prefix "2:101:30:14" (1天01:30:14 misread)', () => {
@@ -64,12 +66,13 @@ describe('parseCountdown', () => {
 
   it('returns null for non-numeric text', () => {
     expect(parseCountdown('空闲')).toBeNull();
+    expect(parseCountdown('已完成')).toBeNull();
     expect(parseCountdown('')).toBeNull();
     expect(parseCountdown('abc')).toBeNull();
   });
 
   it('returns 0 for zero', () => {
-    expect(parseCountdown('0:00:00')).toBe(0);
-    expect(parseCountdown('00:00')).toBe(0);
+    expect(parseCountdown('00:00:00')).toBe(0);
+    expect(parseCountdown('0天00:00:00')).toBe(0);
   });
 });
