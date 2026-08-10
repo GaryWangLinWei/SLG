@@ -17,9 +17,10 @@ describe('parseCountdown', () => {
     expect(parseCountdown('05:00')).toBe(300);
   });
 
-  it('parses bare seconds', () => {
-    expect(parseCountdown('15')).toBe(15);
-    expect(parseCountdown('59')).toBe(59);
+  it('rejects bare numbers (idle/Chinese misread as digits)', () => {
+    // "空闲中"被 OCR 误识成 "40"，不能当成 40 秒
+    expect(parseCountdown('40')).toBeNull();
+    expect(parseCountdown('15')).toBeNull();
   });
 
   it('handles OCR errors: 夭 → 天', () => {
@@ -39,8 +40,14 @@ describe('parseCountdown', () => {
   });
 
   it('handles garbled day prefix "2:101:30:14" (1天01:30:14 misread)', () => {
-    // 末尾完整的 01:30:14，前面粘连的杂讯忽略
-    expect(parseCountdown('2:101:30:14')).toBe(5414);
+    // "1天01:30:14" 中"天"被识别成冒号，与小时粘连成"101"；
+    // 百位还原成天，末两位是小时 → 1天01:30:14 = 91814
+    expect(parseCountdown('2:101:30:14')).toBe(91814);
+  });
+
+  it('recovers day from hour-digits when "天" is lost', () => {
+    // "1天01:14:45" → ":101:14:45"（天字消失，1与01粘连）
+    expect(parseCountdown(':101:14:45')).toBe(90885);
   });
 
   it('extracts last H:MM:SS when prefix digits are garbled', () => {

@@ -16,40 +16,45 @@ export async function claimAllianceTerritory(ctx: PluginContext): Promise<void> 
   // 1. 展开底部栏（检测失败不阻断流程）
   await ensureBottomBarState(ctx, 'expanded');
 
-  // 2. 打开联盟页面
-  await ctx.tap(ALLIANCE_BUTTON.x, ALLIANCE_BUTTON.y);
-  await ctx.sleep(1);
-
-  // 3. 全屏识别领土按钮
-  const templatePath = path.join(getTemplatesDir(), TERRITORY_TEMPLATE);
   try {
-    const result = await ctx.findImageWithLocation(templatePath, TEMPLATE_THRESHOLD);
-    if (!result.found) {
-      ctx.log('未找到领土按钮，关闭联盟页面并结束');
+    // 2. 打开联盟页面
+    await ctx.tap(ALLIANCE_BUTTON.x, ALLIANCE_BUTTON.y);
+    await ctx.sleep(1);
+
+    // 3. 全屏识别领土按钮
+    const templatePath = path.join(getTemplatesDir(), TERRITORY_TEMPLATE);
+    try {
+      const result = await ctx.findImageWithLocation(templatePath, TEMPLATE_THRESHOLD);
+      if (!result.found) {
+        ctx.log('未找到领土按钮，关闭联盟页面并结束');
+        await ctx.tap(CLOSE_BUTTON.x, CLOSE_BUTTON.y);
+        ctx.log('=== 领取联盟领土收益结束（未找到领土按钮） ===');
+        return;
+      }
+      ctx.log(`找到领土按钮 (${result.x}, ${result.y})，点击`);
+      await ctx.tap(result.x, result.y);
+    } catch (e: any) {
+      ctx.log(`领土按钮识别失败: ${e?.message || e}，按未找到处理`);
       await ctx.tap(CLOSE_BUTTON.x, CLOSE_BUTTON.y);
-      ctx.log('=== 领取联盟领土收益结束（未找到领土按钮） ===');
+      ctx.log('=== 领取联盟领土收益结束（识别失败） ===');
       return;
     }
-    ctx.log(`找到领土按钮 (${result.x}, ${result.y})，点击`);
-    await ctx.tap(result.x, result.y);
-  } catch (e: any) {
-    ctx.log(`领土按钮识别失败: ${e?.message || e}，按未找到处理`);
+    await ctx.sleep(1);
+
+    // 4. 点击领取按钮
+    await ctx.tap(CLAIM_BUTTON.x, CLAIM_BUTTON.y);
+    await ctx.sleep(0.5);
+
+    // 5. 关闭领土页面
     await ctx.tap(CLOSE_BUTTON.x, CLOSE_BUTTON.y);
-    ctx.log('=== 领取联盟领土收益结束（识别失败） ===');
-    return;
+    await ctx.sleep(0.5);
+
+    // 6. 关闭联盟页面
+    await ctx.tap(CLOSE_BUTTON.x, CLOSE_BUTTON.y);
+
+    ctx.log('=== 领取联盟领土收益完成 ===');
+  } finally {
+    // 7. 无论成功/早退/异常，都收起底部栏
+    await ensureBottomBarState(ctx, 'collapsed');
   }
-  await ctx.sleep(1);
-
-  // 4. 点击领取按钮
-  await ctx.tap(CLAIM_BUTTON.x, CLAIM_BUTTON.y);
-  await ctx.sleep(0.5);
-
-  // 5. 关闭领土页面
-  await ctx.tap(CLOSE_BUTTON.x, CLOSE_BUTTON.y);
-  await ctx.sleep(0.5);
-
-  // 6. 关闭联盟页面
-  await ctx.tap(CLOSE_BUTTON.x, CLOSE_BUTTON.y);
-
-  ctx.log('=== 领取联盟领土收益完成 ===');
 }

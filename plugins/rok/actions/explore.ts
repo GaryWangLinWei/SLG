@@ -3,16 +3,8 @@ import { RokConfig } from '../index';
 import { resetCityView } from '../utils/location';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import * as path from 'path';
-import sharp from 'sharp';
 
 const TEMPLATE_DIR = getTemplatesDir();
-
-// 3个斥候的判定坐标
-const SCOUT_POSITIONS = [
-  { x: 1174, y: 448 },
-  { x: 1174, y: 609 },
-  { x: 1174, y: 774 },
-];
 
 const CONFIRM_EXPLORE = { x: 1006, y: 598 };
 
@@ -27,12 +19,10 @@ export async function explore(
   ctx: PluginContext,
   config: RokConfig,
   scoutBuilding?: string,
-  maxScouts: number = 3
 ): Promise<ExploreOutcome> {
   const buildingName = scoutBuilding || '斥候营地';
-  const max = Math.min(maxScouts, 3);
 
-  ctx.log(`=== 开始自动探索 (斥候营地: ${buildingName}, 最多派出 ${max} 个) ===`);
+  ctx.log(`=== 开始自动探索 (斥候营地: ${buildingName}) ===`);
 
   const buildPos = config.buildingPositions[buildingName];
   if (!buildPos) {
@@ -42,8 +32,9 @@ export async function explore(
 
   let dispatched = 0;
 
-  for (let scoutIdx = 0; scoutIdx < max; scoutIdx++) {
-    ctx.log(`--- 寻找第 ${scoutIdx + 1} 个可用斥候 ---`);
+  // 循环派斥候，直到斥候面板里匹配不到可用斥候为止
+  while (true) {
+    ctx.log(`--- 寻找可用斥候（已派出 ${dispatched} 个）---`);
 
     // ============================================
     // 第 1-4 步: 进入斥候面板
@@ -73,43 +64,19 @@ export async function explore(
     await ctx.sleep(2);
 
     // ============================================
-    // 第 5 步: 从当前 scoutIdx 开始依次检测可用斥候
+    // 第 5 步: 全屏匹配可用斥候按钮，点击第一个
     // ============================================
-    ctx.log('  [5/8] 检测可用斥候...');
+    ctx.log('  [5/8] 匹配可用斥候...');
     const availableTemplate = path.join(TEMPLATE_DIR, 'btn_scout_available.png');
-    const { width: availW = 60, height: availH = 60 } = await sharp(availableTemplate).metadata();
-
-    let foundAvailable = false;
-    let chosenScoutIdx = -1;
-
-    for (let i = scoutIdx; i < 3; i++) {
-      const pos = SCOUT_POSITIONS[i];
-      const regionPath = await ctx.captureRegion(
-        pos.x - Math.floor(availW! / 2),
-        pos.y - Math.floor(availH! / 2),
-        availW!, availH!
-      );
-      const diff = await ctx.compareImages(regionPath, availableTemplate);
-      ctx.log(`  斥候${i + 1} (${pos.x}, ${pos.y}) 差异: ${(diff * 100).toFixed(1)}%`);
-
-      if (diff < 0.3) {
-        ctx.log(`  斥候${i + 1} 可用，选择`);
-        await ctx.tap(pos.x, pos.y);
-        chosenScoutIdx = i;
-        foundAvailable = true;
-        break;
-      }
-      ctx.log(`  斥候${i + 1} 不可用，继续下一个`);
-    }
-
-    if (!foundAvailable) {
-      ctx.log('  ⚠️ 所有剩余斥候均不可用');
+    const available = await ctx.findImageWithLocation(availableTemplate, 0.7);
+    if (!available.found) {
+      ctx.log(`  ⚠️ 未匹配到可用斥候 (confidence: ${available.confidence.toFixed(3)})`);
       await ctx.tap(config.backButton.x, config.backButton.y);
       await ctx.sleep(1);
       return { result: 'success', dispatched };
     }
-
-    scoutIdx = chosenScoutIdx;
+    ctx.log(`  找到可用斥候 (${available.x}, ${available.y})，confidence=${available.confidence.toFixed(3)}，点击`);
+    await ctx.tap(available.x, available.y);
 
     // ============================================
     // 第 6 步: 等待视角跳转，点击确认探索
@@ -126,10 +93,10 @@ export async function explore(
     const exploreTemplate = path.join(TEMPLATE_DIR, 'btn_explore.png');
     const exploreBtn = await ctx.findImageWithLocation(exploreTemplate, 0.7);
     if (!exploreBtn.found) {
-      ctx.log(`  ⚠️ 未找到斥候探索按钮 (confidence: ${exploreBtn.confidence.toFixed(3)})`);
+      ctx.log(`  ⚠️ 未找到斥候探索按钮 (confidence: ${exploreBtn.confidence.toFixed(3)})，结束`);
       await ctx.tap(config.backButton.x, config.backButton.y);
       await ctx.sleep(1);
-      continue;
+      return { result: 'success', dispatched };
     }
     ctx.log(`  找到探索按钮 (${exploreBtn.x}, ${exploreBtn.y})`);
 
@@ -141,7 +108,7 @@ export async function explore(
     await ctx.sleep(1);
 
     dispatched++;
-    ctx.log(`  ✅ 斥候${chosenScoutIdx + 1} 已派出，累计派出 ${dispatched} 个`);
+    ctx.log(`  ✅ 斥候已派出，累计派出 ${dispatched} 个`);
   }
 
   ctx.log(`=== 自动探索完成，共派出 ${dispatched} 个斥候 ===`);

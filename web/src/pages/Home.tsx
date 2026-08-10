@@ -30,6 +30,7 @@ let loopCompletedBuildings: boolean[] = [false, false, false, false, false];
 let loopCompletedTechs: boolean[] = [false, false, false, false, false];
 let deviceBusy = false;
 let attackPreempt = false;   // 攻击检测抢占旗：其它子循环 acquireLock 时让路
+let barbarianPreempt = false; // 自动打野抢占旗：打野待执行时优先于普通功能拿锁
 const GATHER_LOOP_INTERVAL = 300; // 城外采集独立循环间隔（秒）
 // 宝石已采集坐标跨轮次记忆：按 accountId 隔离，1 小时 TTL 自动过期
 const GEM_COORD_TTL_MS = 60 * 60 * 1000;
@@ -438,6 +439,7 @@ export function HomePage() {
         if (!isTeamPageChoice(merged.attackBarbarianTeamPage)) merged.attackBarbarianTeamPage = DEFAULT_FEATURES.attackBarbarianTeamPage;
         if (typeof merged.attackBarbarianUsePotion !== 'boolean') merged.attackBarbarianUsePotion = DEFAULT_FEATURES.attackBarbarianUsePotion;
         if (!['fixed', 'plusMinus1', 'plusMinus2'].includes(merged.attackBarbarianLevelMode)) merged.attackBarbarianLevelMode = DEFAULT_FEATURES.attackBarbarianLevelMode;
+        if (typeof merged.attackBarbarianFortressEnabled !== 'boolean') merged.attackBarbarianFortressEnabled = DEFAULT_FEATURES.attackBarbarianFortressEnabled;
         if (typeof merged.autoAttackBarbarian !== 'boolean') merged.autoAttackBarbarian = DEFAULT_FEATURES.autoAttackBarbarian;
         if (typeof merged.rallyFortDowngrade !== 'boolean') merged.rallyFortDowngrade = DEFAULT_FEATURES.rallyFortDowngrade;
         if (typeof merged.rallyFortUsePotion !== 'boolean') merged.rallyFortUsePotion = DEFAULT_FEATURES.rallyFortUsePotion;
@@ -948,7 +950,7 @@ export function HomePage() {
       // 记录排队前的 profile；排队期间发生切号（profile 变了）时拒绝拿锁 ——
       // 老账号的活单在切号完成那一刻就作废，工人 continue 回顶部重读牌子后自然按新账号跑。
       const startProfile = activeConfigNameRef.current;
-      while ((deviceBusy || attackPreempt || pendingAccountSwitch) && !isStopped()) { await sleep(0.3); }
+      while ((deviceBusy || attackPreempt || barbarianPreempt || pendingAccountSwitch) && !isStopped()) { await sleep(0.3); }
       if (isStopped()) return false;
       if (activeConfigNameRef.current !== startProfile) return false;
       deviceBusy = true;
@@ -1064,6 +1066,15 @@ export function HomePage() {
     // 攻击检测专用锁：不受 attackPreempt 阻塞（自己就是抢占方）
     const acquireLockForAttack = async (): Promise<boolean> => {
       while (deviceBusy && !isStopped()) { await sleep(0.3); }
+      if (isStopped()) return false;
+      deviceBusy = true;
+      return true;
+    };
+
+    // 自动打野专用锁：不受 barbarianPreempt 阻塞（自己就是抢占方）。
+    // 但仍给攻击检测（attackPreempt）让路——被打时开盾优先于一切。
+    const acquireLockForBarbarian = async (): Promise<boolean> => {
+      while ((deviceBusy || attackPreempt) && !isStopped()) { await sleep(0.3); }
       if (isStopped()) return false;
       deviceBusy = true;
       return true;
@@ -1428,16 +1439,23 @@ export function HomePage() {
         // 已执行过的轮次序号（cooldownResetSeq）；切号时该序号自增，从而在新账号上再执行一次
         let ranSeq = -1;
         while (!isStopped()) {
-          if (first) { first = false; await sleep(12); }
+          if (first) { first = false; await sleep(3); }
           if (offlineActive) { await sleep(30); continue; }
           const enabled = featuresRef.current.autoAttackBarbarian && featuresRef.current.attackBarbarianLevel > 0 && !featuresRef.current.autoWorldChat;
           // 当前轮次还没跑过且功能开启 → 执行一次
           if (enabled && ranSeq !== cooldownResetSeq && !isStopped()) {
-            if (!await acquireLock()) continue;
-            if (offlineActive) { releaseLock(); await sleep(30); continue; }
+            // 抬抢占旗：让其它普通循环在 acquireLock 处让路，打野优先拿锁
+            barbarianPreempt = true;
+            try {
+              if (!await acquireLockForBarbarian()) continue;
+            } finally {
+              // 拿到锁后保持抬旗直到本次跑完（防止执行期间被插队）；没拿到则落旗
+              if (!deviceBusy) barbarianPreempt = false;
+            }
+            if (offlineActive) { releaseLock(); barbarianPreempt = false; await sleep(30); continue; }
             await ensureGameRunning();
             try {
-              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'attack-barbarian', { level: featuresRef.current.attackBarbarianLevel, count: featuresRef.current.attackBarbarianCount, team: featuresRef.current.attackBarbarianTeam, teamPage: featuresRef.current.attackBarbarianTeamPage, usePotion: true, levelMode: featuresRef.current.attackBarbarianLevelMode });
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'attack-barbarian', { level: featuresRef.current.attackBarbarianLevel, count: featuresRef.current.attackBarbarianCount, team: featuresRef.current.attackBarbarianTeam, teamPage: featuresRef.current.attackBarbarianTeamPage, usePotion: true, levelMode: featuresRef.current.attackBarbarianLevelMode, fortressEnabled: featuresRef.current.attackBarbarianFortressEnabled });
               if (createResult.success) {
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -1465,7 +1483,7 @@ export function HomePage() {
                   markRoundDone('attack-barbarian', isSuccess);
                 }
               }
-            } catch {} finally { releaseLock(); }
+            } catch {} finally { releaseLock(); barbarianPreempt = false; }
             // 标记本轮已执行（无论成功失败都不再重试，等下一轮/切号）
             ranSeq = cooldownResetSeq;
           }
@@ -1573,7 +1591,7 @@ export function HomePage() {
               if (offlineActive) { releaseLock(); await sleep(30); continue; }
               await ensureGameRunning();
               try {
-                const createResult = await createTask(currentAccountId, 'com.rok.automation', 'explore', { maxScouts: featuresRef.current.exploreCount });
+                const createResult = await createTask(currentAccountId, 'com.rok.automation', 'explore', {});
                 if (createResult.success) {
                   runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                   setRunningTaskIds([...runningTaskIdsRef.current]);
@@ -3676,7 +3694,28 @@ export function HomePage() {
                       <option value="plusMinus2">±2</option>
                     </select>
                   </div>
-                  <span className="text-[11px] text-slate-400 pl-16">建议选择加减等级打野，防止一直打同一等级的野怪，跑太远</span>
+                  <span className="text-[11px] text-slate-400 pl-6">建议选择加减等级打野，防止一直打同一等级的野怪，跑太远</span>
+                </div>
+
+                {/* 已开启野蛮人城寨 */}
+                <div className="flex flex-col gap-1 px-4 py-2.5 border-t border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <label className={`relative inline-flex items-center ${features.autoWorldChat ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                      <input type="checkbox" checked={features.attackBarbarianFortressEnabled}
+                        disabled={features.autoWorldChat}
+                        onChange={(e) => setFeatures({ ...features, attackBarbarianFortressEnabled: e.target.checked })}
+                        className="sr-only peer" />
+                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${features.attackBarbarianFortressEnabled ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
+                        {features.attackBarbarianFortressEnabled && (
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </span>
+                    </label>
+                    <span className="text-xs text-slate-500 whitespace-nowrap">已开启野蛮人城寨</span>
+                  </div>
+                  <span className="text-[11px] text-slate-400 pl-6">新区未开启野蛮人城寨之前，界面不一样，需要取消勾选</span>
                 </div>
               </div>
             </div>
@@ -3915,23 +3954,10 @@ export function HomePage() {
               </div>
               {/* 迷雾探索 */}
               <div className="flex items-center justify-between py-2">
-                <div className="flex flex-col gap-1">
-                  <span className="flex items-center gap-2 text-sm text-slate-700">
-                    <span className="w-6 h-6 bg-cyan-100 rounded flex items-center justify-center text-xs">🗺️</span>
-                    迷雾探索
-                  </span>
-                  <div className="flex items-center gap-2 ml-8">
-                    <span className="text-xs text-slate-400">派出</span>
-                    <select value={features.exploreCount} onChange={(e) => {
-                      setFeatures({ ...features, exploreCount: Number(e.target.value) });
-                    }}
-                    className="px-1 py-0.5 bg-white border border-slate-200 rounded text-xs w-12">
-                      {[1, 2, 3].map(n => (<option key={n} value={n}>{n}</option>))}
-                    </select>
-                    <span className="text-xs text-slate-400">个斥候</span>
-                    <span className="text-xs text-slate-400">· 需标记斥候营地坐标</span>
-                  </div>
-                </div>
+                <span className="flex items-center gap-2 text-sm text-slate-700">
+                  <span className="w-6 h-6 bg-cyan-100 rounded flex items-center justify-center text-xs">🗺️</span>
+                  迷雾探索
+                </span>
                 <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
                   <input type="checkbox" checked={features.autoExplore}
                     disabled={features.autoWorldChat}
@@ -3952,7 +3978,6 @@ export function HomePage() {
                 <span className="flex items-center gap-2 text-sm text-slate-700">
                   <span className="w-6 h-6 bg-amber-100 rounded flex items-center justify-center text-xs">🏔️</span>
                   山洞探索
-                  <span className="text-xs text-slate-400">· 每2分钟</span>
                 </span>
                 <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
                   <input type="checkbox" checked={features.autoCaveExplore}

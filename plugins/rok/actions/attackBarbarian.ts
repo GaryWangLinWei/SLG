@@ -21,7 +21,10 @@ const LEVEL_OCR_RECT = { x1: 126, y1: 425, x2: 564, y2: 454 };
 const LEVEL_MINUS_RECT = { x1: 102, y1: 467, x2: 137, y2: 501 };
 const LEVEL_PLUS_RECT = { x1: 539, y1: 467, x2: 576, y2: 501 };
 const LEVEL_RESET_BTN = { x: 167, y: 486 };
-const SEARCH_ACTION_RECT = { x1: 244, y1: 561, x2: 436, y2: 626 };
+// 搜索按钮固定点击坐标
+const SEARCH_ACTION_POINT = { x: 340, y: 606 };
+// 点搜索入口（放大镜）后，点击该坐标打开野蛮人界面
+const BARBARIAN_ENTRY_POINT = { x: 323, y: 788 };
 
 const WORLD_SWITCH_BUTTON_RECT = { x1: 39, y1: 776, x2: 115, y2: 858 };
 const CLOSE_POPUP_BUTTON = { x: 1392, y: 57 };
@@ -61,6 +64,8 @@ export interface AttackBarbarianParams {
   teamPage: TeamPage;
   usePotion: boolean;
   levelMode: AttackLevelMode;
+  /** 已开启野蛮人城寨：走完整逻辑（点野蛮人页签 + 按范围设级）；未开启则跳过这两步 */
+  fortressEnabled: boolean;
 }
 
 const LEVEL_MODE_DELTA: Record<AttackLevelMode, number> = {
@@ -176,12 +181,16 @@ type SearchAttackState = 'attacked' | 'not_found';
  * 因此最终以"攻击按钮是否真的出现"作为搜到目标的判据；没出现就视为该等级未搜到，
  * 交由上层降级重试相邻等级。
  */
-async function searchAndAttack(ctx: PluginContext, level: number): Promise<SearchAttackState> {
-  await setSearchLevel(ctx, level);
-  ctx.log(`  点击搜索按钮 Lv.${level}`);
-  await ctx.checkButtonStateChangeRect(
-    SEARCH_ACTION_RECT.x1, SEARCH_ACTION_RECT.y1, SEARCH_ACTION_RECT.x2, SEARCH_ACTION_RECT.y2, 0.05,
-  );
+async function searchAndAttack(ctx: PluginContext, level: number, setLevel: boolean): Promise<SearchAttackState> {
+  if (setLevel) {
+    // 已开启野蛮人城寨：按本次目标等级 +/- 调整面板等级
+    await setSearchLevel(ctx, level);
+    ctx.log(`  点击搜索按钮 Lv.${level}`);
+  } else {
+    // 未开启：不调等级，用面板当前等级直接搜索
+    ctx.log(`  点击搜索按钮 Lv.${level}（跳过设级，使用面板当前等级）`);
+  }
+  await ctx.tap(SEARCH_ACTION_POINT.x, SEARCH_ACTION_POINT.y);
   await ctx.sleep(2.5);
   const atk = await ctx.findImageWithLocation(BTN_ATTACK_TEMPLATE, 0.7, [0.9, 1.0, 1.1]);
   if (!atk.found) {
@@ -200,14 +209,19 @@ async function searchWithinRange(
   startLevel: number,
   allowedRange: Set<number>,
   reopenPanel: boolean,
+  setLevel: boolean,
 ): Promise<{ level: number } | null> {
   if (reopenPanel) {
     await ctx.tapRect(SEARCH_ENTRY_RECT.x1, SEARCH_ENTRY_RECT.y1, SEARCH_ENTRY_RECT.x2, SEARCH_ENTRY_RECT.y2);
     await ctx.sleep(1.5);
+    // 点搜索入口后，点击打开野蛮人界面
+    ctx.log(`  点击野蛮人入口 (${BARBARIAN_ENTRY_POINT.x},${BARBARIAN_ENTRY_POINT.y}) 打开野蛮人界面`);
+    await ctx.tap(BARBARIAN_ENTRY_POINT.x, BARBARIAN_ENTRY_POINT.y);
+    await ctx.sleep(1.5);
   }
   const candidates = fallbackOrderWithinRange(startLevel, allowedRange);
   for (const lv of candidates) {
-    const r = await searchAndAttack(ctx, lv);
+    const r = await searchAndAttack(ctx, lv, setLevel);
     if (r === 'attacked') return { level: lv };
   }
   return null;
@@ -397,13 +411,14 @@ export async function attackBarbarian(
   params: AttackBarbarianParams,
 ): Promise<{ result: AttackBarbarianResult }> {
   const { team, teamPage, usePotion } = params;
+  const fortressEnabled = params.fortressEnabled === true;
   const count = Math.max(1, Math.round(params.count) || 1);
   const baseLevel = Math.min(Math.max(1, Math.round(params.level)), BARB_MAX_LEVEL);
   const levelMode = isAttackLevelMode(params.levelMode) ? params.levelMode : 'plusMinus2';
   // 本轮允许的等级范围（固定/±1/±2），每次攻击在范围内随机起点，搜不到只在本范围内回退
   const allowedLevels = new Set(levelRange(baseLevel, BARB_MAX_LEVEL, levelMode));
   const modeLabel = levelMode === 'fixed' ? '固定' : `±${LEVEL_MODE_DELTA[levelMode]}`;
-  ctx.log(`=== 自动打野 基准Lv.${baseLevel}（${modeLabel}）队伍${team} 共${count}次 ===`);
+  ctx.log(`=== 自动打野 基准Lv.${baseLevel}（${modeLabel}）队伍${team} 共${count}次 野蛮人城寨=${fortressEnabled ? '已开启' : '未开启'} ===`);
 
   // 预备：OCR 队伍计数，满队跳过
   const shot = await ctx.captureRegion(1507, 169, 55, 31);
@@ -431,10 +446,17 @@ export async function attackBarbarian(
     if (i === 0) {
       await ctx.tapRect(SEARCH_ENTRY_RECT.x1, SEARCH_ENTRY_RECT.y1, SEARCH_ENTRY_RECT.x2, SEARCH_ENTRY_RECT.y2);
       await ctx.sleep(1.5);
-      await ctx.tap(BARBARIAN_TAB_POINT.x, BARBARIAN_TAB_POINT.y);
-      await ctx.sleep(1);
+      // 点搜索入口后，点击打开野蛮人界面
+      ctx.log(`  点击野蛮人入口 (${BARBARIAN_ENTRY_POINT.x},${BARBARIAN_ENTRY_POINT.y}) 打开野蛮人界面`);
+      await ctx.tap(BARBARIAN_ENTRY_POINT.x, BARBARIAN_ENTRY_POINT.y);
+      await ctx.sleep(1.5);
+      // 已开启野蛮人城寨时需切到野蛮人页签；未开启时面板默认已在该页签，无需点击
+      if (fortressEnabled) {
+        await ctx.tap(BARBARIAN_TAB_POINT.x, BARBARIAN_TAB_POINT.y);
+        await ctx.sleep(1);
+      }
 
-      const r = await searchWithinRange(ctx, startLevel, allowedLevels, false);
+      const r = await searchWithinRange(ctx, startLevel, allowedLevels, false, fortressEnabled);
       if (!r) { await backFromSearchPanel(ctx); return { result: 'not_found' }; }
 
       if (!await tapBiandui(ctx)) { await closeAndCity(ctx); return { result: 'no_biandui' }; }
@@ -443,7 +465,7 @@ export async function attackBarbarian(
       if (mr === 'team_unavailable') { await closeAndCity(ctx); return { result: 'team_unavailable' }; }
       if (mr === 'stamina_insufficient') { return { result: 'stamina_insufficient' }; }
     } else {
-      const r = await searchWithinRange(ctx, startLevel, allowedLevels, true);
+      const r = await searchWithinRange(ctx, startLevel, allowedLevels, true, fortressEnabled);
       if (!r) { await backFromSearchPanel(ctx); return { result: 'not_found' }; }
 
       const gr = await marchFromGarrison(ctx, usePotion);

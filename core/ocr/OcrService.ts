@@ -4,6 +4,7 @@ import sharp from 'sharp';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import { getDigitMatcher } from '../vision/DigitTemplateMatcher';
+import { parseCountdown } from './parseCountdown';
 
 type OcrWorker = Tesseract.Worker;
 
@@ -115,15 +116,18 @@ class OcrService {
   /**
    * 识别队列倒计时（格式如 "01:23:45" 或 "1h 23m"）。
    *
-   * 倒计时文字通常很小，直接 OCR 容易把 "09" 识别成 "502" 等。先做图像预处理：
-   * 2 倍放大 → 灰度 → 自适应阈值二值化，提升白字小数字的识别率。
+   * 倒计时文字通常很小且背景多样（蓝底白字、暗底白字），单一路径容易漏识或粘连。
+   * 这里同时识别「原图」和「3 倍放大 + 灰度 + 高阈值二值化」两张图，
+   * 再用 parseCountdown 各自解析：两者都合法时取秒数更小的结果
+   * （前导杂讯数字只会让结果偏大，真实时间是最小的合法值）。
+   * 返回原始 OCR 文本，由调用方再做一次 parseCountdown（保证日志可追溯）。
    */
   async readCountdown(imagePath: string): Promise<string> {
     let processedPath: string | null = null;
     try {
       const meta = await sharp(imagePath).metadata();
-      const w = (meta.width || 200) * 2;
-      const h = (meta.height || 60) * 2;
+      const w = (meta.width || 200) * 3;
+      const h = (meta.height || 60) * 3;
 
       const { data } = await sharp(imagePath)
         .removeAlpha()
@@ -133,9 +137,9 @@ class OcrService {
         .raw()
         .toBuffer({ resolveWithObject: true });
 
-      // 简单二值化：>=150 判白，否则黑
+      // 高阈值二值化（>=175 判白）：阈值过低会把蓝底白字的笔画膨胀粘连。
       const out = Buffer.alloc(data.length);
-      for (let i = 0; i < data.length; i++) out[i] = data[i] >= 150 ? 255 : 0;
+      for (let i = 0; i < data.length; i++) out[i] = data[i] >= 175 ? 255 : 0;
 
       processedPath = path.join(path.dirname(imagePath), `countdown-${Date.now()}.png`);
       await sharp(out, { raw: { width: w, height: h, channels: 1 } })
@@ -149,8 +153,19 @@ class OcrService {
     await worker.setParameters({
       tessedit_char_whitelist: '0123456789:hHmM',
     });
+
+    const candidates: string[] = [];
     try {
-      return await this.recognizeWithTimeout(worker, processedPath ?? imagePath);
+      // 原图
+      try {
+        candidates.push(await this.recognizeWithTimeout(worker, imagePath));
+      } catch { /* ignore single-channel failure */ }
+      // 预处理图
+      if (processedPath) {
+        try {
+          candidates.push(await this.recognizeWithTimeout(worker, processedPath));
+        } catch { /* ignore */ }
+      }
     } finally {
       if (this.worker === worker) {
         await worker.setParameters({ tessedit_char_whitelist: '' }).catch(() => {});
@@ -159,6 +174,21 @@ class OcrService {
         await fs.unlink(processedPath).catch(() => {});
       }
     }
+
+    if (candidates.length === 0) return '';
+
+    // 选秒数最小的合法结果；都不合法则返回原图文本。
+    let bestText = candidates[0];
+    let bestSec: number | null = parseCountdown(bestText);
+    for (let i = 1; i < candidates.length; i++) {
+      const sec = parseCountdown(candidates[i]);
+      if (sec == null) continue;
+      if (bestSec == null || sec < bestSec) {
+        bestSec = sec;
+        bestText = candidates[i];
+      }
+    }
+    return bestText;
   }
 
   /**

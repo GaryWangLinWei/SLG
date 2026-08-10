@@ -42,8 +42,15 @@ export function parseCountdown(text: string): number | null {
     let h = parseInt(m[1], 10);
     const mm = parseInt(m[2], 10);
     const ss = parseInt(m[3], 10);
-    // 小时字段 >23 通常是"1天01"被粘连成"101"等 OCR 杂讯，取末两位作为小时
-    if (h > 23) h = h % 100;
+    // 小时字段 >23 通常是"1天01"被粘连成"101"（"天"被识别成冒号/丢失），
+    // 此时前导位是天数，末两位是小时。例如：
+    //   "1天01:30:14" → "2:101:30:14" / ":101:14:45"
+    // 游戏中超过 1 天的倒计时一律显示为 "X天HH:MM:SS"，不会出现 100+ 小时，
+    // 因此把 3 位小时的百位还原成天是安全的。
+    if (h > 23 && h >= 100 && h < 1000) {
+      days += Math.floor(h / 100);
+      h = h % 100;
+    }
     // 合法性：时 <24、分秒 < 60
     if (h > 23 || mm >= 60 || ss >= 60) return null;
     return days * 86400 + h * 3600 + mm * 60 + ss;
@@ -64,11 +71,9 @@ export function parseCountdown(text: string): number | null {
     return days * 86400;
   }
 
-  // 纯数字（如 "15" 秒）
-  const onlyNum = t.match(/^\s*(\d{1,3})\s*$/);
-  if (onlyNum) {
-    return parseInt(onlyNum[1], 10);
-  }
+  // 注意：不接受纯数字。队列倒计时永远是 H:MM:SS / M:SS / X天… 格式，
+  // 而"空闲中"等中文状态被 OCR 误识成单个数字（如"40"）时，
+  // 若当作裸秒数返回会把空闲队列误判成还有倒计时。
 
   // 没有冒号时间格式 → 视为空闲
   return null;

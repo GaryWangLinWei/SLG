@@ -624,10 +624,10 @@ export const RiseOfKingdomsPlugin: Plugin = {
       id: 'explore',
       name: '迷雾探索',
       description: '派出斥候探索迷雾',
-      run: async (ctx, params: { scoutBuilding?: string; maxScouts?: number } = {}) => {
+      run: async (ctx, params: { scoutBuilding?: string } = {}) => {
         if (await ensureNoPopupBlocking(ctx, 'explore')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
-        const outcome = await explore(ctx, config, params.scoutBuilding, params.maxScouts);
+        const outcome = await explore(ctx, config, params.scoutBuilding);
         ctx.log(`派出斥候: ${outcome.dispatched} 个 (${outcome.result})`);
       }
     },
@@ -744,7 +744,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
       id: 'attack-barbarian',
       name: '自动打野',
       description: '搜索并攻击野蛮人，循环复用驻扎队伍连续攻击',
-      run: async (ctx, params: { level?: number; count?: number; team?: number; teamPage?: TeamPage; usePotion?: boolean; levelMode?: AttackLevelMode } = {}) => {
+      run: async (ctx, params: { level?: number; count?: number; team?: number; teamPage?: TeamPage; usePotion?: boolean; levelMode?: AttackLevelMode; fortressEnabled?: boolean } = {}) => {
         if (await ensureNoPopupBlocking(ctx, 'attack-barbarian')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const outcome = await attackBarbarian(ctx, config, {
@@ -754,6 +754,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
           teamPage: params.teamPage ?? 'attack',
           usePotion: params.usePotion === true,
           levelMode: isAttackLevelMode(params.levelMode) ? params.levelMode : 'plusMinus2',
+          fortressEnabled: params.fortressEnabled === true,
         });
         ctx.log(`自动打野: ${outcome.result}`);
       }

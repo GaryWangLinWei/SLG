@@ -296,7 +296,7 @@ export async function joinRally(
       await ctx.tapRect(MARCH_BUTTON_RECT.x1, MARCH_BUTTON_RECT.y1, MARCH_BUTTON_RECT.x2, MARCH_BUTTON_RECT.y2);
 
       // 先检测胜算不足弹窗：识别 jijie/btn_surego.png 二次确认行军按钮
-      const sureGoResult = await ctx.findImageWithLocation(SUREGO_TEMPLATE, 0.6, [0.95, 1.0, 1.05]);
+      const sureGoResult = await ctx.findImageWithLocation(SUREGO_TEMPLATE, 0.8, [0.95, 1.0, 1.05]);
       ctx.log(`  [胜算不足] 最佳置信度: ${sureGoResult.confidence.toFixed(3)}, found: ${sureGoResult.found}`);
       if (sureGoResult.found) {
         ctx.log(`  ⚠️ 检测到胜算不足弹窗，点击二次确认行军 (${sureGoResult.x}, ${sureGoResult.y})`);

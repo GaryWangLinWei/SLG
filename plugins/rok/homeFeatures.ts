@@ -24,7 +24,6 @@ export interface HomeFeatures {
   trainTroops: boolean;
   trainTasks: Record<string, number>;
   autoExplore: boolean;
-  exploreCount: number;
   autoWorldChat: boolean;
   worldChatMessages: string[];
   worldChatInterval: number;
@@ -49,6 +48,8 @@ export interface HomeFeatures {
   attackBarbarianUsePotion: boolean;
   /** 打野等级范围：固定 / ±1 / ±2，每次攻击在范围内随机起点 */
   attackBarbarianLevelMode: 'fixed' | 'plusMinus1' | 'plusMinus2';
+  /** 已开启野蛮人城寨：勾选则点野蛮人页签并按等级设级，未勾选则跳过这两步 */
+  attackBarbarianFortressEnabled: boolean;
   shareGemEnabled: boolean;
   shareGemStopCondition: 'spiral' | 'count5' | 'count10' | 'count15' | 'count100';
   gemGatherEnabled: boolean;
@@ -109,7 +110,6 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   trainTroops: false,
   trainTasks: { '兵营': 0, '马厩': 0, '靶场': 0, '攻城武器厂': 0 },
   autoExplore: false,
-  exploreCount: 3,
   autoWorldChat: false,
   worldChatMessages: ['', '', ''],
   worldChatInterval: 300,
@@ -133,6 +133,7 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   attackBarbarianTeamPage: 'attack',
   attackBarbarianUsePotion: true,
   attackBarbarianLevelMode: 'plusMinus2',
+  attackBarbarianFortressEnabled: true,
   shareGemEnabled: false,
   shareGemStopCondition: 'spiral',
   gemGatherEnabled: false,
