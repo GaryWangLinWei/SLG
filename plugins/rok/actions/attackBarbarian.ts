@@ -14,7 +14,7 @@ import * as fsp from 'fs/promises';
 import sharp from 'sharp';
 
 const TEMPLATE_DIR = getTemplatesDir();
-const BARB_MAX_LEVEL = 40;
+const BARB_MAX_LEVEL = 55;
 
 const SEARCH_ENTRY_RECT = { x1: 42, y1: 645, x2: 110, y2: 704 };
 const BARBARIAN_TAB_POINT = { x: 148, y: 294 };

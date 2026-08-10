@@ -3701,10 +3701,10 @@ export function HomePage() {
                 {/* 野蛮人等级 + 次数 */}
                 <div className="flex items-center gap-2 px-4 py-2.5 border-t border-slate-100">
                   <span className="text-xs text-slate-500 whitespace-nowrap w-16">野蛮人等级</span>
-                  <input type="number" min={1} max={40}
+                  <input type="number" min={1} max={55}
                     value={features.attackBarbarianLevel}
                     disabled={features.autoWorldChat}
-                    onChange={(e) => setFeatures({ ...features, attackBarbarianLevel: Math.min(40, Math.max(1, Number(e.target.value) || 1)) })}
+                    onChange={(e) => setFeatures({ ...features, attackBarbarianLevel: Math.min(55, Math.max(1, Number(e.target.value) || 1)) })}
                     className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-20" />
                   <span className="text-xs text-slate-500 whitespace-nowrap ml-3">次数</span>
                   <input type="number" min={1}
