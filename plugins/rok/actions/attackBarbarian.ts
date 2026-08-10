@@ -4,7 +4,8 @@ import { getTemplatesDir } from '../../../core/resourcePath';
 import { ensureInWorld } from '../utils/location';
 import { ensureTeamPage, TeamPage } from '../utils/teamPage';
 import { getTeamButtons } from '../utils/teamButtons';
-import { findZhuzhaSlotsFile, ZhuzhaSlot } from '../utils/zhuzhaRing';
+import { detectZhuzhaRingFile, ZhuzhaSlot, ZHUZHA_RING_RECT } from '../utils/zhuzhaRing';
+import { detectTeamStates } from '../utils/teamStateDetection';
 import { handleMarchWithStamina } from '../utils/stamina';
 import { ocrService } from '../../../core/ocr/OcrService';
 import { parseTeamCount } from './rallyFort';
@@ -44,9 +45,6 @@ const LARGE_REGION = { x: 1443, y: 53, w: 152, h: 753 };
 const AVATAR_OFFSET = { dx: -25, dy: -25 };
 /** 召回部队按钮（点开驻扎队伍信息面板后） */
 const RECALL_BUTTON = { x: 924, y: 570 };
-/** 最上方驻扎槽的圆环中心 y 范围（用于从列扫描结果中取最上槽） */
-const TOP_SLOT_Y_MIN = 202;
-const TOP_SLOT_Y_MAX = 320;
 
 const ZHUZHA_WAIT_TIMEOUT_SEC = 600;
 const ZHUZHA_POLL_INTERVAL_SEC = 5;
@@ -309,37 +307,49 @@ async function selectTeamAndMarch(
 }
 
 /**
- * 截图并扫描右侧驻扎槽列（蓝环帐篷图标）。
+ * 截图并检测第一个（最上方）槽位头像右下角的驻扎蓝环。
+ * 自动打野关注的队伍只会出现在第一个槽位，蓝环在该头像右下角是固定位置
+ * （ZHUZHA_RING_RECT 那一小条），因此只检测这一个固定区域，不沿列滑动、
+ * 也不扫其他槽位——避免误取下方其他队伍驻扎槽而拉错队伍。
  * ONNX 对该形态置信度过低，改用圆环上弧蓝色像素判定，见 utils/zhuzhaRing。
+ * 返回命中时其坐标即圆环中心；未命中返回 null。
  */
-async function scanZhuzha(ctx: PluginContext): Promise<ZhuzhaSlot[]> {
+async function detectTopZhuzha(ctx: PluginContext): Promise<ZhuzhaSlot | null> {
   const shot = await ctx.captureRegion(0, 0, 1600, 900);
   try {
-    return await findZhuzhaSlotsFile(shot);
+    const r = await detectZhuzhaRingFile(shot);
+    if (!r.found) return null;
+    return {
+      x: ZHUZHA_RING_RECT.x + ZHUZHA_RING_RECT.width / 2,
+      y: ZHUZHA_RING_RECT.y + ZHUZHA_RING_RECT.height / 2,
+      ratio: r.ratio,
+    };
   } finally {
     await fsp.unlink(shot).catch(() => {});
   }
 }
 
-/** 取最上方驻扎槽（圆环中心落在顶部槽位范围内） */
-function topSlot(slots: ZhuzhaSlot[]): ZhuzhaSlot | undefined {
-  return slots
-    .filter(s => s.y >= TOP_SLOT_Y_MIN && s.y <= TOP_SLOT_Y_MAX)
-    .sort((a, b) => a.y - b.y)[0];
-}
-
-/** 等待最上方槽位出现驻扎状态，超时返回 false */
+/** 等待最上方槽位出现驻扎状态，超时返回 false。
+ *  需连续两次检测都识别到蓝环才算驻扎：第一次通过后等 5s 再测一次，两次都通过才确认，避免误判。 */
 async function waitForTopZhuzha(ctx: PluginContext): Promise<boolean> {
   const deadline = Date.now() + ZHUZHA_WAIT_TIMEOUT_SEC * 1000;
+  let pending = false; // 已通过第一次检测，等待第二次确认
   while (Date.now() < deadline) {
-    const slots = await scanZhuzha(ctx);
-    const found = topSlot(slots);
-    if (found) {
-      ctx.log(`  队伍已驻扎 (${Math.round(found.x)},${Math.round(found.y)}) 蓝环比=${(found.ratio * 100).toFixed(0)}%`);
-      return true;
+    const slot = await detectTopZhuzha(ctx);
+    if (slot) {
+      const detail = `蓝环比=${(slot.ratio * 100).toFixed(0)}%`;
+      if (pending) {
+        ctx.log(`  队伍已驻扎 ${detail}（二次确认通过）`);
+        return true;
+      }
+      ctx.log(`  首次检测到驻扎 ${detail}，${ZHUZHA_POLL_INTERVAL_SEC}s 后二次确认`);
+      pending = true;
+    } else {
+      if (pending) ctx.log(`  二次确认未检测到驻扎，继续等待`);
+      pending = false;
     }
-    ctx.log(`  等待驻扎中...（每 ${ZHUZHA_POLL_INTERVAL_SEC}s 检测）`);
     for (let i = 0; i < ZHUZHA_POLL_INTERVAL_SEC; i++) {
+      if (Date.now() >= deadline) break;
       await ctx.sleep(1);
     }
   }
@@ -348,8 +358,7 @@ async function waitForTopZhuzha(ctx: PluginContext): Promise<boolean> {
 
 /** 末次攻击后：点开最上方驻扎队伍并召回部队 */
 async function recallTopGarrison(ctx: PluginContext): Promise<boolean> {
-  const slots = await scanZhuzha(ctx);
-  const found = topSlot(slots);
+  const found = await detectTopZhuzha(ctx);
   if (!found) {
     ctx.log(`  ⚠️ 未在最上方槽位找到驻扎队伍，跳过召回`);
     return false;
@@ -363,20 +372,48 @@ async function recallTopGarrison(ctx: PluginContext): Promise<boolean> {
   return true;
 }
 
-/** 点击驻扎中队伍头像并点行军，继续攻击下一个目标（含体力处理） */
+/** 用 state.onnx 定位第一个槽位的驻扎队伍图标中心，未检测到返回 null。
+ *  detectTeamStates 已按 y 升序排列；本队只会出现在第一个（最上方）槽位，
+ *  因此直接取最靠上的驻扎检测，不做 y 区间过滤（ONNX 帐篷图标中心 y≈173，
+ *  与头像右下角蓝环 y≈258 不是同一个点，不能套用蓝环的 202–320 范围）。
+ *  未命中时用低阈值(0.1)再检一次，把所有驻扎类候选坐标+置信度打到日志，便于诊断模型漏检。 */
+async function detectTopZhuzhaOnnx(ctx: PluginContext): Promise<{ x: number; y: number; confidence: number } | null> {
+  const states = await detectTeamStates(ctx, ['zhuzha']);
+  const top = states[0];
+  if (top) return { x: top.x, y: top.y, confidence: top.confidence };
+
+  // 诊断：低阈值看模型到底有没有给出驻扎候选
+  try {
+    const low = await ctx.detectStateWithScreenshot(0.1, [3]);
+    if (low.length === 0) {
+      ctx.log(`  [诊断] state.onnx 低阈值(0.1)仍无任何驻扎候选`);
+    } else {
+      const desc = low
+        .sort((a, b) => a.y - b.y)
+        .map(d => `(${Math.round(d.x)},${Math.round(d.y)}) conf=${(d.confidence * 100).toFixed(1)}%`)
+        .join(', ');
+      ctx.log(`  [诊断] state.onnx 低阈值(0.1)驻扎候选: ${desc}`);
+    }
+  } catch (e) {
+    ctx.log(`  [诊断] state.onnx 低阈值检测异常: ${(e as Error).message}`);
+  }
+  return null;
+}
+
+/** 点击驻扎中队伍头像并点行军，继续攻击下一个目标（含体力处理）。
+ *  第 2 次起用 state.onnx 定位驻扎队伍（与蓝环位置一致，头像在其左上方）。 */
 async function marchFromGarrison(
   ctx: PluginContext,
   usePotion: boolean,
 ): Promise<'marched' | 'no_march_button' | 'stamina_insufficient'> {
-  const slots = await scanZhuzha(ctx);
-  slots.sort((a, b) => a.y - b.y);
-  const z = slots[0];
+  const z = await detectTopZhuzhaOnnx(ctx);
   if (!z) {
-    ctx.log(`  ⚠️ 未找到驻扎队伍`);
+    ctx.log(`  ⚠️ 未找到驻扎队伍（state.onnx）`);
     return 'no_march_button';
   }
-  // 圆环在头像右下角，头像在其左上方 → 用偏移点头像
-  await ctx.tap(Math.round(z.x) + AVATAR_OFFSET.dx, Math.round(z.y) + AVATAR_OFFSET.dy);
+  ctx.log(`  state.onnx 定位驻扎队伍 (${z.x},${z.y}) conf=${(z.confidence * 100).toFixed(0)}%`);
+  // 图标在头像右下角，头像在其左上方 → 用偏移点头像
+  await ctx.tap(z.x + AVATAR_OFFSET.dx, z.y + AVATAR_OFFSET.dy);
   await ctx.sleep(1);
 
   // 先确认行军按钮存在，再进入体力流程；否则 util 会在没点行军的情况下误判体力弹窗并误点药水

@@ -129,6 +129,14 @@ function pushLog(msg: string) {
     try { logSetter(prev => [...prev, line]); } catch {}
   }
 }
+// 直接追加已带时间戳的原始日志行（来自后端 task.logs），不再重复加时间戳。
+function appendLogLines(lines: string[]) {
+  if (lines.length === 0) return;
+  loopLogs = [...loopLogs, ...lines];
+  if (logSetter) {
+    try { logSetter(prev => [...prev, ...lines]); } catch {}
+  }
+}
 
 const LOOP_STATE_KEY = 'loop-state';
 const TEAM_PAGE_OPTIONS: Array<{ value: TeamPageChoice; label: string }> = [
@@ -2218,7 +2226,32 @@ export function HomePage() {
             if (createResult.success) {
               runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
               setRunningTaskIds([...runningTaskIdsRef.current]);
-              const runResult = await api.tasks.run(createResult.task.id);
+
+              // 执行期间每 2s 轮询该任务日志，按已显示行数做游标增量追加，
+              // 让首页底部面板实时滚动（POST /run 会阻塞到任务结束才返回全部日志）。
+              const taskId = createResult.task.id;
+              let displayedLogCount = 0;
+              const pollLogs = async () => {
+                try {
+                  const res = await api.tasks.get(taskId);
+                  const allLogs = res.task?.logs ?? [];
+                  if (allLogs.length > displayedLogCount) {
+                    appendLogLines(allLogs.slice(displayedLogCount));
+                    displayedLogCount = allLogs.length;
+                  }
+                } catch { /* 单次轮询失败忽略，下轮继续 */ }
+              };
+              const logPollTimer = setInterval(pollLogs, 2000);
+
+              let runResult;
+              try {
+                runResult = await api.tasks.run(taskId);
+              } finally {
+                clearInterval(logPollTimer);
+              }
+              // 任务结束：最后再拉一次补齐轮询间隔内漏掉的日志。
+              await pollLogs();
+
               runningTaskIdsRef.current = runningTaskIdsRef.current.filter(id => id !== createResult.task.id);
               setRunningTaskIds([...runningTaskIdsRef.current]);
 

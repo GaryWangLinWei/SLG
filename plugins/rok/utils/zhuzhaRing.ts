@@ -75,19 +75,25 @@ export interface ZhuzhaSlot {
 }
 
 /**
- * 沿右侧队伍槽列自上而下滑动圆环采样条，找出所有蓝色圆环（驻扎）位置。
- * 返回每个命中槽的圆环中心坐标，按 y 升序。用于多队驻扎时定位每一队。
+ * 沿右侧队伍槽列自上而下滑动圆环采样条，找出蓝色圆环（驻扎）位置。
+ * 返回每个命中槽的圆环中心坐标，按 y 升序。
+ *
+ * 默认只扫整个右侧列；调用方可用 yStart/yEnd 限定到具体槽位区间。
+ * 自动打野只需关注第一个（最上方）槽位，此时应传入顶部槽范围，避免
+ * 顶部槽偶发漏检时误取下方其他队伍的驻扎槽而拉错队伍。
  */
 export function findZhuzhaSlots(
   data: Buffer,
   imageWidth: number,
   channels: number,
-  opts: { step?: number; minGap?: number } = {},
+  opts: { step?: number; minGap?: number; yStart?: number; yEnd?: number } = {},
 ): ZhuzhaSlot[] {
   const step = opts.step ?? 4;
   const minGap = opts.minGap ?? 30;
+  const yStart = opts.yStart ?? ZHUZHA_COLUMN.yStart;
+  const yEnd = opts.yEnd ?? ZHUZHA_COLUMN.yEnd;
   const hits: ZhuzhaSlot[] = [];
-  for (let y = ZHUZHA_COLUMN.yStart; y + ZHUZHA_RING_RECT.height <= ZHUZHA_COLUMN.yEnd; y += step) {
+  for (let y = yStart; y + ZHUZHA_RING_RECT.height <= yEnd; y += step) {
     const r = scoreZhuzhaRing(data, imageWidth, channels, {
       x: ZHUZHA_COLUMN.x,
       y,
@@ -114,8 +120,12 @@ export function findZhuzhaSlots(
   return slots;
 }
 
-/** 从截图文件扫描右侧驻扎槽列 */
-export async function findZhuzhaSlotsFile(imagePath: string): Promise<ZhuzhaSlot[]> {
+/** 从截图文件扫描右侧驻扎槽列（可限定 y 范围） */
+export async function findZhuzhaSlotsFile(
+  imagePath: string,
+  yStart?: number,
+  yEnd?: number,
+): Promise<ZhuzhaSlot[]> {
   const { data, info } = await sharp(imagePath).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-  return findZhuzhaSlots(data, info.width, 3);
+  return findZhuzhaSlots(data, info.width, 3, { yStart, yEnd });
 }
