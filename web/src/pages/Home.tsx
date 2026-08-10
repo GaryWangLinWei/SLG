@@ -263,7 +263,7 @@ export function HomePage() {
   const location = useLocation();
   const { status: licenseStatus, refreshStatus, setExpiredMessage } = useLicense();
   const isPro = licenseStatus?.tier === 'pro';
-  const PRO_FEATURES = ['gemGather', 'autoSwitchAccount', 'joinRally', 'shareGem'];
+  const PRO_FEATURES = ['gemGather', 'autoSwitchAccount', 'joinRally', 'shareGem', 'attackBarbarian'];
   const isFeatureLocked = (featureId: string) => !isPro && PRO_FEATURES.includes(featureId);
   const [activeConfigName, setActiveConfigName] = useState('');
   const [accountScheduleExpanded, setAccountScheduleExpandedState] = useState<boolean>(() => {
@@ -815,7 +815,7 @@ export function HomePage() {
       features.autoExplore ||
       (features.autoWorldChat && features.worldChatMessages.some((m: string) => m.trim())) ||
       (features.autoRallyFort && features.rallyFortLevel > 0) ||
-      (features.autoAttackBarbarian && features.attackBarbarianLevel > 0) ||
+      (features.autoAttackBarbarian && features.attackBarbarianLevel > 0 && !isFeatureLocked('attackBarbarian')) ||
       (features.gemGatherEnabled && (features.gemGatherEnabled && features.gemGatherMode === 'focus')) ||
       (features.gemGatherEnabled && features.gemGatherTeams.some((t: number) => t)) ||
       features.autoCaveExplore ||
@@ -971,7 +971,7 @@ export function HomePage() {
       if (f.collectResources) exp.add('collect');
       if (f.gatherResources && f.gatherTasks.some((t: any) => t.type)) exp.add('gather');
       if (f.autoRallyFort && f.rallyFortLevel > 0) exp.add('rally-fort');
-      if (f.autoAttackBarbarian && f.attackBarbarianLevel > 0) exp.add('attack-barbarian');
+      if (f.autoAttackBarbarian && f.attackBarbarianLevel > 0 && !isFeatureLocked('attackBarbarian')) exp.add('attack-barbarian');
       if (f.joinRallyEnabled && !isFeatureLocked('joinRally')) exp.add('join-rally');
       if (f.autoCaveExplore) exp.add('cave');
       if (f.gemGatherEnabled && f.shareGemEnabled && !isFeatureLocked('shareGem')) exp.add('share-gem');
@@ -1441,7 +1441,7 @@ export function HomePage() {
         while (!isStopped()) {
           if (first) { first = false; await sleep(3); }
           if (offlineActive) { await sleep(30); continue; }
-          const enabled = featuresRef.current.autoAttackBarbarian && featuresRef.current.attackBarbarianLevel > 0 && !featuresRef.current.autoWorldChat;
+          const enabled = featuresRef.current.autoAttackBarbarian && featuresRef.current.attackBarbarianLevel > 0 && !featuresRef.current.autoWorldChat && !isFeatureLocked('attackBarbarian');
           // 当前轮次还没跑过且功能开启 → 执行一次
           if (enabled && ranSeq !== cooldownResetSeq && !isStopped()) {
             // 抬抢占旗：让其它普通循环在 acquireLock 处让路，打野优先拿锁
@@ -3638,9 +3638,22 @@ export function HomePage() {
             </div>
 
             {/* 自动打野 */}
-            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : features.autoAttackBarbarian ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+            <div className={`flex flex-col gap-0 p-4 rounded-lg transition-colors border relative ${(features.autoWorldChat) ? 'bg-slate-100 border-slate-200 opacity-70' : isFeatureLocked('attackBarbarian') ? 'bg-amber-50/60 border-amber-300 border-dashed' : features.autoAttackBarbarian ? 'border-emerald-500 bg-green-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+              {isFeatureLocked('attackBarbarian') && (
+                <div className="absolute -top-1.5 right-3 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-md shadow-amber-200 flex items-center gap-1"
+                  title="升级到 Pro 解锁">
+                  <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.286 3.957a1 1 0 00.95.69h4.162c.969 0 1.371 1.24.588 1.81l-3.37 2.448a1 1 0 00-.364 1.118l1.287 3.957c.3.921-.755 1.688-1.54 1.118l-3.37-2.448a1 1 0 00-1.176 0l-3.37 2.448c-.784.57-1.838-.197-1.539-1.118l1.287-3.957a1 1 0 00-.364-1.118L2.063 9.384c-.783-.57-.38-1.81.588-1.81h4.162a1 1 0 00.95-.69l1.286-3.957z" /></svg>
+                  PRO
+                </div>
+              )}
               <div className="flex items-center justify-between">
-                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className="w-8 h-8 bg-orange-100 rounded-lg flex items-center justify-center text-base">⚔️</span>自动打野</span>
+                <span className="flex items-center gap-2 font-semibold text-sm text-slate-800"><span className={`w-8 h-8 rounded-lg flex items-center justify-center text-base ${isFeatureLocked('attackBarbarian') ? 'bg-amber-100' : 'bg-orange-100'}`}>⚔️</span>自动打野</span>
+                {isFeatureLocked('attackBarbarian') ? (
+                  <span className="relative w-10 h-[22px] flex-shrink-0 cursor-not-allowed" title="升级到 Pro 解锁">
+                    <span className="absolute inset-0 rounded-full bg-slate-200" />
+                    <span className="absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full shadow-sm" />
+                  </span>
+                ) : (
                 <label className={`relative w-10 h-[22px] flex-shrink-0 ${(features.autoWorldChat) ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
                   <input type="checkbox" checked={features.autoAttackBarbarian}
                     disabled={features.autoWorldChat}
@@ -3649,8 +3662,9 @@ export function HomePage() {
                   <span className={`absolute inset-0 rounded-full transition-colors ${features.autoAttackBarbarian ? 'bg-emerald-500' : 'bg-slate-200'}`} />
                   <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.autoAttackBarbarian ? 'translate-x-[18px]' : ''}`} />
                 </label>
+                )}
               </div>
-              <div className="flex flex-col mt-2 -mx-4">
+              <div className={`flex flex-col mt-2 -mx-4 ${features.autoAttackBarbarian && !isFeatureLocked('attackBarbarian') ? '' : 'opacity-50 pointer-events-none'}`}>
                 {/* 野蛮人等级 + 次数 */}
                 <div className="flex items-center gap-2 px-4 py-2.5 border-t border-slate-100">
                   <span className="text-xs text-slate-500 whitespace-nowrap w-16">野蛮人等级</span>
