@@ -28,6 +28,8 @@ export async function claimAllianceTerritory(ctx: PluginContext): Promise<void> 
       if (!result.found) {
         ctx.log('未找到领土按钮，关闭联盟页面并结束');
         await ctx.tap(CLOSE_BUTTON.x, CLOSE_BUTTON.y);
+        // 等关闭动画播完、画面回到城内，底部栏稳定后再让 finally 检测收回
+        await ctx.sleep(1.2);
         ctx.log('=== 领取联盟领土收益结束（未找到领土按钮） ===');
         return;
       }
@@ -36,6 +38,7 @@ export async function claimAllianceTerritory(ctx: PluginContext): Promise<void> 
     } catch (e: any) {
       ctx.log(`领土按钮识别失败: ${e?.message || e}，按未找到处理`);
       await ctx.tap(CLOSE_BUTTON.x, CLOSE_BUTTON.y);
+      await ctx.sleep(1.2);
       ctx.log('=== 领取联盟领土收益结束（识别失败） ===');
       return;
     }
@@ -43,14 +46,15 @@ export async function claimAllianceTerritory(ctx: PluginContext): Promise<void> 
 
     // 4. 点击领取按钮
     await ctx.tap(CLAIM_BUTTON.x, CLAIM_BUTTON.y);
-    await ctx.sleep(0.5);
+    await ctx.sleep(0.6);
 
     // 5. 关闭领土页面
     await ctx.tap(CLOSE_BUTTON.x, CLOSE_BUTTON.y);
-    await ctx.sleep(0.5);
+    await ctx.sleep(0.6);
 
     // 6. 关闭联盟页面
     await ctx.tap(CLOSE_BUTTON.x, CLOSE_BUTTON.y);
+    await ctx.sleep(1.2);
 
     ctx.log('=== 领取联盟领土收益完成 ===');
   } finally {
