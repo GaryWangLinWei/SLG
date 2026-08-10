@@ -23,6 +23,13 @@ describe('parseCountdown', () => {
     expect(parseCountdown('15')).toBeNull();
   });
 
+  it('rejects single-digit seconds ("已完成" misread as "h 54:4")', () => {
+    // "已完成"被 OCR 误识成 "h 54:4"。真实倒计时秒位恒为两位补零（如 54:04），
+    // 出现单数字秒说明是中文被误识别，不能当成 54 分 4 秒。
+    expect(parseCountdown('h 54:4')).toBeNull();
+    expect(parseCountdown('54:4')).toBeNull();
+  });
+
   it('handles OCR errors: 夭 → 天', () => {
     expect(parseCountdown('1夭10:09:20')).toBe(122960);
   });

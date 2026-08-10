@@ -34,9 +34,9 @@ export function parseCountdown(text: string): number | null {
     days = parseInt(dayMatch[1], 10);
   }
 
-  // 提取最后一个 H:MM:SS（带秒）或 M:SS。
+  // 提取最后一个 H:MM:SS（带秒）。分、秒位必须恰好两位（游戏倒计时恒补零），
   // 用最后一个匹配，避免前面粘连的杂讯数字污染。
-  const hmsMatches = [...t.matchAll(/(\d{1,3}):(\d{1,2}):(\d{1,2})/g)];
+  const hmsMatches = [...t.matchAll(/(\d{1,3}):(\d{2}):(\d{2})(?!\d)/g)];
   if (hmsMatches.length > 0) {
     const m = hmsMatches[hmsMatches.length - 1];
     let h = parseInt(m[1], 10);
@@ -56,8 +56,10 @@ export function parseCountdown(text: string): number | null {
     return days * 86400 + h * 3600 + mm * 60 + ss;
   }
 
-  // 没有 H:MM:SS，尝试 M:SS（分:秒）
-  const msMatches = [...t.matchAll(/(\d{1,3}):(\d{1,2})/g)];
+  // 没有 H:MM:SS，尝试 M:SS（分:秒）。
+  // 秒位必须恰好两位：游戏倒计时秒位恒补零（如 "54:04"），而"已完成"等中文
+  // 被 OCR 误识别时会出现单数字（如 "54:4"），单数字秒说明是误识别，判为空闲。
+  const msMatches = [...t.matchAll(/(\d{1,3}):(\d{2})(?!\d)/g)];
   if (msMatches.length > 0) {
     const m = msMatches[msMatches.length - 1];
     const mm = parseInt(m[1], 10);
