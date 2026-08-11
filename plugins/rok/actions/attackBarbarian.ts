@@ -47,7 +47,7 @@ const AVATAR_OFFSET = { dx: -25, dy: -25 };
 const RECALL_BUTTON = { x: 924, y: 570 };
 
 const ZHUZHA_WAIT_TIMEOUT_SEC = 600;
-const ZHUZHA_POLL_INTERVAL_SEC = 5;
+const ZHUZHA_POLL_INTERVAL_SEC = 4;
 
 export type AttackBarbarianResult =
   | 'success' | 'not_found' | 'no_march_button' | 'no_biandui'
@@ -363,8 +363,11 @@ async function recallTopGarrison(ctx: PluginContext): Promise<boolean> {
     ctx.log(`  ⚠️ 未在最上方槽位找到驻扎队伍，跳过召回`);
     return false;
   }
-  // 直接点击驻扎图标本身（用户指定：不用头像偏移）
-  await ctx.tap(Math.round(found.x), Math.round(found.y));
+  // 蓝环位置加偏移点头像（与发起进攻一致）
+  await ctx.tap(
+    Math.round(found.x + AVATAR_OFFSET.dx),
+    Math.round(found.y + AVATAR_OFFSET.dy)
+  );
   await ctx.sleep(1);
   ctx.log(`  点击召回部队 (${RECALL_BUTTON.x},${RECALL_BUTTON.y})`);
   await ctx.tap(RECALL_BUTTON.x, RECALL_BUTTON.y);
