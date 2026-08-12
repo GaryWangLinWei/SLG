@@ -188,9 +188,9 @@ function NavBar() {
         <button
           onClick={() => {
             if (isElectron && window.electronAPI?.openExternal) {
-              window.electronAPI.openExternal('http://106.15.11.158:3456/help');
+              window.electronAPI.openExternal('https://slgbot.com');
             } else {
-              window.open('http://106.15.11.158:3456/help', '_blank');
+              window.open('https://slgbot.com', '_blank');
             }
           }}
           className="text-sm text-slate-500 hover:text-emerald-600 px-3 py-1.5 rounded hover:bg-slate-100"

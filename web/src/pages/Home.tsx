@@ -2745,7 +2745,7 @@ export function HomePage() {
                   className="inline-flex h-4 w-4 cursor-pointer items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold leading-none text-slate-500 transition-colors hover:bg-cyan-100 hover:text-cyan-700"
                   onClick={(e) => {
                     e.stopPropagation();
-                    window.open('http://106.15.11.158:3456/help#qa-account-schedule-modes', '_blank', 'noopener,noreferrer');
+                    window.open('https://slgbot.com#qa-account-schedule-modes', '_blank', 'noopener,noreferrer');
                   }}
                 >
                   ?
@@ -2765,7 +2765,7 @@ export function HomePage() {
                       role="img"
                       aria-label="账号调度说明"
                       title="在两个账号配置方案之间自动切换。按时间轮换：到达设定时长后切号；按轮次轮换：完成设定轮数后切号；寨子模式：根据城寨任务结果切号；组合采集：小号分享宝石矿、大号采集分享矿。连体号：在同一游戏账号的主号与连体角色间切换（配置页把类型设为&quot;连体号&quot;并填主号编号）；触发时机仍由上方模式决定。"
-                      onClick={() => window.open('http://106.15.11.158:3456/help#qa-account-schedule-modes', '_blank', 'noopener,noreferrer')}
+                      onClick={() => window.open('https://slgbot.com#qa-account-schedule-modes', '_blank', 'noopener,noreferrer')}
                       className="inline-flex h-4 w-4 cursor-pointer items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold leading-none text-slate-500 transition-colors hover:bg-cyan-100 hover:text-cyan-700"
                     >
                       ?
@@ -3133,7 +3133,7 @@ export function HomePage() {
                         role="img"
                         aria-label="组合采集说明"
                         title="大号勾选“采集分享矿”，从聊天中读取并采集小号分享的宝石矿；小号勾选“分享宝石矿”，只搜索并把宝石矿坐标分享给大号。两项互斥。"
-                        onClick={() => window.open('http://106.15.11.158:3456/help#qa-account-schedule-modes', '_blank', 'noopener,noreferrer')}
+                        onClick={() => window.open('https://slgbot.com#qa-account-schedule-modes', '_blank', 'noopener,noreferrer')}
                         className="inline-flex h-4 w-4 cursor-pointer items-center justify-center rounded-full bg-slate-200 text-[10px] font-bold leading-none text-slate-500 transition-colors hover:bg-cyan-100 hover:text-cyan-700"
                       >
                         ?
