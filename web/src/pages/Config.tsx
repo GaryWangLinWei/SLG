@@ -309,7 +309,7 @@ export function ConfigPage() {
   return (
     <div className="px-[80px] pt-4 pb-10">
       <h1 className="text-2xl font-bold mb-2">坐标配置</h1>
-      <p className="text-sm text-slate-500 mb-4">截图后点击画面标注建筑坐标，保存到本地配置文件</p>
+      <p className="text-sm text-slate-500 mb-4">截图后点击画面标注建筑坐标，保存到本地配置文件（在游戏默认视角下截图，不要滑动视角）</p>
 
       <div className="mb-4 max-w-xl">
         <DeviceSettingsCard />
