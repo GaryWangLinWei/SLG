@@ -163,6 +163,16 @@ ssh root@106.15.11.158 "pm2 restart slg-auth"
 
 两版只通过 OSS 发布，不再向 VPS 上传更新文件，也不再使用 `--oss-only`。主版更新目录为 `/updates`，代理商版为 `/updates/agent`。
 
+**分发链路**：发布器把产物上传到 OSS 源站（bucket `slg-updates`，`oss-cn-shanghai`），客户端通过阿里云 CDN 域名 `https://updates.slgbot.com` 拉取，CDN 回源到该 OSS bucket。走 CDN 后下行流量单价从直连 OSS 的 0.5 元/G 降到约 0.3 元/G。客户端更新地址配置在：
+
+- `config/editions.json`（main / agent 的 `updateUrl`）
+- `package.json` 的 `build.publish.url`
+- `electron/main.ts` 的 dev 默认 `updateUrl`
+
+> CDN 缓存：`latest.yml`/`*.blockmap` 缓存 30 天，客户端靠文件名中的版本号 + blockmap 做差量；发版上传新文件后无需刷新 CDN，但**不要手工删除或覆盖旧 exe/blockmap**，否则存量旧客户端差量更新会失败。OSS 直连地址（`slg-updates.oss-cn-shanghai.aliyuncs.com`）必须保持可用：已安装的 1.2.7 及更早版本仍写死直连 OSS，只有 1.2.8 及以后版本走 CDN。
+>
+> CDN HTTPS 证书为阿里云免费"个人测试证书"，有效期 90 天，到期前需在数字证书管理服务里重新申请并重新"云产品部署"到 CDN（见"CDN 证书续期"）。
+
 ### 1. 发布前修改版本信息
 
 编辑项目根目录的 `package.json`：
@@ -201,10 +211,12 @@ release/agent/ROK助手-代理商版 Setup <version>.exe.blockmap
 node scripts/publish-release.mjs --dry-run
 ```
 
-`--dry-run` 只检查本地文件、版本号、manifest 文件名和六个 OSS 目标路径，不创建 OSS client，也不会访问或修改 OSS。确认输出中的两个版本号相同，并分别指向：
+`--dry-run` 只检查本地文件、版本号、manifest 文件名和六个 OSS 目标路径，不创建 OSS client，也不会访问或修改 OSS。确认输出中的两个版本号相同，并分别指向（即 `config/editions.json` 的 CDN 地址）：
 
-- `https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates`
-- `https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/agent`
+- `https://updates.slgbot.com/updates`
+- `https://updates.slgbot.com/updates/agent`
+
+> 注意：`--dry-run` 打印的是客户端拉取地址（CDN），实际上传目标始终是 OSS 源站（`oss-cn-shanghai` / bucket `slg-updates`），由 `scripts/publish-release.mjs` 内部写死，与 CDN 域名无关。
 
 ### 4. 首次启用代理商渠道
 
@@ -226,7 +238,7 @@ node scripts/publish-release.mjs --initialize-agent
 `--initialize-agent` 只创建代理商渠道的基线，不修改主版 manifest。完成后检查：
 
 ```text
-https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/agent/latest.yml
+https://updates.slgbot.com/updates/agent/latest.yml
 ```
 
 确认代理商基线存在后，再执行正式双端发布：
@@ -264,14 +276,16 @@ npm run electron:publish:win
 
 ### 6. 发布后验证
 
-检查两份 manifest 的 `version` 均为本次版本：
+检查两份 manifest 的 `version` 均为本次版本（走 CDN）：
 
 ```text
-https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/latest.yml
-https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/agent/latest.yml
+https://updates.slgbot.com/updates/latest.yml
+https://updates.slgbot.com/updates/agent/latest.yml
 ```
 
-同时确认 OSS 中存在：
+如果刚上传完 CDN 仍返回旧版本，等 1–2 分钟让边缘缓存自然刷新，或在阿里云 CDN 控制台对这两个 `latest.yml` 执行"刷新目录/URL"。
+
+同时确认 OSS 源站（直连，用于核对上传是否到位）和 CDN 下均存在：
 
 ```text
 updates/ROK助手 Setup <version>.exe
@@ -291,9 +305,7 @@ updates/agent/ROK助手-代理商版 Setup <version>.exe.blockmap
 ```
 /root/server-auth/
 ├── admin/          # 管理面板静态文件
-├── updates/        # 更新包（FTP/SCP 上传到这里）
-│   ├── latest.yml
-│   └── ROK助手 Setup 1.0.0.exe
+├── help/           # 帮助页源文件（部署到 /var/www/slgbot-help，由 https://slgbot.com 提供）
 ├── auth.db         # SQLite 活库（生产数据，需定期备份，见"数据库备份"章节）
 ├── auth-data/      # 遗留空目录（内含空 auth.db，忽略）
 ├── data/           # 遗留空目录（忽略）
@@ -302,10 +314,29 @@ updates/agent/ROK助手-代理商版 Setup <version>.exe.blockmap
 └── start.sh        # PM2 启动脚本
 ```
 
+Electron 更新包不在本 VPS，存放在阿里云 OSS bucket `slg-updates`（`oss-cn-shanghai`），经 CDN `https://updates.slgbot.com` 分发。
+
 ## 常见问题
 
 **服务挂了？** SSH 上去执行 `pm2 restart slg-auth`。
 
 **端口不通？** 阿里云控制台 → 安全组 → 入方向规则，确认 3456 端口已开放。
 
-**更新不触发？** 确认 `package.json` 的 `version` 比 VPS 上 `latest.yml` 的版本号高。
+**更新不触发？** 确认 `package.json` 的 `version` 比 `latest.yml` 的版本号高。
+
+## CDN 证书续期
+
+`updates.slgbot.com` 使用阿里云免费"个人测试证书"，有效期 90 天，不自动续期，到期前需手动更换，否则客户端更新会因 HTTPS 证书失效而失败。
+
+续期步骤：
+
+1. 登录阿里云 → **数字证书管理服务** → 证书管理，重新购买/申请一张免费"个人测试证书"，域名填 `updates.slgbot.com`，验证方式选"自动 DNS 验证"，等待签发（通常几分钟）。
+2. 在证书列表点该证书右侧 **「部署」/「云产品部署」**，云产品选 **CDN**，勾选加速域名 `updates.slgbot.com`，提交。
+3. 等 1–2 分钟后本地验证（应返回 200，且证书为新的到期日）：
+
+   ```bash
+   curl -sI https://updates.slgbot.com/updates/latest.yml
+   curl -sI https://updates.slgbot.com/updates/agent/latest.yml
+   ```
+
+> 建议在到期日前一周操作。可在证书管理页查看每张证书的到期时间。

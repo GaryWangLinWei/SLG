@@ -3,7 +3,7 @@
     "id": "main",
     "artifactName": "ROK助手 Setup ${version}.exe",
     "outputDir": "release/main",
-    "updateUrl": "https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates",
+    "updateUrl": "https://updates.slgbot.com/updates",
     "remotePrefix": "updates",
     "capabilities": {
       "showPurchaseEntry": true,
@@ -14,7 +14,7 @@
     "id": "agent",
     "artifactName": "ROK助手-代理商版 Setup ${version}.exe",
     "outputDir": "release/agent",
-    "updateUrl": "https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/agent",
+    "updateUrl": "https://updates.slgbot.com/updates/agent",
     "remotePrefix": "updates/agent",
     "capabilities": {
       "showPurchaseEntry": false,

@@ -14,7 +14,7 @@ const runningIntentStore = createRunningIntentStore();
 
 const isDev = !app.isPackaged;
 const edition = isDev
-  ? { id: 'main' as const, updateUrl: 'https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates' }
+  ? { id: 'main' as const, updateUrl: 'https://updates.slgbot.com/updates' }
   : loadPackagedEdition(path.join(__dirname, '..', 'app-edition.json'));
 
 // Keep a global reference of the window object, if you don't, the window will

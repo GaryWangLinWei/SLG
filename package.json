@@ -82,7 +82,7 @@
     },
     "publish": {
       "provider": "generic",
-      "url": "https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates"
+      "url": "https://updates.slgbot.com/updates"
     }
   },
   "keywords": [
