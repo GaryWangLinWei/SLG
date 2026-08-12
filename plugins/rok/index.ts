@@ -451,11 +451,16 @@ export const RiseOfKingdomsPlugin: Plugin = {
           return;
         }
 
+        // 首次打开队伍面板时一次性探测所有目标队伍是否空闲，后续任务据此跳过忙队伍
+        const probeTeams = [...new Set(params.gatherTasks.map(t => t.team))];
+        let idleTeams: Set<number> | null = null;
+
         for (let i = 0; i < params.gatherTasks.length; i++) {
           const task = params.gatherTasks[i];
           ctx.log(`--- 队伍 ${task.team} ---`);
-          const result = await gatherSingleResource(ctx, config, task, hasPaging, teamPage);
+          const result = await gatherSingleResource(ctx, config, task, hasPaging, teamPage, idleTeams, probeTeams);
           if (hasPaging === null) hasPaging = result.hasPaging;
+          idleTeams = result.idleTeams;
           if (result.noIdleTeams) {
             ctx.log('⛔ 没有空闲队伍，停止采集任务');
             await ensureInCity(ctx, config);

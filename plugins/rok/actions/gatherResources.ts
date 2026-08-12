@@ -107,18 +107,34 @@ const RESOURCE_BUTTON_RECTS: Record<string, {
 const MARCH_BUTTON = { x: 1154, y: 791 };
 const CLOSE_POPUP_BUTTON = { x: 1392, y: 57 };
 
+export type GatherSingleResult = {
+  success: boolean;
+  hasPaging: boolean;
+  noIdleTeams?: boolean;
+  /** 已知可用的目标队伍集合；首次探测后填充并跨调用透传，null 表示尚未探测 */
+  idleTeams: Set<number> | null;
+};
+
 export async function gatherSingleResource(
   ctx: PluginContext,
   config: RokConfig,
   task: GatherTask,
   hasPaging: boolean | null = null,
-  teamPage: TeamPage = 'gather'
-): Promise<{ success: boolean; hasPaging: boolean; noIdleTeams?: boolean }> {
+  teamPage: TeamPage = 'gather',
+  idleTeams: Set<number> | null = null,
+  probeTeams: number[] = []
+): Promise<GatherSingleResult> {
   const rc = config.resourceCollect;
   const rt = rc.resourceTypes[task.type];
   if (!rt) {
     ctx.log(`❌ 未知资源类型: ${task.type}`);
-    return { success: false, hasPaging: false };
+    return { success: false, hasPaging: false, idleTeams };
+  }
+
+  // 若已探测过且本队不在可用集合中，直接跳过，省掉开面板/搜索等前 7 步
+  if (idleTeams && !idleTeams.has(task.team)) {
+    ctx.log(`>>> 采集: ${task.type} Lv.${task.level} 队伍${task.team} → 队伍忙，跳过`);
+    return { success: false, hasPaging: hasPaging ?? false, idleTeams };
   }
 
   ctx.log(`>>> 采集: ${task.type} Lv.${task.level} 队伍${task.team}`);
@@ -222,7 +238,7 @@ export async function gatherSingleResource(
     ctx.log(`  ❌ 所有等级均未搜索到 ${task.type}，跳过`);
     await ctx.tap(config.backButton.x, config.backButton.y);
     await ctx.sleep(1);
-    return { success: false, hasPaging: hasPaging ?? false };
+    return { success: false, hasPaging: hasPaging ?? false, idleTeams };
   }
 
   await ctx.sleep(2.5);
@@ -246,7 +262,7 @@ export async function gatherSingleResource(
     await fs.unlink(addTeamRegionPath).catch(() => {});
     await ctx.tapRect(WORLD_SWITCH_BUTTON_RECT.x1, WORLD_SWITCH_BUTTON_RECT.y1, WORLD_SWITCH_BUTTON_RECT.x2, WORLD_SWITCH_BUTTON_RECT.y2);
     await ctx.sleep(2);
-    return { success: false, hasPaging: hasPaging ?? false, noIdleTeams: true };
+    return { success: false, hasPaging: hasPaging ?? false, noIdleTeams: true, idleTeams };
   }
   await fs.unlink(addTeamRegionPath).catch(() => {});
   ctx.log(`  有空闲队伍，继续`);
@@ -282,30 +298,51 @@ export async function gatherSingleResource(
       ctx.log(`  ⚠️ 未能切换到目标队伍页，跳过`);
       await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
       await ctx.sleep(0.5);
-      return { success: false, hasPaging: hasPaging ?? false };
+      return { success: false, hasPaging: hasPaging ?? false, idleTeams };
+    }
+  }
+
+  // Step 7.7: 首次打开队伍面板时，一次性探测所有目标队伍是否可用，
+  // 避免后续忙队伍重复走前 7 步。探测靠点击按钮后是否有选中状态变化判断（不点行军，安全）。
+  const teamButtons = getTeamButtons(hasPaging);
+  if (idleTeams === null) {
+    idleTeams = new Set<number>();
+    const teamsToProbe = probeTeams.length > 0 ? probeTeams : [task.team];
+    ctx.log(`  [探测] 检查目标队伍 ${teamsToProbe.join(',')} 是否空闲...`);
+    for (const num of teamsToProbe) {
+      const btn = teamButtons[num];
+      if (!btn) continue;
+      const res = await ctx.checkButtonStateChange(btn.x, btn.y, 150, 50, 0.1);
+      if (res.changed) {
+        idleTeams.add(num);
+        ctx.log(`  [探测] 队伍${num} 空闲 (变化率 ${(res.diffPercentage * 100).toFixed(1)}%)`);
+      } else {
+        ctx.log(`  [探测] 队伍${num} 忙，跳过 (变化率 ${(res.diffPercentage * 100).toFixed(1)}%)`);
+      }
+    }
+    ctx.log(`  [探测] 空闲队伍: [${[...idleTeams].join(',')}]`);
+
+    if (!idleTeams.has(task.team)) {
+      ctx.log(`  ⚠️ 当前队伍${task.team}忙，关闭面板（已记录可用队伍供后续使用）`);
+      await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
+      await ctx.sleep(0.5);
+      return { success: false, hasPaging: hasPaging!, idleTeams };
     }
   }
 
   // Step 8: Select team by number and check if state changed (button highlighted)
-  const teamButtons = getTeamButtons(hasPaging);
   const teamBtn = teamButtons[task.team];
   if (!teamBtn) {
     ctx.log(`  ❌ 无效的队伍序号: ${task.team}`);
     await ctx.tap(config.backButton.x, config.backButton.y);
     await ctx.sleep(1);
-    return { success: false, hasPaging: hasPaging ?? false };
+    return { success: false, hasPaging: hasPaging ?? false, idleTeams };
   }
 
-  ctx.log(`  [8/9] 选择队伍 ${task.team} 并检测状态变化...`);
-  const stateResult = await ctx.checkButtonStateChange(teamBtn.x, teamBtn.y, 150, 50, 0.1);
-  ctx.log(`  [debug] 像素变化率: ${(stateResult.diffPercentage * 100).toFixed(1)}%, changed: ${stateResult.changed}`);
-
-  if (!stateResult.changed) {
-    ctx.log(`  ⚠️ 队伍${task.team}不可用，按钮无选中状态变化，跳过`);
-    await ctx.tap(CLOSE_POPUP_BUTTON.x, CLOSE_POPUP_BUTTON.y);
-    await ctx.sleep(0.5);
-    return { success: false, hasPaging: hasPaging ?? false };
-  }
+  // 探测阶段可能最后选中了别的空闲队，这里重新选中本任务队伍
+  ctx.log(`  [8/9] 选择队伍 ${task.team}...`);
+  await ctx.tap(teamBtn.x, teamBtn.y);
+  await ctx.sleep(0.5);
 
   // Step 9: Team available, click march button
   ctx.log(`  [9/9] 点击行军按钮 (${MARCH_BUTTON.x}, ${MARCH_BUTTON.y})`);
@@ -313,5 +350,5 @@ export async function gatherSingleResource(
   await ctx.sleep(1);
 
   ctx.log(`  ✅ 队伍${task.team}已派出采集 ${task.type} Lv.${currentLevel}`);
-  return { success: true, hasPaging: hasPaging! };
+  return { success: true, hasPaging: hasPaging!, idleTeams };
 }
