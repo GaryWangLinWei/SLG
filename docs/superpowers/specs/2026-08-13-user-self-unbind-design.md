@@ -1,7 +1,7 @@
 # 用户自助解绑/换机 设计
 
 日期：2026-08-13
-分支基线：`feat/auto-attack-barbarian`
+分支基线：`master`（实施时切 `feat/self-unbind`）
 
 ## 背景与目标
 
@@ -90,10 +90,12 @@ SELECT activation_code_id, COUNT(*) FROM device_bindings GROUP BY activation_cod
 - 绑定方式**显式 INSERT，禁止覆盖**：先 `SELECT 1 FROM device_bindings WHERE device_fingerprint=?`，若新设备已有任何绑定 → 409 `DEVICE_ALREADY_BOUND`（防止把另一台设备的现役码冲成砖码连锁扩散）。无绑定时 INSERT 新行，**沿用原 `expires_at`/`tier`，不加天数、不重置到期时间、不清空 `last_unbound_at`**（使"解绑→重绑→再解绑"连续受冷却约束）。
 - 续费累加剩余时间分支（`existingBinding`，`ActivationCodeService.ts:191-208`）保持不变，它要求设备已有绑定且是首次激活新码，与重绑互斥。
 
+**`useCode` 返回值带机器可读 `code`**：所有失败路径返回 `{ success:false, code, error }`，`code` 取值与上表一致（`CODE_NOT_REBINDABLE` / `DEVICE_ALREADY_BOUND` / `CODE_EXPIRED` / 现有"已绑定其他设备"用 `CODE_BOUND_OTHER_DEVICE` 等）。`POST /api/auth/activate` 路由（`server-auth/routes/auth.ts:16-21`）当前对所有失败一律 `ctx.status=400`，改为按 `code` 映射：重绑类冲突（`CODE_NOT_REBINDABLE`/`DEVICE_ALREADY_BOUND`/`CODE_BOUND_OTHER_DEVICE`）和 `CODE_EXPIRED` 返回 **409**，其余参数/校验错误仍返回 400。响应体始终透传 `code`/`message`/`retryAfterMs`。
+
 ### WebSocketHub 加固
 
 - 新增 `kick(deviceId)`：关闭该 deviceId 的 device 连接（从 `devices` map 删除）和所有关联 user 连接（从 `users` set 删除），并向剩余连接广播该设备离线状态。
-- 设备端认证（`authenticate` 的 `role==='device'` 分支，`WebSocketHub.ts:120-127`）增加绑定校验：查 `device_bindings WHERE device_fingerprint=?`（或要求 `remote_devices` 行存在），无绑定则拒绝连接、关闭 ws。这样即使本地 stop 失败或旧客户端硬连，解绑后也进不来。kick 才真正闭环。
+- 设备端认证（`authenticate` 的 `role==='device'` 分支，`WebSocketHub.ts:120-127`）增加绑定校验：JOIN `device_bindings` 与 `activation_codes`，要求该指纹存在绑定行、对应码 `status='used'` 且 `expires_at > now`；不满足则拒绝连接、关闭 ws。这样既保证解绑后/过期后旧客户端硬连进不来，也一并修掉过期码设备仍显示"在线"的现状。kick 才真正闭环。
 
 ### 管理员路径同步改
 
@@ -106,8 +108,11 @@ SELECT activation_code_id, COUNT(*) FROM device_bindings GROUP BY activation_cod
 
 **`PATCH /api/admin/codes/:id`（`admin.ts:92`）** 增加可更新字段 `markRebindable: boolean`：
 
-- 为 `true` 且码 `status='used'` 时，`UPDATE activation_codes SET last_unbound_at=? WHERE id=?`（写 now），并写一条 `unbind_logs(source='admin')`。
-- 这是**历史砖码的解锁路径**：过去被管理员删绑定、老续费产生的"used 无绑定 + last_unbound_at NULL"的码，管理员可一键标记为可换机。非 used 码忽略/拒绝。
+- 为 `true` 时**前置校验**：码必须 `status='used'` **且当前无 binding 行**才允许设置。
+  - 满足时 `UPDATE activation_codes SET last_unbound_at=? WHERE id=?`（写 now），并写一条 `unbind_logs(source='admin')`。
+  - 若该码仍有 binding 行 → 拒绝并提示"该码仍有绑定，无需解锁"。原因：写 `last_unbound_at=now` 会让该用户之后自助解绑立即撞上 30 天冷却（误锁）。markRebindable 的用途仅是解砖"used 无绑定"的码。
+  - 非 used 码忽略/拒绝。
+- 这是**历史砖码的解锁路径**：过去被管理员删绑定、老续费产生的"used 无绑定 + last_unbound_at NULL"的码，管理员可一键标记为可换机。
 - admin 面板码列表/编辑处加"标记可换机"按钮，避免手改库。
 
 ### 错误契约
@@ -122,7 +127,9 @@ SELECT activation_code_id, COUNT(*) FROM device_bindings GROUP BY activation_cod
 | 409 | `CODE_NOT_USED` / `TRIAL_CODE` / `CODE_EXPIRED` | unbind | 码状态冲突 |
 | 409 | `CODE_NOT_REBINDABLE` | activate | 续费砖码/历史砖码不可重绑 |
 | 409 | `DEVICE_ALREADY_BOUND` | activate | 新设备已有其他绑定 |
+| 409 | `CODE_BOUND_OTHER_DEVICE` | activate | 码已绑定其他设备（未解绑），沿用原报错改 409 |
 | 409 | `CODE_EXPIRED` | activate | 解绑期间码已过期 |
+| 400 | `MARKREBIND_STILL_BOUND` | admin PATCH | 码仍有绑定，无需解锁 |
 | 429 | `COOLDOWN_ACTIVE` | unbind | 冷却中，带 `retryAfterMs` |
 | 200 | `ALREADY_UNBOUND`（success:true, alreadyUnbound:true） | unbind | 幂等成功 |
 
@@ -130,17 +137,21 @@ SELECT activation_code_id, COUNT(*) FROM device_bindings GROUP BY activation_cod
 
 ### 本地 server（`server/routes/license.ts` 追加路由，非新增文件）
 
-- `POST /api/license/unbind` → 调 `licenseService.unbind()`；成功或 alreadyUnbound 后：
-  1. `remoteClient.stop()`（生产模式 Koa 与 RemoteClient 同在 Electron 主进程，dev 同在 server 进程，可达）；
-  2. `licenseService.clearLicense()`。
-- 顺带在现有 `POST /api/license/deactivate` 的 `deactivate()` 里也加 `remoteClient.stop()`（现有"取消激活"同样有残留重连问题）。
+`remoteClient.stop()` **统一放在路由层**，不放进 `core/license`（避免 core 层耦合 remote 模块；RemoteClient 不依赖 license，不成环，但没必要）。生产模式 Koa 与 RemoteClient 同在 Electron 主进程、dev 同在 server 进程，路由层可直接拿到实例。
+
+- `POST /api/license/unbind`：
+  1. 调 `licenseService.unbind()`（只负责请求云端、返回云端结果，不自己清本地、不碰 remote）。
+  2. 云端返回成功/alreadyUnbound **或 401** 时：先 `remoteClient.stop()`，再 `licenseService.clearLicense()`（401 表示 token 已失效，本地应清，与 heartbeat 现有处理一致）。
+  3. **错误透传**：把云端的 HTTP status 和 body 原样映射给 web 端——`ctx.status = 云端状态码`，`ctx.body = 云端 body`（含 `code`/`message`/`retryAfterMs`）。这样前端 `request()` 在非 2xx 抛 `ApiError`，`e.data.code`/`e.data.retryAfterMs` 才能取到，429/409 分支才有效。不能把云端错误吞成 500 或 200。
+- 现有 `POST /api/license/deactivate` 处理器同步：在调 `licenseService.deactivate()` 前/后加 `remoteClient.stop()`（现有"取消激活"同样有残留重连问题）。
 - 不改 licenseGuard：`/api/license` 前缀已在白名单。
 
 ### LicenseService（`core/license/LicenseService.ts`）
 
 - 新增 `unbind()`：从解密存储读出 JWT 与 fingerprint，POST 云端 `${AUTH_SERVER_URL}/api/auth/unbind`，带 `Authorization: Bearer <token>`、body `{ fingerprint }`。
-  - 成功/alreadyUnbound/401 才允许清本地（401 与 heartbeat 现有处理一致，`LicenseService.ts:238`）；403/429/409 等错误向上抛出，携带响应体的 `code`/`retryAfterMs`。
-  - 清本地前先 `stopHeartbeatInterval()`（与 `deactivate()` 对齐，避免定时器空跑）。
+  - 返回结构化结果（含 `success`/`alreadyUnbound`/`code`/`retryAfterMs`/http status），由路由层决定是否清本地；**本方法不直接 clearLicense、不碰 remote**（职责单一，也便于测试）。
+  - 云端 401 作为"token 已失效"结果返回（不抛），让路由层清本地；403/429/409/网络错误抛出或返回错误结构，携带 `code`/`retryAfterMs`，路由层原样透传。
+- `deactivate()`/clearLicense 前已 `stopHeartbeatInterval()`（实际 clearLicense 在 `LicenseService.ts:241` 附近），保持现状；remote 停止由路由层负责。
 - `heartbeat()` 成功响应把云端新增的 `lastUnboundAt` 存入 `StoredLicenseData`（`LicenseService.ts:210` 附近）。
 - `getStatus()` 读出 `lastUnboundAt` 返回；`/api/license/status` 原样透传。
 
@@ -159,7 +170,7 @@ SELECT activation_code_id, COUNT(*) FROM device_bindings GROUP BY activation_cod
 - `web/src/contexts/LicenseContext.tsx`：暴露 `unbind()`，catch 后把 `e.data` 抛给上层；成功后 `refreshStatus()`（LicenseGate 自动渲染激活页）。
 - 入口：`web/src/App.tsx:207` 的 Pro/基础版徽章 `<span>` 改为可点击按钮，点击弹 popover（绝对定位徽章下方，点外部关闭），内容：
   - 当前套餐、到期时间（复用 RemainingTime 文案）；
-  - 若 `status.lastUnboundAt` 存在，显示"上次换机：YYYY-MM-DD，30 天内不可再次换机"；
+  - 若 `status.lastUnboundAt` 存在，**前端计算剩余冷却**：`30天 - (now - lastUnboundAt)`，剩余 > 0 显示"还剩 X 天可再次换机"；剩余 ≤ 0 只显示"上次换机：YYYY-MM-DD"或不显示。不要写死"30 天内不可再次换机"（超过 30 天后该文案错误）；
   - 红色文字按钮"解绑并换机"。
 - 二次确认弹窗（复用 `App.tsx:268` 附近 modal 样式）：文案四句——
   - "解绑后本设备立即失去授权，需在新设备重新输入激活码。"
@@ -169,7 +180,7 @@ SELECT activation_code_id, COUNT(*) FROM device_bindings GROUP BY activation_cod
   - 429 时弹窗内显示"还需 X 天才能再次换机"；网络失败/无 `code` 时兜底显示"无法连接服务器，请检查网络"，不渲染 undefined 天数。
 - 激活页文案（`web/src/pages/Activation.tsx:202`）：把"激活后将绑定到当前设备，不可转移"改为"激活后绑定当前设备，每 30 天可解绑换机一次"。
 
-解绑成功后：clearLicense → stop RemoteClient → refreshStatus → LicenseGate 显示激活页，用户在新设备用原码激活走重绑分支。
+解绑成功后（由本地路由层执行）：`remoteClient.stop()` → `licenseService.clearLicense()` → refreshStatus → LicenseGate 显示激活页，用户在新设备用原码激活走重绑分支。
 
 ## 3/3 测试与部署
 
@@ -192,8 +203,9 @@ server-auth 是独立包，无 jest/ts-jest 依赖；根 jest.config.js 的 root
 8. 解绑期间码过期（`expires_at <= now`）→ 重绑拒绝 `CODE_EXPIRED`；未过期但解绑时已过期 → unbind 409。
 9. trial 码解绑 → 409 `TRIAL_CODE`。
 10. admin `deleteDevice`：受影响码写入 `last_unbound_at`、`unbind_logs` 落 `source=admin`、返回真实条数、kick 被调用。
-11. `markRebindable`：used 码解锁后可在新设备重绑、非 used 码拒绝、审计落 `source=admin`。
-12. 并发重复 INSERT 同一码被 `idx_bindings_single_code` 拦下（可选）。
+11. `markRebindable`：used 且无绑定的码解锁后可在新设备重绑、审计落 `source=admin`；**码仍有绑定时拒绝**（防误锁用户冷却）；非 used 码拒绝。
+12. 本地 `/api/license/unbind` 对云端 429/409 返回相同 status + body（含 code/retryAfterMs），前端能读到；云端 401 时本地 stop+clear。
+13. 并发重复 INSERT 同一码被 `idx_bindings_single_code` 拦下（可选）。
 
 ### 部署
 
