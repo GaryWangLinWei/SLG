@@ -96,6 +96,7 @@ SELECT activation_code_id, COUNT(*) FROM device_bindings GROUP BY activation_cod
 
 - 新增 `kick(deviceId)`：关闭该 deviceId 的 device 连接（从 `devices` map 删除）和所有关联 user 连接（从 `users` set 删除），并向剩余连接广播该设备离线状态。
 - 设备端认证（`authenticate` 的 `role==='device'` 分支，`WebSocketHub.ts:120-127`）增加绑定校验：JOIN `device_bindings` 与 `activation_codes`，要求该指纹存在绑定行、对应码 `status='used'` 且 `expires_at > now`；不满足则拒绝连接、关闭 ws。这样既保证解绑后/过期后旧客户端硬连进不来，也一并修掉过期码设备仍显示"在线"的现状。kick 才真正闭环。
+  - 已知副作用：解绑后旧客户端会每 3 秒重连被拒一次（`RemoteClient` 断线重连，`RemoteClient.ts:132`），量很小，本期不管；若日后日志噪音明显，再加服务端连接频率限制。本地 `remoteClient.stop()` 是正常路径下的主修复，这种旧客户端硬连属罕见残留。
 
 ### 管理员路径同步改
 
@@ -143,6 +144,8 @@ SELECT activation_code_id, COUNT(*) FROM device_bindings GROUP BY activation_cod
   1. 调 `licenseService.unbind()`（只负责请求云端、返回云端结果，不自己清本地、不碰 remote）。
   2. 云端返回成功/alreadyUnbound **或 401** 时：先 `remoteClient.stop()`，再 `licenseService.clearLicense()`（401 表示 token 已失效，本地应清，与 heartbeat 现有处理一致）。
   3. **错误透传**：把云端的 HTTP status 和 body 原样映射给 web 端——`ctx.status = 云端状态码`，`ctx.body = 云端 body`（含 `code`/`message`/`retryAfterMs`）。这样前端 `request()` 在非 2xx 抛 `ApiError`，`e.data.code`/`e.data.retryAfterMs` 才能取到，429/409 分支才有效。不能把云端错误吞成 500 或 200。
+  4. **网络不可达**（云端请求抛异常、拿不到 status/body）：路由返回 **502**，body `{ success:false, code:'NETWORK_ERROR', message:'无法连接服务器' }`，不要漏成无 code 的 200/500。前端兜底文案已覆盖。
+  5. **本地无 license**：`unbind()` 检测本地无 token/指纹时直接返回 `{ success:false, code:'NOT_ACTIVATED' }`，路由映射 **400**，不拿空 token 请求云端。
 - 现有 `POST /api/license/deactivate` 处理器同步：在调 `licenseService.deactivate()` 前/后加 `remoteClient.stop()`（现有"取消激活"同样有残留重连问题）。
 - 不改 licenseGuard：`/api/license` 前缀已在白名单。
 
