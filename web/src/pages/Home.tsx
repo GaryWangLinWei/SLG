@@ -1542,14 +1542,17 @@ export function HomePage() {
 
                 const logs = runResult.task?.logs ?? [];
                 const hasExpiredLog = logs.some((l: string) => l.includes('许可证已过期'));
-                // 根据结果确定 CD：成功 10 分钟，其他一律 2 分钟
+                // 根据结果确定 CD：
+                //   未勾系统编队：成功 8 分钟，失败 2 分钟
+                //   勾选系统编队：成功不 CD（立即下一轮），失败 1 分钟
+                const useDefaultTeam = featuresRef.current.joinRallyUseDefaultTeam;
                 const isSuccess = logs.some((l: string) => l.includes('→ success'));
                 const isNoIdle = logs.some((l: string) => l.includes('→ no_idle_teams'));
                 const isDistanceExceed = logs.some((l: string) => l.includes('→ distance_exceed'));
                 if (isSuccess) {
-                  cd = 600; // 10 分钟
+                  cd = useDefaultTeam ? 0 : 480; // 系统编队不 CD；否则 8 分钟
                 } else {
-                  cd = 120; // 2 分钟
+                  cd = useDefaultTeam ? 60 : 120; // 系统编队 1 分钟；否则 2 分钟
                 }
                 if (hasExpiredLog) {
                   pushLog(`⛔ 许可证已到期，停止运行`);
@@ -1557,7 +1560,7 @@ export function HomePage() {
                   setExpiredMessage('激活码已到期，请重新激活');
                   refreshStatus();
                 } else {
-                  const cdLabel = isSuccess ? '10分钟' : '2分钟';
+                  const cdLabel = isSuccess ? (useDefaultTeam ? '无' : '8分钟') : (useDefaultTeam ? '1分钟' : '2分钟');
                   const targetLabel = (featuresRef.current.joinRallyTargetFort && featuresRef.current.joinRallyTargetLohar) ? '城寨/洛哈' : featuresRef.current.joinRallyTargetFort ? '城寨' : '洛哈';
                   pushLog(`${isSuccess ? '✅' : isNoIdle ? '⏸️' : isDistanceExceed ? '📍' : '⚠️'} 加入${targetLabel}集结 队伍${featuresRef.current.joinRallyTeam} ${isSuccess ? '成功' : isNoIdle ? '无空闲队伍' : isDistanceExceed ? '超出距离' : '无可用集结'}，CD ${cdLabel}`);
                   markRoundDone('join-rally', isSuccess);
@@ -1566,6 +1569,10 @@ export function HomePage() {
               }
             } catch {} finally { releaseLock(); }
             if (isStopped()) break;
+            if (cd <= 0) {
+              // 系统编队成功后不 CD，立即下一轮
+              continue;
+            }
             const cdJitter = cd * (0.85 + Math.random() * 0.3);
             pushLog(`🤝 加入集结完成，${cdJitter.toFixed(0)} 秒后下一轮`);
             const startWait = monotonicNow();
