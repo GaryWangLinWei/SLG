@@ -157,7 +157,8 @@ router.post('/unbind', async (ctx) => {
     return;
   }
   ctx.status = result.httpStatus || 400;
-  ctx.body = result;
+  const { httpStatus: _ignored, ...body } = result;
+  ctx.body = body;
 });
 
 export default router;
