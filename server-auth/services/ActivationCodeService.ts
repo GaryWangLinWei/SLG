@@ -273,7 +273,11 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
     transaction();
     return { success: true, expiresAt, tier: newTier };
   } catch (e: any) {
-    return { success: false, error: e.message };
+    // 唯一索引冲突：并发激活到同一台设备/同一码，给出友好提示而非泄露 SQLite 原文
+    if (/(UNIQUE constraint|SQLITE_CONSTRAINT)/i.test(e?.message || '')) {
+      return { success: false, code: 'DEVICE_ALREADY_BOUND', error: '该设备已绑定其他激活码' };
+    }
+    return { success: false, error: '激活失败，请稍后重试' };
   }
 }
 
