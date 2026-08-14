@@ -6,6 +6,7 @@ export interface LicenseStatus {
   graceRemainingMinutes?: number;
   deviceFingerprint?: string;
   tier?: 'basic' | 'pro';
+  lastUnboundAt?: number;              // 最近一次解绑时间（用于前端冷却文案）
   fingerprintMismatch?: boolean;      // 设备指纹不匹配
   storedFingerprint?: string;          // 存储的指纹（用于对比）
   clockRollback?: boolean;             // 检测到本地时钟回拨
@@ -37,6 +38,7 @@ export interface HeartbeatResult {
   error?: string;
   expiresAt?: number;
   serverNow?: number;
+  lastUnboundAt?: number;
 }
 
 export interface StoredLicenseData {
@@ -46,6 +48,7 @@ export interface StoredLicenseData {
   activatedAt: number;
   lastHeartbeatAt: number;
   tier: 'basic' | 'pro';
+  lastUnboundAt?: number;
   /** 最后一次成功心跳时的服务端时间（ms），用于可信时间推算 */
   serverNowAt?: number;
   /** 最后一次成功心跳时的本地墙钟（ms） */

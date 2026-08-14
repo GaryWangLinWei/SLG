@@ -76,6 +76,7 @@ class LicenseService {
       graceRemainingMinutes: evalResult.isOffline ? 0 : Math.ceil(evalResult.graceRemainingMs / 60000),
       deviceFingerprint: stored.fingerprint,
       tier: stored.tier || 'basic',
+      lastUnboundAt: stored.lastUnboundAt,
     };
   }
 
@@ -145,6 +146,7 @@ class LicenseService {
         activatedAt: existing?.activatedAt || nowLocal,
         lastHeartbeatAt: nowLocal,
         tier: newTier,
+        lastUnboundAt: typeof data.lastUnboundAt === 'number' ? data.lastUnboundAt : undefined,
         // 激活响应携带服务端时间；旧服务端不返回时用本地时间兜底
         serverNowAt: data.serverNow ?? nowLocal,
         serverNowLocalAt: nowLocal,
@@ -224,8 +226,15 @@ class LicenseService {
           monoWallAt: nowLocal,
           monoAt: performance.now(),
           ...(updatedTier ? { tier: updatedTier } : {}),
+          ...(typeof data?.lastUnboundAt === 'number' ? { lastUnboundAt: data.lastUnboundAt } : {}),
         });
-        return { success: true, isOffline: false, expiresAt: updatedExpiresAt, serverNow };
+        return {
+          success: true,
+          isOffline: false,
+          expiresAt: updatedExpiresAt,
+          serverNow,
+          lastUnboundAt: typeof data?.lastUnboundAt === 'number' ? data.lastUnboundAt : stored.lastUnboundAt,
+        };
       }
 
       // 只有服务端明确以 401 拒绝（过期/无效/设备不匹配）才让本地许可证失效，
@@ -260,6 +269,48 @@ class LicenseService {
   async deactivate(): Promise<void> {
     this.stopHeartbeatInterval();
     await clearLicense();
+  }
+
+  /**
+   * 请求云端解绑本机。只负责网络请求并返回结果，不清除本地 license、
+   * 不碰 RemoteClient —— 由调用方（本地路由层）在成功/401 后决定清本地与停远程。
+   */
+  async unbind(): Promise<{
+    success: boolean;
+    alreadyUnbound?: boolean;
+    code?: string;
+    error?: string;
+    retryAfterMs?: number;
+    status?: number;
+  }> {
+    const stored = await loadLicense();
+    if (!stored) {
+      return { success: false, code: 'NOT_ACTIVATED', error: '未激活', status: 400 };
+    }
+    try {
+      const response = await fetch(`${AUTH_SERVER_URL}/api/auth/unbind`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${stored.token}`,
+        },
+        body: JSON.stringify({ fingerprint: stored.fingerprint }),
+      });
+      let data: any = {};
+      try { data = await response.json(); } catch { /* 非 JSON */ }
+      if (response.ok) {
+        return { success: true, alreadyUnbound: data?.alreadyUnbound };
+      }
+      return {
+        success: false,
+        code: data?.code,
+        error: data?.error || '解绑失败',
+        retryAfterMs: data?.retryAfterMs,
+        status: response.status,
+      };
+    } catch {
+      return { success: false, code: 'NETWORK_ERROR', error: '无法连接授权服务器，请检查网络', status: 502 };
+    }
   }
 
   async init(): Promise<void> {
