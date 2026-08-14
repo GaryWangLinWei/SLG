@@ -11,6 +11,7 @@ export interface ActivationCode {
   created_at: number;
   used_at?: number;
   expires_at?: number;
+  last_unbound_at?: number;
   created_by: string;
 }
 
@@ -109,7 +110,7 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
       'SELECT id FROM device_bindings WHERE device_fingerprint = ?'
     ).get(deviceFingerprint);
     if (hasAnyActivation) {
-      return { success: false, error: '试用码仅限新用户使用' };
+      return { success: false, code: 'TRIAL_NOT_NEW', error: '试用码仅限新用户使用' };
     }
 
     const alreadyTrialed = db.prepare(`
@@ -118,7 +119,7 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
       WHERE db.device_fingerprint = ? AND ac.type = 'trial'
     `).get(deviceFingerprint);
     if (alreadyTrialed) {
-      return { success: false, error: '该设备已领取过试用' };
+      return { success: false, code: 'TRIAL_ALREADY_USED', error: '该设备已领取过试用' };
     }
 
     const insertCode = db.prepare(`
@@ -148,15 +149,15 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
 
   const activationCode = getCode(code);
   if (!activationCode) {
-    return { success: false, error: '激活码不存在' };
+    return { success: false, code: 'CODE_NOT_FOUND', error: '激活码不存在' };
   }
 
   if (activationCode.type === 'invite') {
-    return { success: false, error: '邀请码不能直接激活，请使用购买的激活码' };
+    return { success: false, code: 'CODE_INVITE', error: '邀请码不能直接激活，请使用购买的激活码' };
   }
 
   if (activationCode.status === 'revoked') {
-    return { success: false, error: '激活码已被吊销' };
+    return { success: false, code: 'CODE_REVOKED', error: '激活码已被吊销' };
   }
 
   if (activationCode.status === 'used') {
@@ -177,13 +178,36 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
         // 激活码已绑定到其他设备，给出明确提示
         return {
           success: false,
+          code: 'CODE_BOUND_OTHER_DEVICE',
           error: '该激活码已绑定到其他设备，一个激活码只能用于一台设备。如需更换设备请联系客服处理。'
         };
       }
     }
 
-    // 理论上不应该走到这里（status=used 但没有绑定记录），给出通用提示
-    return { success: false, error: '激活码无效或已失效，请联系客服' };
+    // status=used 且无绑定：只有 last_unbound_at 非空（用户/管理员解绑过）才允许在新设备重绑。
+    // 续费切绑产生的旧码 last_unbound_at 为 NULL，维持砖码，防止绕过一码一机。
+    if (activationCode.last_unbound_at == null) {
+      return { success: false, code: 'CODE_NOT_REBINDABLE', error: '激活码无效或已失效，请联系客服' };
+    }
+    if (activationCode.expires_at && activationCode.expires_at <= now) {
+      return { success: false, code: 'CODE_EXPIRED', error: '许可证已过期，请续费后再换机' };
+    }
+    // 新设备必须没有任何绑定，防止把另一台设备的现役码冲成砖码连锁扩散
+    const deviceBinding = db.prepare(
+      'SELECT 1 FROM device_bindings WHERE device_fingerprint = ?'
+    ).get(deviceFingerprint);
+    if (deviceBinding) {
+      return { success: false, code: 'DEVICE_ALREADY_BOUND', error: '该设备已绑定其他激活码' };
+    }
+    db.prepare(`
+      INSERT INTO device_bindings (activation_code_id, device_fingerprint, bound_at, last_heartbeat_at)
+      VALUES (?, ?, ?, ?)
+    `).run(activationCode.id, deviceFingerprint, now, now);
+    return {
+      success: true,
+      expiresAt: activationCode.expires_at,
+      tier: activationCode.tier || 'basic'
+    };
   }
 
   // 首次激活：绑定设备
