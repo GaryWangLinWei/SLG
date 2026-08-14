@@ -205,7 +205,7 @@ export const api = {
     deactivate: () =>
       request<{ success: boolean }>('/license/deactivate', { method: 'POST' }),
     unbind: () =>
-      request<{ success: boolean; alreadyUnbound?: boolean }>('/license/unbind', { method: 'POST' }),
+      request<{ success: boolean; alreadyUnbound?: boolean; activationCode?: string }>('/license/unbind', { method: 'POST' }),
     heartbeat: () =>
       request<{ success: boolean; expiresAt?: number }>('/license/heartbeat', { method: 'POST' })
   }

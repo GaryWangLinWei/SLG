@@ -278,6 +278,7 @@ class LicenseService {
   async unbind(): Promise<{
     success: boolean;
     alreadyUnbound?: boolean;
+    activationCode?: string;
     code?: string;
     error?: string;
     retryAfterMs?: number;
@@ -299,7 +300,7 @@ class LicenseService {
       let data: any = {};
       try { data = await response.json(); } catch { /* 非 JSON */ }
       if (response.ok) {
-        return { success: true, alreadyUnbound: data?.alreadyUnbound };
+        return { success: true, alreadyUnbound: data?.alreadyUnbound, activationCode: data?.activationCode };
       }
       return {
         success: false,

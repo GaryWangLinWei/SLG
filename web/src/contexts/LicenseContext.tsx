@@ -26,7 +26,7 @@ interface LicenseContextType {
   activate: (code: string, inviteCode?: string) => Promise<{ success: boolean; error?: string; inviteBonus?: boolean; inviteError?: string; inviterBonusDays?: number; inviteeBonusDays?: number }>;
   preview: (code: string) => Promise<{ success: boolean; durationDays?: number; tier?: 'basic' | 'pro'; error?: string }>;
   deactivate: () => Promise<void>;
-  unbind: () => Promise<void>;
+  unbind: () => Promise<{ success: boolean; alreadyUnbound?: boolean; activationCode?: string }>;
   refreshStatus: () => Promise<void>;
   syncStatus: () => Promise<void>;   // 手动心跳同步
   clearActivateError: () => void;  // 清除激活错误
@@ -116,15 +116,15 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
   }, [refreshStatus]);
 
   const unbind = useCallback(async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      // 非 2xx 会抛 ApiError，错误体在 e.data，由 UI 弹窗读取
-      await api.license.unbind();
-      await refreshStatus();
+      // 非 2xx 会抛 ApiError，错误体在 e.data，由 UI 弹窗读取。
+      // 成功后不立即 refreshStatus：UI 要先展示卡密让用户记下，确认后再跳转激活页。
+      return await api.license.unbind();
     } finally {
       setLoading(false);
     }
-  }, [refreshStatus]);
+  }, []);
 
   useEffect(() => {
     refreshStatus();

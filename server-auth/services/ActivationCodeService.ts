@@ -288,6 +288,8 @@ export interface UnbindResult {
   alreadyUnbound?: boolean;
   lastUnboundAt?: number;
   code?: string;
+  // 当前持有授权的卡密明文，解绑成功后回传给客户端展示，供在新设备重新输入
+  activationCode?: string;
   error?: string;
   retryAfterMs?: number;
   httpStatus?: number;
@@ -320,7 +322,7 @@ export function unbindCode(token: string, deviceFingerprint: string, ip?: string
     // 该码已无绑定：幂等成功；若该码仍绑定着别的指纹则是身份不匹配
     const anyBinding = db.prepare('SELECT 1 FROM device_bindings WHERE activation_code_id = ?').get(codeId);
     if (!anyBinding) {
-      return { success: true, alreadyUnbound: true, lastUnboundAt: codeRow.last_unbound_at };
+      return { success: true, alreadyUnbound: true, lastUnboundAt: codeRow.last_unbound_at, activationCode: codeRow.code };
     }
     return { success: false, code: 'FINGERPRINT_MISMATCH', error: '设备与绑定不匹配', httpStatus: 403 };
   }
@@ -357,9 +359,9 @@ export function unbindCode(token: string, deviceFingerprint: string, ip?: string
   }
 
   if (!deleted) {
-    return { success: true, alreadyUnbound: true, lastUnboundAt: codeRow.last_unbound_at };
+    return { success: true, alreadyUnbound: true, lastUnboundAt: codeRow.last_unbound_at, activationCode: codeRow.code };
   }
-  return { success: true, lastUnboundAt: now };
+  return { success: true, lastUnboundAt: now, activationCode: codeRow.code };
 }
 
 export function markCodeRebindable(id: number): { success: boolean; code?: string; error?: string } {

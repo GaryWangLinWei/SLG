@@ -51,7 +51,7 @@ router.post('/unbind', async (ctx) => {
   if (result.success || result.status === 401) {
     try { remoteClient.stop(); } catch { /* ignore */ }
     await licenseService.deactivate();
-    ctx.body = { success: true, alreadyUnbound: result.alreadyUnbound };
+    ctx.body = { success: true, alreadyUnbound: result.alreadyUnbound, activationCode: result.activationCode };
     return;
   }
 
