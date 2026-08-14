@@ -64,6 +64,12 @@ describe('parseCountdown', () => {
     expect(parseCountdown('5h02:33:31')).toBe(9211);
   });
 
+  it('strips a numeric prefix garbled from "剩余" label (e.g. 68:02:10:32)', () => {
+    // 队列倒计时上方的"剩余"被 OCR 误识成 "68"，与真正的 02:10:32 粘连成 4 段。
+    // 应取末尾完整 H:MM:SS → 2h10m32s = 7832，而不是因 68 时非法判为空闲。
+    expect(parseCountdown('68:02:10:32')).toBe(2 * 3600 + 10 * 60 + 32);
+  });
+
   it('returns null for non-numeric text', () => {
     expect(parseCountdown('空闲')).toBeNull();
     expect(parseCountdown('已完成')).toBeNull();

@@ -35,14 +35,16 @@ export function parseCountdown(text: string): number | null {
     days = parseInt(dayMatch[1], 10);
   }
 
-  // 提取最后一个 H:MM:SS（带秒）。分、秒位必须恰好两位（游戏倒计时恒补零），
-  // 用最后一个匹配，避免前面粘连的杂讯数字污染。
-  const hmsMatches = [...t.matchAll(/(\d{1,3}):(\d{2}):(\d{2})(?!\d)/g)];
-  if (hmsMatches.length > 0) {
-    const m = hmsMatches[hmsMatches.length - 1];
-    let h = parseInt(m[1], 10);
-    const mm = parseInt(m[2], 10);
-    const ss = parseInt(m[3], 10);
+  // 提取末尾的 H:MM:SS（带秒）。分、秒位必须恰好两位（游戏倒计时恒补零）。
+  // 锚定字符串末尾取最后一个完整时间，避免前缀杂讯污染。例如游戏里"剩余"两字
+  // 可能被 OCR 误识成 "68"，与倒计时粘连成 "68:02:10:32"——真正的时间是末尾的
+  // "02:10:32"。若用全局 matchAll 取最后匹配，"68:02:10" 会抢先匹配并消费掉
+  // 字符，导致 "02:10:32" 无法匹配而误判为空闲，因此必须锚定末尾。
+  const hmsMatch = t.match(/(\d{1,3}):(\d{2}):(\d{2})(?!\d)([^\d]*)$/);
+  if (hmsMatch) {
+    let h = parseInt(hmsMatch[1], 10);
+    const mm = parseInt(hmsMatch[2], 10);
+    const ss = parseInt(hmsMatch[3], 10);
     // 小时字段 >23 通常是"1天01"被粘连成"101"（"天"被识别成冒号/丢失），
     // 此时前导位是天数，末两位是小时。例如：
     //   "1天01:30:14" → "2:101:30:14" / ":101:14:45"
