@@ -79,6 +79,35 @@ function initTables() {
     database.exec(`ALTER TABLE activation_codes ADD COLUMN tier TEXT NOT NULL DEFAULT 'basic'`);
   } catch { /* 字段已存在，忽略 */ }
 
+  // 自助换机：记录码最近一次解绑时间（NULL = 从未解绑/续费砖码）
+  try {
+    database.exec(`ALTER TABLE activation_codes ADD COLUMN last_unbound_at INTEGER`);
+  } catch { /* 字段已存在，忽略 */ }
+
+  // 解绑审计表（source: user 用户自助 / admin 管理员操作）
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS unbind_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      activation_code_id INTEGER NOT NULL,
+      device_fingerprint TEXT NOT NULL,
+      source TEXT NOT NULL,
+      ip_address TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (activation_code_id) REFERENCES activation_codes(id)
+    )
+  `);
+  database.exec(`CREATE INDEX IF NOT EXISTS idx_unbind_logs_code ON unbind_logs(activation_code_id)`);
+
+  // 兜底：一个激活码至多一行绑定。套 try/catch，若生产库存在历史重复绑定，
+  // 打印明确提示但不让启动崩溃；部署前需先跑查重 SQL 清理。
+  try {
+    database.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_bindings_single_code ON device_bindings(activation_code_id)`);
+  } catch (e) {
+    console.error('[DB] 无法建立 idx_bindings_single_code：可能存在历史重复绑定，请先执行\n' +
+      'SELECT activation_code_id, COUNT(*) FROM device_bindings GROUP BY activation_code_id HAVING COUNT(*)>1;\n' +
+      '清理后重启。错误:', (e as Error).message);
+  }
+
   // 远程控制 - 验证码表
   database.exec(`
     CREATE TABLE IF NOT EXISTS remote_codes (
