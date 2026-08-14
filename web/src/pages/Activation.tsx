@@ -199,7 +199,7 @@ export default function ActivationPage() {
 
           <div className="mt-6 pt-6 border-t border-slate-100">
             <p className="text-slate-400 text-xs text-center">
-              激活后将绑定到当前设备，不可转移
+              激活后绑定当前设备，每 30 天可解绑换机一次
               <br />
               支持离线使用 24 小时
             </p>
