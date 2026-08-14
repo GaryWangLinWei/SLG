@@ -11,6 +11,7 @@ import MobilePage from './pages/Mobile';
 import { AccountProvider } from './contexts/AccountContext';
 import { LicenseProvider, useLicense } from './contexts/LicenseContext';
 import { editionCapabilities } from './edition';
+import { UnbindMenu } from './components/UnbindMenu';
 
 function RemainingTime({ expiresAt, trustedNow }: { expiresAt: number; trustedNow?: number }) {
   // 以服务端可信时间为基准，用浏览器单调时钟 performance.now() 推进倒计时，
@@ -204,15 +205,7 @@ function NavBar() {
         {/* License status */}
         {status?.activated && status.expiresAt && (
           <>
-            {status.tier === 'pro' ? (
-              <span className="bg-amber-100 text-amber-600 px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" /> Pro 版
-              </span>
-            ) : (
-              <span className="bg-emerald-100 text-emerald-500 px-2.5 py-1 rounded-full text-xs font-semibold flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" /> 基础版
-              </span>
-            )}
+            <UnbindMenu expiresAt={status.expiresAt} trustedNow={status.trustedNow} />
             <RemainingTime expiresAt={status.expiresAt} trustedNow={status.trustedNow} />
             <button
               onClick={() => syncStatus()}
