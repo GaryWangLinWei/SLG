@@ -9,6 +9,7 @@ export interface LicenseStatus {
   graceRemainingMinutes?: number;
   deviceFingerprint?: string;
   tier?: 'basic' | 'pro';
+  lastUnboundAt?: number;
   fingerprintMismatch?: boolean;
   storedFingerprint?: string;
   clockRollback?: boolean; // 检测到本地时钟回拨
@@ -25,6 +26,7 @@ interface LicenseContextType {
   activate: (code: string, inviteCode?: string) => Promise<{ success: boolean; error?: string; inviteBonus?: boolean; inviteError?: string; inviterBonusDays?: number; inviteeBonusDays?: number }>;
   preview: (code: string) => Promise<{ success: boolean; durationDays?: number; tier?: 'basic' | 'pro'; error?: string }>;
   deactivate: () => Promise<void>;
+  unbind: () => Promise<void>;
   refreshStatus: () => Promise<void>;
   syncStatus: () => Promise<void>;   // 手动心跳同步
   clearActivateError: () => void;  // 清除激活错误
@@ -113,6 +115,17 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
     }
   }, [refreshStatus]);
 
+  const unbind = useCallback(async () => {
+    try {
+      setLoading(true);
+      // 非 2xx 会抛 ApiError，错误体在 e.data，由 UI 弹窗读取
+      await api.license.unbind();
+      await refreshStatus();
+    } finally {
+      setLoading(false);
+    }
+  }, [refreshStatus]);
+
   useEffect(() => {
     refreshStatus();
     // 每10分钟刷新一次状态
@@ -135,7 +148,7 @@ export function LicenseProvider({ children }: { children: ReactNode }) {
   }, [clockRollback, syncStatus]);
 
   return (
-    <LicenseContext.Provider value={{ status, loading, error, activateError, expiredMessage, setExpiredMessage, activate, preview, deactivate, refreshStatus, syncStatus, clearActivateError }}>
+    <LicenseContext.Provider value={{ status, loading, error, activateError, expiredMessage, setExpiredMessage, activate, preview, deactivate, unbind, refreshStatus, syncStatus, clearActivateError }}>
       {children}
     </LicenseContext.Provider>
   );

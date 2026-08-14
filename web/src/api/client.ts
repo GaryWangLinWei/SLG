@@ -191,7 +191,7 @@ export const api = {
 
   license: {
     getStatus: () =>
-      request<{ success: boolean; status: { activated: boolean; expiresAt?: number; isExpired: boolean; isOffline: boolean; clockRollback?: boolean; trustedNow?: number; graceRemainingMinutes?: number; deviceFingerprint?: string; tier?: 'basic' | 'pro' } }>('/license/status'),
+      request<{ success: boolean; status: { activated: boolean; expiresAt?: number; isExpired: boolean; isOffline: boolean; clockRollback?: boolean; trustedNow?: number; graceRemainingMinutes?: number; deviceFingerprint?: string; tier?: 'basic' | 'pro'; lastUnboundAt?: number } }>('/license/status'),
     activate: (code: string, inviteCode?: string) =>
       request<{ success: boolean; error?: string; expiresAt?: number; tier?: 'basic' | 'pro'; inviteBonus?: boolean; inviteError?: string; inviterBonusDays?: number; inviteeBonusDays?: number }>('/license/activate', {
         method: 'POST',
@@ -204,6 +204,8 @@ export const api = {
       }),
     deactivate: () =>
       request<{ success: boolean }>('/license/deactivate', { method: 'POST' }),
+    unbind: () =>
+      request<{ success: boolean; alreadyUnbound?: boolean }>('/license/unbind', { method: 'POST' }),
     heartbeat: () =>
       request<{ success: boolean; expiresAt?: number }>('/license/heartbeat', { method: 'POST' })
   }
