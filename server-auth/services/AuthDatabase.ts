@@ -108,6 +108,16 @@ function initTables() {
       '清理后重启。错误:', (e as Error).message);
   }
 
+  // 兜底：一台设备至多一行绑定（一码一机的另一半不变量）。重绑走显式 INSERT，
+  // 依赖此唯一索引在并发下兜底；历史重复同样 try/catch 不让启动崩溃。
+  try {
+    database.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_bindings_single_device ON device_bindings(device_fingerprint)`);
+  } catch (e) {
+    console.error('[DB] 无法建立 idx_bindings_single_device：可能存在历史重复绑定，请先执行\n' +
+      'SELECT device_fingerprint, COUNT(*) FROM device_bindings GROUP BY device_fingerprint HAVING COUNT(*)>1;\n' +
+      '清理后重启。错误:', (e as Error).message);
+  }
+
   // 远程控制 - 验证码表
   database.exec(`
     CREATE TABLE IF NOT EXISTS remote_codes (

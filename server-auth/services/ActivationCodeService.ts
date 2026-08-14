@@ -199,10 +199,15 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
     if (deviceBinding) {
       return { success: false, code: 'DEVICE_ALREADY_BOUND', error: '该设备已绑定其他激活码' };
     }
-    db.prepare(`
-      INSERT INTO device_bindings (activation_code_id, device_fingerprint, bound_at, last_heartbeat_at)
-      VALUES (?, ?, ?, ?)
-    `).run(activationCode.id, deviceFingerprint, now, now);
+    try {
+      db.prepare(`
+        INSERT INTO device_bindings (activation_code_id, device_fingerprint, bound_at, last_heartbeat_at)
+        VALUES (?, ?, ?, ?)
+      `).run(activationCode.id, deviceFingerprint, now, now);
+    } catch {
+      // 唯一索引冲突：并发重绑到同一台设备 / 同一码，或其他约束冲突
+      return { success: false, code: 'DEVICE_ALREADY_BOUND', error: '该设备已绑定其他激活码' };
+    }
     return {
       success: true,
       expiresAt: activationCode.expires_at,
