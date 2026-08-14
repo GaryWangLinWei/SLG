@@ -138,14 +138,45 @@ test('unbindCode enforces 30-day cooldown', () => {
   void code;
 });
 
-test('unbindCode is idempotent when already unbound', () => {
+test('unbindCode is idempotent when already unbound, returns prior lastUnboundAt', () => {
   const future = Date.now() + 10 * 86400000;
   const { id } = makeUsedCode('idem-dev', future);
   const token = generateToken(id);
-  unbindCode(token, 'idem-dev');
+  const first = unbindCode(token, 'idem-dev');
+  const recorded = (getDb().prepare('SELECT last_unbound_at FROM activation_codes WHERE id=?').get(id) as any).last_unbound_at;
+  expect(first.lastUnboundAt).toBe(recorded);
+
   const again = unbindCode(token, 'idem-dev');
   expect(again.success).toBe(true);
   expect(again.alreadyUnbound).toBe(true);
+  expect(again.lastUnboundAt).toBe(recorded);
+  // 幂等不应重复写审计
+  expect(getDb().prepare('SELECT COUNT(*) n FROM unbind_logs WHERE activation_code_id=?').get(id)).toEqual({ n: 1 });
+});
+
+test('unbindCode stores NULL ip when ip omitted', () => {
+  const future = Date.now() + 10 * 86400000;
+  const { id } = makeUsedCode('noip-dev', future);
+  const res = unbindCode(generateToken(id), 'noip-dev');
+  expect(res.success).toBe(true);
+  const log = getDb().prepare('SELECT ip_address FROM unbind_logs WHERE activation_code_id=?').get(id) as any;
+  expect(log.ip_address).toBeNull();
+});
+
+test('unbindCode rejects invalid token with INVALID_TOKEN 401', () => {
+  const res = unbindCode('not-a-real-token', 'whatever-dev');
+  expect(res.success).toBe(false);
+  expect(res.code).toBe('INVALID_TOKEN');
+  expect(res.httpStatus).toBe(401);
+});
+
+test('unbindCode rejects expired code', () => {
+  const past = Date.now() - 86400000;
+  const { id } = makeUsedCode('exp-dev', past);
+  const res = unbindCode(generateToken(id), 'exp-dev');
+  expect(res.success).toBe(false);
+  expect(res.code).toBe('CODE_EXPIRED');
+  expect(res.httpStatus).toBe(409);
 });
 
 test('unbindCode rejects fingerprint mismatch with 403 code', () => {

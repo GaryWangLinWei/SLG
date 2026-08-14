@@ -4,6 +4,15 @@ import { verifyAndHeartbeat, generateToken } from '../services/HeartbeatService'
 
 const router = new Router({ prefix: '/api/auth' });
 
+const ACTIVATE_STATUS_BY_CODE: Record<string, number> = {
+  CODE_NOT_FOUND: 404,
+  CODE_REVOKED: 409,
+  CODE_BOUND_OTHER_DEVICE: 409,
+  CODE_NOT_REBINDABLE: 409,
+  DEVICE_ALREADY_BOUND: 409,
+  CODE_EXPIRED: 409,
+};
+
 router.post('/activate', async (ctx) => {
   const { code, fingerprint, inviteCode } = ctx.request.body as { code?: string; fingerprint?: string; inviteCode?: string };
 
@@ -15,15 +24,7 @@ router.post('/activate', async (ctx) => {
 
   const result = useCode(code, fingerprint);
   if (!result.success) {
-    const STATUS_BY_CODE: Record<string, number> = {
-      CODE_NOT_FOUND: 404,
-      CODE_REVOKED: 409,
-      CODE_BOUND_OTHER_DEVICE: 409,
-      CODE_NOT_REBINDABLE: 409,
-      DEVICE_ALREADY_BOUND: 409,
-      CODE_EXPIRED: 409,
-    };
-    ctx.status = result.code ? (STATUS_BY_CODE[result.code] ?? 400) : 400;
+    ctx.status = result.code ? (ACTIVATE_STATUS_BY_CODE[result.code] ?? 400) : 400;
     ctx.body = result;
     return;
   }

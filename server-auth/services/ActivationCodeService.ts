@@ -300,11 +300,11 @@ export function unbindCode(token: string, deviceFingerprint: string, ip?: string
     return { success: false, code: 'INVALID_TOKEN', error: '登录状态无效，请重新激活', httpStatus: 401 };
   }
 
-  const code = db.prepare('SELECT * FROM activation_codes WHERE id = ?').get(codeId) as ActivationCode | undefined;
-  if (!code) return { success: false, code: 'CODE_NOT_FOUND', error: '激活码不存在', httpStatus: 404 };
-  if (code.status !== 'used') return { success: false, code: 'CODE_NOT_USED', error: '激活码未处于使用状态', httpStatus: 409 };
-  if (code.type === 'trial') return { success: false, code: 'TRIAL_CODE', error: '试用码不可解绑换机', httpStatus: 409 };
-  if (code.expires_at && code.expires_at <= Date.now()) {
+  const codeRow = db.prepare('SELECT * FROM activation_codes WHERE id = ?').get(codeId) as ActivationCode | undefined;
+  if (!codeRow) return { success: false, code: 'CODE_NOT_FOUND', error: '激活码不存在', httpStatus: 404 };
+  if (codeRow.status !== 'used') return { success: false, code: 'CODE_NOT_USED', error: '激活码未处于使用状态', httpStatus: 409 };
+  if (codeRow.type === 'trial') return { success: false, code: 'TRIAL_CODE', error: '试用码不可解绑换机', httpStatus: 409 };
+  if (codeRow.expires_at && codeRow.expires_at <= Date.now()) {
     return { success: false, code: 'CODE_EXPIRED', error: '许可证已过期', httpStatus: 409 };
   }
 
@@ -316,39 +316,45 @@ export function unbindCode(token: string, deviceFingerprint: string, ip?: string
     // 该码已无绑定：幂等成功；若该码仍绑定着别的指纹则是身份不匹配
     const anyBinding = db.prepare('SELECT 1 FROM device_bindings WHERE activation_code_id = ?').get(codeId);
     if (!anyBinding) {
-      return { success: true, alreadyUnbound: true, lastUnboundAt: code.last_unbound_at };
+      return { success: true, alreadyUnbound: true, lastUnboundAt: codeRow.last_unbound_at };
     }
     return { success: false, code: 'FINGERPRINT_MISMATCH', error: '设备与绑定不匹配', httpStatus: 403 };
   }
 
-  // 冷却检查放事务内
   const now = Date.now();
-  if (code.last_unbound_at && now - code.last_unbound_at < UNBIND_COOLDOWN_MS) {
+  if (codeRow.last_unbound_at && now - codeRow.last_unbound_at < UNBIND_COOLDOWN_MS) {
     return {
       success: false, code: 'COOLDOWN_ACTIVE', error: '30 天内只能解绑一次', httpStatus: 429,
-      retryAfterMs: UNBIND_COOLDOWN_MS - (now - code.last_unbound_at),
+      retryAfterMs: UNBIND_COOLDOWN_MS - (now - codeRow.last_unbound_at),
     };
   }
 
-  const transaction = db.transaction(() => {
-    const del = db.prepare('DELETE FROM device_bindings WHERE activation_code_id = ?').run(codeId);
-    if (del.changes === 0) throw new Error('NO_BINDING');
-    db.prepare('UPDATE activation_codes SET last_unbound_at = ? WHERE id = ?').run(now, codeId);
-    for (const table of ['remote_devices', 'remote_sessions', 'remote_logs', 'remote_codes']) {
-      db.prepare(`DELETE FROM ${table} WHERE device_id = ?`).run(deviceFingerprint);
-    }
-    db.prepare(`
-      INSERT INTO unbind_logs (activation_code_id, device_fingerprint, source, ip_address, created_at)
-      VALUES (?, ?, 'user', ?, ?)
-    `).run(codeId, deviceFingerprint, ip || null, now);
-  });
-
+  let deleted = false;
   try {
-    transaction();
+    db.transaction(() => {
+      // 同一 better-sqlite3 进程内检查与删除同步执行；WHERE 同时带 code_id 与指纹，
+      // 跨进程竞争下若绑定已被删则 changes=0，按幂等成功处理，不重复写时间/审计。
+      const del = db.prepare('DELETE FROM device_bindings WHERE activation_code_id = ? AND device_fingerprint = ?')
+        .run(codeId, deviceFingerprint);
+      if (del.changes === 0) return;
+      deleted = true;
+      db.prepare('UPDATE activation_codes SET last_unbound_at = ? WHERE id = ?').run(now, codeId);
+      for (const table of ['remote_devices', 'remote_sessions', 'remote_logs', 'remote_codes']) {
+        db.prepare(`DELETE FROM ${table} WHERE device_id = ?`).run(deviceFingerprint);
+      }
+      db.prepare(`
+        INSERT INTO unbind_logs (activation_code_id, device_fingerprint, source, ip_address, created_at)
+        VALUES (?, ?, 'user', ?, ?)
+      `).run(codeId, deviceFingerprint, ip || null, now);
+    })();
   } catch (e) {
-    return { success: false, code: 'UNBIND_FAILED', error: (e as Error).message, httpStatus: 409 };
+    console.error('[unbind] transaction failed:', e);
+    return { success: false, code: 'UNBIND_FAILED', error: '解绑失败，请稍后重试', httpStatus: 409 };
   }
 
+  if (!deleted) {
+    return { success: true, alreadyUnbound: true, lastUnboundAt: codeRow.last_unbound_at };
+  }
   return { success: true, lastUnboundAt: now };
 }
 
