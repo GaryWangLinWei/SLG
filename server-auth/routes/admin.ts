@@ -125,7 +125,7 @@ router.patch('/codes/:id', async (ctx) => {
   if (markRebindable) {
     const r = markCodeRebindable(id);
     if (!r.success) {
-      ctx.status = r.code === 'MARKREBIND_STILL_BOUND' ? 409 : 400;
+      ctx.status = r.code === 'MARKREBIND_STILL_BOUND' ? 409 : r.code === 'CODE_NOT_FOUND' ? 404 : 400;
       ctx.body = { success: false, code: r.code, error: r.error };
       return;
     }
