@@ -1,5 +1,5 @@
 import Router from 'koa-router';
-import { useCode, processInviteCode } from '../services/ActivationCodeService';
+import { useCode, processInviteCode, unbindCode } from '../services/ActivationCodeService';
 import { verifyAndHeartbeat, generateToken } from '../services/HeartbeatService';
 
 const router = new Router({ prefix: '/api/auth' });
@@ -15,7 +15,15 @@ router.post('/activate', async (ctx) => {
 
   const result = useCode(code, fingerprint);
   if (!result.success) {
-    ctx.status = 400;
+    const STATUS_BY_CODE: Record<string, number> = {
+      CODE_NOT_FOUND: 404,
+      CODE_REVOKED: 409,
+      CODE_BOUND_OTHER_DEVICE: 409,
+      CODE_NOT_REBINDABLE: 409,
+      DEVICE_ALREADY_BOUND: 409,
+      CODE_EXPIRED: 409,
+    };
+    ctx.status = result.code ? (STATUS_BY_CODE[result.code] ?? 400) : 400;
     ctx.body = result;
     return;
   }
@@ -23,7 +31,7 @@ router.post('/activate', async (ctx) => {
   // Get code ID from database (use returned code for trial codes)
   const db = (await import('../services/AuthDatabase')).getDb();
   const lookupCode = result.code || code;
-  const codeRow = db.prepare('SELECT id FROM activation_codes WHERE code = ?').get(lookupCode) as any;
+  const codeRow = db.prepare('SELECT id, last_unbound_at FROM activation_codes WHERE code = ?').get(lookupCode) as any;
 
   // Generate JWT
   const token = generateToken(codeRow.id);
@@ -51,6 +59,7 @@ router.post('/activate', async (ctx) => {
     expiresAt: inviteeBonusDays ? (result.expiresAt || 0) + inviteeBonusDays * 86400000 : result.expiresAt,
     serverNow: Date.now(),
     tier: result.tier || 'basic',
+    lastUnboundAt: codeRow?.last_unbound_at ?? null,
     ...(inviteBonus ? { inviteBonus, inviterBonusDays, inviteeBonusDays } : {}),
     ...(inviteError ? { inviteError } : {})
   };
@@ -119,6 +128,33 @@ router.get('/my-invite-code', async (ctx) => {
   }
 
   ctx.body = { success: true, code: row?.code || null };
+});
+
+router.post('/unbind', async (ctx) => {
+  const authHeader = ctx.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    ctx.status = 401;
+    ctx.body = { success: false, code: 'INVALID_TOKEN', error: '未授权' };
+    return;
+  }
+  const token = authHeader.substring(7);
+  const { fingerprint } = ctx.request.body as { fingerprint?: string };
+  if (!fingerprint) {
+    ctx.status = 400;
+    ctx.body = { success: false, code: 'BAD_REQUEST', error: '缺少设备指纹' };
+    return;
+  }
+
+  const result = unbindCode(token, fingerprint, ctx.ip || ctx.request.ip);
+  if (result.success) {
+    if (!result.alreadyUnbound) {
+      // TODO(task5): webSocketHub.kick after success
+    }
+    ctx.body = result;
+    return;
+  }
+  ctx.status = result.httpStatus || 400;
+  ctx.body = result;
 });
 
 export default router;

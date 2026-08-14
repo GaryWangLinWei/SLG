@@ -7,6 +7,8 @@ process.env.DB_PATH = path.join(tempDir, 'auth.db');
 
 import { getDb, closeDb } from './AuthDatabase';
 import { useCode, generateCodes } from './ActivationCodeService';
+import { generateToken } from './HeartbeatService';
+import { unbindCode } from './ActivationCodeService';
 
 afterAll(() => { closeDb(); fs.rmSync(tempDir, { recursive: true, force: true }); });
 
@@ -97,4 +99,73 @@ test('unique index prevents two codes binding the same device (concurrent rebind
   expect(res.success).toBe(false);
   expect(res.code).toBe('DEVICE_ALREADY_BOUND');
   expect(db.prepare('SELECT COUNT(*) n FROM device_bindings WHERE device_fingerprint=?').get('target-device')).toEqual({ n: 1 });
+});
+
+test('unbindCode deletes binding, sets last_unbound_at, writes audit, clears remote_*', () => {
+  const future = Date.now() + 10 * 86400000;
+  const { id } = makeUsedCode('unbind-dev', future);
+  const db = getDb();
+  db.prepare('INSERT INTO remote_devices (device_id, short_id, password_hash, salt, activation_code, updated_at) VALUES (?,?,?,?,?,?)')
+    .run('unbind-dev', 's1', 'h', 's', 'unbind-dev', Date.now());
+
+  const token = generateToken(id);
+  const res = unbindCode(token, 'unbind-dev', '1.2.3.4');
+  expect(res.success).toBe(true);
+
+  const code = db.prepare('SELECT last_unbound_at FROM activation_codes WHERE id=?').get(id) as any;
+  expect(code.last_unbound_at).not.toBeNull();
+  expect(db.prepare('SELECT COUNT(*) n FROM device_bindings WHERE activation_code_id=?').get(id)).toEqual({ n: 0 });
+  expect(db.prepare('SELECT COUNT(*) n FROM remote_devices WHERE device_id=?').get('unbind-dev')).toEqual({ n: 0 });
+  const log = db.prepare('SELECT source, ip_address FROM unbind_logs WHERE activation_code_id=?').get(id) as any;
+  expect(log.source).toBe('user');
+  expect(log.ip_address).toBe('1.2.3.4');
+});
+
+test('unbindCode enforces 30-day cooldown', () => {
+  const future = Date.now() + 10 * 86400000;
+  const { id, code } = makeUsedCode('cd-dev', future);
+  const db = getDb();
+  const token = generateToken(id);
+  unbindCode(token, 'cd-dev');
+  // 重新绑定到原设备以模拟"解绑→重绑"
+  db.prepare('INSERT INTO device_bindings (activation_code_id, device_fingerprint, bound_at, last_heartbeat_at) VALUES (?,?,?,?)')
+    .run(id, 'cd-dev', Date.now(), Date.now());
+
+  const res = unbindCode(token, 'cd-dev');
+  expect(res.success).toBe(false);
+  expect(res.code).toBe('COOLDOWN_ACTIVE');
+  expect(res.retryAfterMs).toBeGreaterThan(29 * 86400000);
+  void code;
+});
+
+test('unbindCode is idempotent when already unbound', () => {
+  const future = Date.now() + 10 * 86400000;
+  const { id } = makeUsedCode('idem-dev', future);
+  const token = generateToken(id);
+  unbindCode(token, 'idem-dev');
+  const again = unbindCode(token, 'idem-dev');
+  expect(again.success).toBe(true);
+  expect(again.alreadyUnbound).toBe(true);
+});
+
+test('unbindCode rejects fingerprint mismatch with 403 code', () => {
+  const future = Date.now() + 10 * 86400000;
+  const { id } = makeUsedCode('real-dev', future);
+  const token = generateToken(id);
+  const res = unbindCode(token, 'attacker-dev');
+  expect(res.success).toBe(false);
+  expect(res.code).toBe('FINGERPRINT_MISMATCH');
+});
+
+test('unbindCode rejects trial code', () => {
+  const now = Date.now();
+  const db = getDb();
+  const r = db.prepare("INSERT INTO activation_codes (code, duration_days, status, type, tier, created_at, used_at, expires_at) VALUES ('TX1',1,'used','trial','basic',?,?,?)")
+    .run(now, now, now + 86400000);
+  const id = Number(r.lastInsertRowid);
+  db.prepare('INSERT INTO device_bindings (activation_code_id, device_fingerprint, bound_at, last_heartbeat_at) VALUES (?,?,?,?)')
+    .run(id, 'trial-dev', now, now);
+  const res = unbindCode(generateToken(id), 'trial-dev');
+  expect(res.success).toBe(false);
+  expect(res.code).toBe('TRIAL_CODE');
 });

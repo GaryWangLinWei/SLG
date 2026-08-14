@@ -8,6 +8,7 @@ export interface HeartbeatResult {
   expiresAt?: number;
   serverNow?: number;
   tier?: 'basic' | 'pro';
+  lastUnboundAt?: number | null;
   error?: string;
 }
 
@@ -57,7 +58,7 @@ export function verifyAndHeartbeat(token: string, deviceFingerprint: string, ip?
     db.prepare('UPDATE device_bindings SET last_heartbeat_at = ? WHERE id = ?').run(now, binding.id);
     db.prepare('INSERT INTO heartbeat_logs (activation_code_id, device_fingerprint, heartbeat_at, ip_address) VALUES (?, ?, ?, ?)').run(codeId, deviceFingerprint, now, ip);
 
-    return { success: true, valid: true, expiresAt: code.expires_at, serverNow: now, tier: code.tier || 'basic' };
+    return { success: true, valid: true, expiresAt: code.expires_at, serverNow: now, tier: code.tier || 'basic', lastUnboundAt: code.last_unbound_at ?? null };
   } catch (e: any) {
     if (e.name === 'TokenExpiredError') {
       return { success: false, error: 'Token已过期' };

@@ -1,5 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { getDb } from './AuthDatabase';
+import { CONFIG } from '../config';
+import { verifyTokenWithRotation } from './HeartbeatService';
 
 export interface ActivationCode {
   id: number;
@@ -273,6 +275,81 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
   } catch (e: any) {
     return { success: false, error: e.message };
   }
+}
+
+const UNBIND_COOLDOWN_MS = 30 * 24 * 60 * 60 * 1000;
+
+export interface UnbindResult {
+  success: boolean;
+  alreadyUnbound?: boolean;
+  lastUnboundAt?: number;
+  code?: string;
+  error?: string;
+  retryAfterMs?: number;
+  httpStatus?: number;
+}
+
+export function unbindCode(token: string, deviceFingerprint: string, ip?: string): UnbindResult {
+  const db = getDb();
+
+  let codeId: number;
+  try {
+    const decoded = verifyTokenWithRotation(token, CONFIG.JWT_SECRET, CONFIG.JWT_SECRET_LEGACY || undefined) as { codeId: number };
+    codeId = decoded.codeId;
+  } catch {
+    return { success: false, code: 'INVALID_TOKEN', error: '登录状态无效，请重新激活', httpStatus: 401 };
+  }
+
+  const code = db.prepare('SELECT * FROM activation_codes WHERE id = ?').get(codeId) as ActivationCode | undefined;
+  if (!code) return { success: false, code: 'CODE_NOT_FOUND', error: '激活码不存在', httpStatus: 404 };
+  if (code.status !== 'used') return { success: false, code: 'CODE_NOT_USED', error: '激活码未处于使用状态', httpStatus: 409 };
+  if (code.type === 'trial') return { success: false, code: 'TRIAL_CODE', error: '试用码不可解绑换机', httpStatus: 409 };
+  if (code.expires_at && code.expires_at <= Date.now()) {
+    return { success: false, code: 'CODE_EXPIRED', error: '许可证已过期', httpStatus: 409 };
+  }
+
+  const binding = db.prepare(
+    'SELECT * FROM device_bindings WHERE activation_code_id = ? AND device_fingerprint = ?'
+  ).get(codeId, deviceFingerprint) as any;
+
+  if (!binding) {
+    // 该码已无绑定：幂等成功；若该码仍绑定着别的指纹则是身份不匹配
+    const anyBinding = db.prepare('SELECT 1 FROM device_bindings WHERE activation_code_id = ?').get(codeId);
+    if (!anyBinding) {
+      return { success: true, alreadyUnbound: true, lastUnboundAt: code.last_unbound_at };
+    }
+    return { success: false, code: 'FINGERPRINT_MISMATCH', error: '设备与绑定不匹配', httpStatus: 403 };
+  }
+
+  // 冷却检查放事务内
+  const now = Date.now();
+  if (code.last_unbound_at && now - code.last_unbound_at < UNBIND_COOLDOWN_MS) {
+    return {
+      success: false, code: 'COOLDOWN_ACTIVE', error: '30 天内只能解绑一次', httpStatus: 429,
+      retryAfterMs: UNBIND_COOLDOWN_MS - (now - code.last_unbound_at),
+    };
+  }
+
+  const transaction = db.transaction(() => {
+    const del = db.prepare('DELETE FROM device_bindings WHERE activation_code_id = ?').run(codeId);
+    if (del.changes === 0) throw new Error('NO_BINDING');
+    db.prepare('UPDATE activation_codes SET last_unbound_at = ? WHERE id = ?').run(now, codeId);
+    for (const table of ['remote_devices', 'remote_sessions', 'remote_logs', 'remote_codes']) {
+      db.prepare(`DELETE FROM ${table} WHERE device_id = ?`).run(deviceFingerprint);
+    }
+    db.prepare(`
+      INSERT INTO unbind_logs (activation_code_id, device_fingerprint, source, ip_address, created_at)
+      VALUES (?, ?, 'user', ?, ?)
+    `).run(codeId, deviceFingerprint, ip || null, now);
+  });
+
+  try {
+    transaction();
+  } catch (e) {
+    return { success: false, code: 'UNBIND_FAILED', error: (e as Error).message, httpStatus: 409 };
+  }
+
+  return { success: true, lastUnboundAt: now };
 }
 
 export function getStats(): {
