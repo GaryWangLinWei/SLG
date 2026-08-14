@@ -10,6 +10,9 @@ const TEMPLATE_DIR = getTemplatesDir();
 
 export type UpgradeResult = 'success' | 'busy' | 'not_found' | 'no_upgrade_button' | 'lack_resources';
 
+// 前置建筑链最大跳转层数，超过则放弃，防止异常界面/识别错误导致死循环
+const MAX_PREREQUISITE_DEPTH = 5;
+
 export async function upgradeSingleBuilding(
   ctx: PluginContext,
   config: RokConfig,
@@ -29,29 +32,57 @@ export async function upgradeSingleBuilding(
   // Step 1: Drag building to center, then tap
   await swipeBuildingToCenter(ctx, pos, targetBuilding);
 
-  // Step 2: Find and tap popup upgrade button
+  // Step 2 + 3: 点建筑弹出菜单的"升级"→ 详情页"升级"。
+  // 若详情页找不到升级按钮，说明有前置建筑未达标：识别"前置"按钮并点击前往，
+  // 游戏会自动定位并选中前置建筑，随后回到 Step 2 重新走升级流程。
+  // 最多沿前置链跳转 MAX_PREREQUISITE_DEPTH 层，避免异常界面导致死循环。
   const upgradeTemplate = path.join(TEMPLATE_DIR, config.popupUpgradeTemplate);
-  const popup = await ctx.findImageWithLocation(upgradeTemplate, 0.7, [0.7, 0.8, 0.9, 1.0, 1.1]);
-  if (!popup.found) {
-    ctx.log(`  [2/6] ⚠ 未找到升级按钮 (${popup.confidence.toFixed(3)})`);
-    return 'no_upgrade_button';
-  }
-  ctx.log(`  [2/6] 点击升级按钮 (${popup.x}, ${popup.y})`);
-  await ctx.tap(popup.x, popup.y);
-  await ctx.sleep(2);
-
-  // Step 3: Image-recognize and tap detail upgrade button
   const detailUpgradeTemplate = path.join(TEMPLATE_DIR, 'detailUpgradeButton.png');
-  const detail = await ctx.findImageWithLocation(detailUpgradeTemplate, 0.7);
-  if (!detail.found) {
-    ctx.log(`  [3/6] ⚠ 未找到详情升级按钮 (${detail.confidence.toFixed(3)})`);
-    await ctx.tap(config.backButton.x, config.backButton.y);
-    await ctx.sleep(1);
-    return 'no_upgrade_button';
+  const prerequisiteTemplate = path.join(TEMPLATE_DIR, 'btn_qianzhi.png');
+
+  let detail: { found: boolean; x: number; y: number; confidence: number } | null = null;
+  for (let depth = 0; depth <= MAX_PREREQUISITE_DEPTH; depth++) {
+    // Step 2: Find and tap popup upgrade button
+    const popup = await ctx.findImageWithLocation(upgradeTemplate, 0.7, [0.7, 0.8, 0.9, 1.0, 1.1]);
+    if (!popup.found) {
+      ctx.log(`  [2/6] ⚠ 未找到升级按钮 (${popup.confidence.toFixed(3)})`);
+      return 'no_upgrade_button';
+    }
+    ctx.log(`  [2/6] 点击升级按钮 (${popup.x}, ${popup.y})`);
+    await ctx.tap(popup.x, popup.y);
+    await ctx.sleep(2);
+
+    // Step 3: Image-recognize and tap detail upgrade button
+    detail = await ctx.findImageWithLocation(detailUpgradeTemplate, 0.7);
+    if (detail.found) {
+      ctx.log(`  [3/6] 点击详情升级 (${detail.x}, ${detail.y})`);
+      await ctx.tap(detail.x, detail.y);
+      await ctx.sleep(1);
+      break;
+    }
+
+    // 详情页没有升级按钮：尝试识别"前置"按钮
+    ctx.log(`  [3/6] 未找到详情升级按钮 (${detail.confidence.toFixed(3)})，检测前置建筑`);
+    if (depth === MAX_PREREQUISITE_DEPTH) {
+      ctx.log(`  [3/6] ⚠ 前置链已达上限 ${MAX_PREREQUISITE_DEPTH} 层，放弃`);
+      await ctx.tap(config.backButton.x, config.backButton.y);
+      await ctx.sleep(1);
+      return 'no_upgrade_button';
+    }
+
+    const prereq = await ctx.findImageWithLocation(prerequisiteTemplate, 0.7);
+    if (!prereq.found) {
+      ctx.log(`  [3/6] ⚠ 未找到前置按钮 (${prereq.confidence.toFixed(3)})，退出`);
+      await ctx.tap(config.backButton.x, config.backButton.y);
+      await ctx.sleep(1);
+      return 'no_upgrade_button';
+    }
+
+    ctx.log(`  [3/6] 发现前置建筑，点击前往 (${prereq.x}, ${prereq.y})，深度 ${depth + 1}`);
+    await ctx.tap(prereq.x, prereq.y);
+    await ctx.sleep(2);
+    // 游戏已自动定位并选中前置建筑，回到 Step 2 继续升级它
   }
-  ctx.log(`  [3/6] 点击详情升级 (${detail.x}, ${detail.y})`);
-  await ctx.tap(detail.x, detail.y);
-  await ctx.sleep(1);
 
   // ============================================
   // Step 4: Detect result — busy, lack resources, or success
