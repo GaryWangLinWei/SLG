@@ -211,6 +211,16 @@ test('deleteDevice returns real count, writes last_unbound_at and admin audit', 
   expect(code.last_unbound_at).not.toBeNull();
   const log = db.prepare('SELECT source FROM unbind_logs WHERE activation_code_id=?').get(id) as any;
   expect(log.source).toBe('admin');
+  // 绑定确实被删
+  expect(db.prepare('SELECT COUNT(*) n FROM device_bindings WHERE device_fingerprint=?').get('adm-dev')).toEqual({ n: 0 });
+});
+
+test('deleteDevice on unknown fingerprint returns 0 and writes no audit', () => {
+  const before = (getDb().prepare('SELECT COUNT(*) n FROM unbind_logs').get() as any).n;
+  const count = deleteDevice('no-such-device');
+  expect(count).toBe(0);
+  const after = (getDb().prepare('SELECT COUNT(*) n FROM unbind_logs').get() as any).n;
+  expect(after).toBe(before);
 });
 
 test('markCodeRebindable succeeds for used code without binding', () => {
@@ -229,4 +239,22 @@ test('markCodeRebindable rejects code that still has a binding', () => {
   const res = markCodeRebindable(id);
   expect(res.success).toBe(false);
   expect(res.code).toBe('MARKREBIND_STILL_BOUND');
+});
+
+test('markCodeRebindable rejects unused code and unknown id', () => {
+  const db = getDb();
+  const [c] = generateCodes(1, 30, 'basic'); // unused
+  const unusedRes = markCodeRebindable(c.id);
+  expect(unusedRes.success).toBe(false);
+  expect(unusedRes.code).toBe('CODE_NOT_USED');
+
+  const revoked = makeUsedCode('rev-dev', Date.now() + 86400000);
+  db.prepare("UPDATE activation_codes SET status='revoked' WHERE id=?").run(revoked.id);
+  const revokedRes = markCodeRebindable(revoked.id);
+  expect(revokedRes.success).toBe(false);
+  expect(revokedRes.code).toBe('CODE_NOT_USED');
+
+  const missingRes = markCodeRebindable(99999999);
+  expect(missingRes.success).toBe(false);
+  expect(missingRes.code).toBe('CODE_NOT_FOUND');
 });
