@@ -7,8 +7,8 @@ process.env.DB_PATH = path.join(tempDir, 'auth.db');
 
 import { getDb, closeDb } from './AuthDatabase';
 import { useCode, generateCodes } from './ActivationCodeService';
-import { generateToken } from './HeartbeatService';
-import { unbindCode } from './ActivationCodeService';
+import { generateToken, deleteDevice } from './HeartbeatService';
+import { unbindCode, markCodeRebindable } from './ActivationCodeService';
 
 afterAll(() => { closeDb(); fs.rmSync(tempDir, { recursive: true, force: true }); });
 
@@ -199,4 +199,34 @@ test('unbindCode rejects trial code', () => {
   const res = unbindCode(generateToken(id), 'trial-dev');
   expect(res.success).toBe(false);
   expect(res.code).toBe('TRIAL_CODE');
+});
+
+test('deleteDevice returns real count, writes last_unbound_at and admin audit', () => {
+  const future = Date.now() + 10 * 86400000;
+  const { id } = makeUsedCode('adm-dev', future);
+  const count = deleteDevice('adm-dev');
+  expect(count).toBe(1);
+  const db = getDb();
+  const code = db.prepare('SELECT last_unbound_at FROM activation_codes WHERE id=?').get(id) as any;
+  expect(code.last_unbound_at).not.toBeNull();
+  const log = db.prepare('SELECT source FROM unbind_logs WHERE activation_code_id=?').get(id) as any;
+  expect(log.source).toBe('admin');
+});
+
+test('markCodeRebindable succeeds for used code without binding', () => {
+  const future = Date.now() + 10 * 86400000;
+  const { id } = makeUsedCode('brick-dev', future);
+  getDb().prepare('DELETE FROM device_bindings WHERE activation_code_id=?').run(id); // 历史砖码
+  const res = markCodeRebindable(id);
+  expect(res.success).toBe(true);
+  const code = getDb().prepare('SELECT last_unbound_at FROM activation_codes WHERE id=?').get(id) as any;
+  expect(code.last_unbound_at).not.toBeNull();
+});
+
+test('markCodeRebindable rejects code that still has a binding', () => {
+  const future = Date.now() + 10 * 86400000;
+  const { id } = makeUsedCode('bound-dev', future);
+  const res = markCodeRebindable(id);
+  expect(res.success).toBe(false);
+  expect(res.code).toBe('MARKREBIND_STILL_BOUND');
 });

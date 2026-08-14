@@ -1,6 +1,7 @@
 import { getDb } from './AuthDatabase';
 import * as jwt from 'jsonwebtoken';
 import { CONFIG } from '../config';
+import { webSocketHub } from './WebSocketHub';
 
 export interface HeartbeatResult {
   success: boolean;
@@ -125,10 +126,27 @@ export function getActiveDevices(limit: number = 10, offset: number = 0, search?
 
 export function deleteDevice(fingerprint: string): number {
   const db = getDb();
+  // 先收集受影响的码，删除后才能把它们标记为可换机
+  const affected = db.prepare(
+    'SELECT activation_code_id FROM device_bindings WHERE device_fingerprint = ?'
+  ).all(fingerprint) as { activation_code_id: number }[];
+
+  const now = Date.now();
   const transaction = db.transaction(() => {
     db.prepare('DELETE FROM device_bindings WHERE device_fingerprint = ?').run(fingerprint);
     db.prepare('DELETE FROM invitations WHERE invitee_fingerprint = ? OR inviter_fingerprint = ?').run(fingerprint, fingerprint);
+    for (const row of affected) {
+      db.prepare('UPDATE activation_codes SET last_unbound_at = ? WHERE id = ?').run(now, row.activation_code_id);
+      db.prepare(`
+        INSERT INTO unbind_logs (activation_code_id, device_fingerprint, source, ip_address, created_at)
+        VALUES (?, ?, 'admin', NULL, ?)
+      `).run(row.activation_code_id, fingerprint, now);
+    }
   });
   transaction();
-  return 1; // always returns success since it's a cleanup operation
+
+  if (affected.length > 0) {
+    try { webSocketHub.kick(fingerprint); } catch (e) { console.error('[deleteDevice] kick failed:', e); }
+  }
+  return affected.length;
 }

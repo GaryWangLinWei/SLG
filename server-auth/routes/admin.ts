@@ -1,6 +1,6 @@
 import Router from 'koa-router';
 import { CONFIG } from '../config';
-import { generateCodes, getAllCodes, revokeCode, getStats, previewCode, exportCodes, getCodesCount } from '../services/ActivationCodeService';
+import { generateCodes, getAllCodes, revokeCode, getStats, previewCode, exportCodes, getCodesCount, markCodeRebindable } from '../services/ActivationCodeService';
 import { getActiveDevices, deleteDevice } from '../services/HeartbeatService';
 
 const router = new Router({ prefix: '/api/admin' });
@@ -97,10 +97,11 @@ router.patch('/codes/:id', async (ctx) => {
     return;
   }
 
-  const { tier, setDays, setExpiresAt } = ctx.request.body as {
+  const { tier, setDays, setExpiresAt, markRebindable } = ctx.request.body as {
     tier?: 'basic' | 'pro';
     setDays?: number;
     setExpiresAt?: number;
+    markRebindable?: boolean;
   };
 
   if (tier && tier !== 'basic' && tier !== 'pro') {
@@ -121,6 +122,15 @@ router.patch('/codes/:id', async (ctx) => {
     return;
   }
 
+  if (markRebindable) {
+    const r = markCodeRebindable(id);
+    if (!r.success) {
+      ctx.status = r.code === 'MARKREBIND_STILL_BOUND' ? 409 : 400;
+      ctx.body = { success: false, code: r.code, error: r.error };
+      return;
+    }
+  }
+
   const updates: string[] = [];
   const values: any[] = [];
   if (tier) {
@@ -136,16 +146,18 @@ router.patch('/codes/:id', async (ctx) => {
     values.push(newExpiresAt);
   }
 
-  if (updates.length === 0) {
+  if (updates.length === 0 && !markRebindable) {
     ctx.status = 400;
     ctx.body = { success: false, error: '无修改字段' };
     return;
   }
 
-  values.push(id);
-  db.prepare(`UPDATE activation_codes SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  if (updates.length > 0) {
+    values.push(id);
+    db.prepare(`UPDATE activation_codes SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  }
 
-  const updated = db.prepare('SELECT id, code, tier, expires_at FROM activation_codes WHERE id = ?').get(id);
+  const updated = db.prepare('SELECT id, code, tier, expires_at, last_unbound_at FROM activation_codes WHERE id = ?').get(id);
   ctx.body = { success: true, code: updated };
 });
 

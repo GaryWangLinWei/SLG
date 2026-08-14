@@ -358,6 +358,26 @@ export function unbindCode(token: string, deviceFingerprint: string, ip?: string
   return { success: true, lastUnboundAt: now };
 }
 
+export function markCodeRebindable(id: number): { success: boolean; code?: string; error?: string } {
+  const db = getDb();
+  const code = db.prepare('SELECT id, status FROM activation_codes WHERE id = ?').get(id) as ActivationCode | undefined;
+  if (!code) return { success: false, code: 'CODE_NOT_FOUND', error: '激活码不存在' };
+  if (code.status !== 'used') return { success: false, code: 'CODE_NOT_USED', error: '仅已使用的码可解锁' };
+  const stillBound = db.prepare('SELECT 1 FROM device_bindings WHERE activation_code_id = ?').get(id);
+  if (stillBound) return { success: false, code: 'MARKREBIND_STILL_BOUND', error: '该码仍有绑定，无需解锁' };
+
+  const now = Date.now();
+  const transaction = db.transaction(() => {
+    db.prepare('UPDATE activation_codes SET last_unbound_at = ? WHERE id = ?').run(now, id);
+    db.prepare(`
+      INSERT INTO unbind_logs (activation_code_id, device_fingerprint, source, ip_address, created_at)
+      VALUES (?, ?, 'admin', NULL, ?)
+    `).run(id, '(admin-mark)', now);
+  });
+  transaction();
+  return { success: true };
+}
+
 export function getStats(): {
   total: number;
   unused: number;
