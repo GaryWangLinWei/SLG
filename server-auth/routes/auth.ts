@@ -1,6 +1,7 @@
 import Router from 'koa-router';
 import { useCode, processInviteCode, unbindCode } from '../services/ActivationCodeService';
 import { verifyAndHeartbeat, generateToken } from '../services/HeartbeatService';
+import { webSocketHub } from '../services/WebSocketHub';
 
 const router = new Router({ prefix: '/api/auth' });
 
@@ -146,10 +147,11 @@ router.post('/unbind', async (ctx) => {
     return;
   }
 
-  const result = unbindCode(token, fingerprint, ctx.ip || ctx.request.ip);
+  const result = unbindCode(token, fingerprint, ctx.ip);
   if (result.success) {
     if (!result.alreadyUnbound) {
-      // TODO(task5): webSocketHub.kick after success
+      // 解绑提交成功后踢断该设备的 device 连接与所有关联手机端连接
+      try { webSocketHub.kick(fingerprint); } catch (e) { console.error('[unbind] kick failed:', e); }
     }
     ctx.body = result;
     return;

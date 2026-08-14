@@ -120,6 +120,19 @@ class WebSocketHub {
     if (auth.role === 'device') {
       if (!auth.token) return { success: false, error: '缺少 token' };
       const deviceId = auth.token;
+      // 校验该指纹仍是有效绑定（未解绑、码 used、未过期）。解绑后 kick 掉旧连接；
+      // 即使本地 stop 失败或旧客户端硬连，也进不来。懒加载 require 避免顶层循环依赖。
+      const { getDb } = require('./AuthDatabase') as typeof import('./AuthDatabase');
+      const row = getDb().prepare(`
+        SELECT ac.status, ac.expires_at
+        FROM device_bindings db
+        JOIN activation_codes ac ON ac.id = db.activation_code_id
+        WHERE db.device_fingerprint = ?
+        LIMIT 1
+      `).get(deviceId) as { status: string; expires_at: number } | undefined;
+      if (!row || row.status !== 'used' || !row.expires_at || row.expires_at <= Date.now()) {
+        return { success: false, error: '设备未授权或已解绑' };
+      }
       const old = this.devices.get(deviceId);
       if (old) old.ws.close(1000, 'replaced');
       this.devices.set(deviceId, { ws, deviceId, activationCode: auth.token, connectedAt: Date.now(), lastSeen: Date.now() });
@@ -195,6 +208,25 @@ class WebSocketHub {
 
   isDeviceOnline(deviceId: string): boolean {
     return this.devices.has(deviceId);
+  }
+
+  /**
+   * 解绑/管理员删除设备后调用：关闭该设备的 device 连接和所有关联手机端连接，
+   * 并广播离线。WS close 事件会异步清理 map/set，这里主动删除+广播保证即时生效。
+   */
+  kick(deviceId: string): void {
+    const device = this.devices.get(deviceId);
+    if (device) {
+      try { device.ws.close(1000, 'device unbound'); } catch { /* ignore */ }
+      this.devices.delete(deviceId);
+      this.broadcastStatusToUsers(deviceId, { online: false, runningTasks: [] });
+    }
+    for (const u of [...this.users]) {
+      if (u.deviceId === deviceId) {
+        try { u.ws.close(1000, 'device unbound'); } catch { /* ignore */ }
+        this.users.delete(u);
+      }
+    }
   }
 }
 
