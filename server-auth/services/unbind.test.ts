@@ -50,7 +50,7 @@ test('rebind rejected when last_unbound_at is NULL (renewal brick)', () => {
   expect(res.code).toBe('CODE_NOT_REBINDABLE');
 });
 
-test('rebind rejected when new device already has another binding', () => {
+test('rebind rejected when new device already has another active binding', () => {
   const future = Date.now() + 10 * 86400000;
   makeUsedCode('busy-device', future);
   const { id, code } = makeUsedCode('old-device-2', future);
@@ -60,6 +60,28 @@ test('rebind rejected when new device already has another binding', () => {
   const res = useCode(code, 'busy-device');
   expect(res.success).toBe(false);
   expect(res.code).toBe('DEVICE_ALREADY_BOUND');
+});
+
+test('rebind succeeds on a device whose existing binding is expired, clearing the stale binding', () => {
+  const past = Date.now() - 5 * 86400000;
+  // 该设备残留着一个已过期码的绑定
+  const stale = makeUsedCode('expired-device', past);
+  // 一枚刚解绑、仍在有效期内的码
+  const future = Date.now() + 10 * 86400000;
+  const { id, code } = makeUsedCode('old-device-x', future);
+  getDb().prepare('DELETE FROM device_bindings WHERE activation_code_id=?').run(id);
+  getDb().prepare('UPDATE activation_codes SET last_unbound_at=? WHERE id=?').run(Date.now(), id);
+
+  const res = useCode(code, 'expired-device');
+  expect(res.success).toBe(true);
+  expect(res.expiresAt).toBe(future);
+  // 过期旧绑定已被清掉，设备现在只绑新码
+  const rows = getDb().prepare('SELECT activation_code_id FROM device_bindings WHERE device_fingerprint=?').all('expired-device') as any[];
+  expect(rows).toHaveLength(1);
+  expect(rows[0].activation_code_id).toBe(id);
+  // 过期码本身仍是 used 但无绑定（不强制改它状态）
+  const staleBinding = getDb().prepare('SELECT 1 FROM device_bindings WHERE activation_code_id=?').get(stale.id);
+  expect(staleBinding).toBeUndefined();
 });
 
 test('rebind rejected when code expired', () => {

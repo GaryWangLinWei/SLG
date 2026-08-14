@@ -194,18 +194,29 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
     if (activationCode.expires_at && activationCode.expires_at <= now) {
       return { success: false, code: 'CODE_EXPIRED', error: '许可证已过期，请续费后再换机' };
     }
-    // 新设备必须没有任何绑定，防止把另一台设备的现役码冲成砖码连锁扩散
-    const deviceBinding = db.prepare(
-      'SELECT 1 FROM device_bindings WHERE device_fingerprint = ?'
-    ).get(deviceFingerprint);
-    if (deviceBinding) {
+    // 新设备不能占用着另一枚"生效中"的码，防止把现役码冲成砖码连锁扩散。
+    // 但若残留绑定对应的码已过期，它已不授予任何权利，视为空闲设备：清掉过期绑定后重绑。
+    const existingDeviceBinding = db.prepare(`
+      SELECT db.activation_code_id AS code_id, ac.expires_at AS expires_at
+      FROM device_bindings db
+      JOIN activation_codes ac ON ac.id = db.activation_code_id
+      WHERE db.device_fingerprint = ?
+      LIMIT 1
+    `).get(deviceFingerprint) as { code_id: number; expires_at?: number } | undefined;
+    if (existingDeviceBinding && !(existingDeviceBinding.expires_at && existingDeviceBinding.expires_at <= now)) {
       return { success: false, code: 'DEVICE_ALREADY_BOUND', error: '该设备已绑定其他激活码' };
     }
     try {
-      db.prepare(`
-        INSERT INTO device_bindings (activation_code_id, device_fingerprint, bound_at, last_heartbeat_at)
-        VALUES (?, ?, ?, ?)
-      `).run(activationCode.id, deviceFingerprint, now, now);
+      db.transaction(() => {
+        if (existingDeviceBinding) {
+          db.prepare('DELETE FROM device_bindings WHERE activation_code_id = ? AND device_fingerprint = ?')
+            .run(existingDeviceBinding.code_id, deviceFingerprint);
+        }
+        db.prepare(`
+          INSERT INTO device_bindings (activation_code_id, device_fingerprint, bound_at, last_heartbeat_at)
+          VALUES (?, ?, ?, ?)
+        `).run(activationCode.id, deviceFingerprint, now, now);
+      })();
     } catch {
       // 唯一索引冲突：并发重绑到同一台设备 / 同一码，或其他约束冲突
       return { success: false, code: 'DEVICE_ALREADY_BOUND', error: '该设备已绑定其他激活码' };
