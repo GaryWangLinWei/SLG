@@ -46,6 +46,8 @@ export interface HomeFeatures {
   attackBarbarianTeam: number;
   attackBarbarianTeamPage: TeamPageChoice;
   attackBarbarianUsePotion: boolean;
+  /** 自动打野循环间隔（分钟）：跑完一批后等待多久再打 */
+  attackBarbarianIntervalMinutes: number;
   /** 打野等级范围：固定 / ±1 / ±2，每次攻击在范围内随机起点 */
   attackBarbarianLevelMode: 'fixed' | 'plusMinus1' | 'plusMinus2';
   /** 已开启野蛮人城寨：勾选则点野蛮人页签并按等级设级，未勾选则跳过这两步 */
@@ -132,6 +134,7 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   attackBarbarianTeam: 1,
   attackBarbarianTeamPage: 'attack',
   attackBarbarianUsePotion: true,
+  attackBarbarianIntervalMinutes: 10,
   attackBarbarianLevelMode: 'plusMinus2',
   attackBarbarianFortressEnabled: true,
   shareGemEnabled: false,

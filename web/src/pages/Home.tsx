@@ -446,6 +446,7 @@ export function HomePage() {
         if (typeof merged.attackBarbarianTeam !== 'number') merged.attackBarbarianTeam = DEFAULT_FEATURES.attackBarbarianTeam;
         if (!isTeamPageChoice(merged.attackBarbarianTeamPage)) merged.attackBarbarianTeamPage = DEFAULT_FEATURES.attackBarbarianTeamPage;
         if (typeof merged.attackBarbarianUsePotion !== 'boolean') merged.attackBarbarianUsePotion = DEFAULT_FEATURES.attackBarbarianUsePotion;
+        if (typeof merged.attackBarbarianIntervalMinutes !== 'number') merged.attackBarbarianIntervalMinutes = DEFAULT_FEATURES.attackBarbarianIntervalMinutes;
         if (!['fixed', 'plusMinus1', 'plusMinus2'].includes(merged.attackBarbarianLevelMode)) merged.attackBarbarianLevelMode = DEFAULT_FEATURES.attackBarbarianLevelMode;
         if (typeof merged.attackBarbarianFortressEnabled !== 'boolean') merged.attackBarbarianFortressEnabled = DEFAULT_FEATURES.attackBarbarianFortressEnabled;
         if (typeof merged.autoAttackBarbarian !== 'boolean') merged.autoAttackBarbarian = DEFAULT_FEATURES.autoAttackBarbarian;
@@ -1440,22 +1441,24 @@ export function HomePage() {
         }
       })();
 
-      // 自动打野独立循环 — 每 10min
-      // 自动打野独立循环 — 每轮（启动 / 切号）只执行一次，无 CD，跑完即等待下一轮
+      // 自动打野独立循环 — 固定间隔（attackBarbarianIntervalMinutes）重复执行
       const attackBarbarianLoop = (async () => {
         let first = true;
-        // 已执行过的轮次序号（cooldownResetSeq）；切号时该序号自增，从而在新账号上再执行一次
-        let ranSeq = -1;
         while (!isStopped()) {
           if (first) { first = false; await sleep(3); }
           if (offlineActive) { await sleep(30); continue; }
           const enabled = featuresRef.current.autoAttackBarbarian && featuresRef.current.attackBarbarianLevel > 0 && !featuresRef.current.autoWorldChat && !isFeatureLocked('attackBarbarian');
-          // 当前轮次还没跑过且功能开启 → 执行一次
-          if (enabled && ranSeq !== cooldownResetSeq && !isStopped()) {
+          if (enabled && !isStopped()) {
             // 抬抢占旗：让其它普通循环在 acquireLock 处让路，打野优先拿锁
             barbarianPreempt = true;
+            let ran = false;
             try {
-              if (!await acquireLockForBarbarian()) continue;
+              if (!await acquireLockForBarbarian()) {
+                // 没拿到锁，短等后重试（不进入长 CD）
+                const waitSeq = cooldownResetSeq;
+                while (!isStopped() && cooldownResetSeq === waitSeq) { await sleep(1); }
+                continue;
+              }
             } finally {
               // 拿到锁后保持抬旗直到本次跑完（防止执行期间被插队）；没拿到则落旗
               if (!deviceBusy) barbarianPreempt = false;
@@ -1463,8 +1466,9 @@ export function HomePage() {
             if (offlineActive) { releaseLock(); barbarianPreempt = false; await sleep(30); continue; }
             await ensureGameRunning();
             try {
-              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'attack-barbarian', { level: featuresRef.current.attackBarbarianLevel, count: featuresRef.current.attackBarbarianCount, team: featuresRef.current.attackBarbarianTeam, teamPage: featuresRef.current.attackBarbarianTeamPage, usePotion: true, levelMode: featuresRef.current.attackBarbarianLevelMode, fortressEnabled: featuresRef.current.attackBarbarianFortressEnabled });
+              const createResult = await createTask(currentAccountId, 'com.rok.automation', 'attack-barbarian', { level: featuresRef.current.attackBarbarianLevel, count: featuresRef.current.attackBarbarianCount, team: featuresRef.current.attackBarbarianTeam, teamPage: featuresRef.current.attackBarbarianTeamPage, usePotion: featuresRef.current.attackBarbarianUsePotion, levelMode: featuresRef.current.attackBarbarianLevelMode, fortressEnabled: featuresRef.current.attackBarbarianFortressEnabled });
               if (createResult.success) {
+                ran = true;
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, createResult.task.id];
                 setRunningTaskIds([...runningTaskIdsRef.current]);
                 const runResult = await api.tasks.run(createResult.task.id);
@@ -1492,12 +1496,24 @@ export function HomePage() {
                 }
               }
             } catch {} finally { releaseLock(); barbarianPreempt = false; }
-            // 标记本轮已执行（无论成功失败都不再重试，等下一轮/切号）
-            ranSeq = cooldownResetSeq;
+
+            // 跑完按配置间隔等待（带 ±15% 抖动）；切号或停止时立即唤醒
+            if (ran) {
+              const intervalMinutes = Math.max(1, Number(featuresRef.current.attackBarbarianIntervalMinutes) || 10);
+              const cd = intervalMinutes * 60 * (0.85 + Math.random() * 0.3);
+              pushLog(`⚔️ 打野完成，${cd.toFixed(0)} 秒后下一轮`);
+              const startWait = monotonicNow();
+              const waitSeq = cooldownResetSeq;
+              while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < cd * 1000) {
+                await sleep(1);
+              }
+              continue;
+            }
           }
-          // 空闲等待：1s 一跳，切号（cooldownResetSeq 变化）或停止时立即唤醒
+          // 未开启：短周期唤醒，便于切号/开关变化后快速响应
           const waitSeq = cooldownResetSeq;
-          while (!isStopped() && cooldownResetSeq === waitSeq) {
+          const startIdle = monotonicNow();
+          while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startIdle) < 60000) {
             await sleep(1);
           }
         }
@@ -3770,6 +3786,35 @@ export function HomePage() {
                     <span className="text-xs text-slate-500 whitespace-nowrap">已开启野蛮人城寨</span>
                   </div>
                   <span className="text-[11px] text-slate-400 pl-6">新区未开启野蛮人城寨之前，界面不一样，需要取消勾选</span>
+                </div>
+
+                {/* 使用体力药水 */}
+                <div className="flex items-center gap-2 px-4 py-2.5 border-t border-slate-100">
+                  <label className={`relative inline-flex items-center ${features.autoWorldChat ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                    <input type="checkbox" checked={features.attackBarbarianUsePotion}
+                      disabled={features.autoWorldChat}
+                      onChange={(e) => setFeatures({ ...features, attackBarbarianUsePotion: e.target.checked })}
+                      className="sr-only peer" />
+                    <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${features.attackBarbarianUsePotion ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
+                      {features.attackBarbarianUsePotion && (
+                        <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </span>
+                  </label>
+                  <span className="text-xs text-slate-500 whitespace-nowrap">行动力不足时使用体力药水</span>
+                </div>
+
+                {/* 循环间隔 */}
+                <div className="flex items-center gap-2 px-4 py-2.5 border-t border-slate-100">
+                  <span className="text-xs text-slate-500 whitespace-nowrap w-16">循环间隔</span>
+                  <input type="number" min={1} value={features.attackBarbarianIntervalMinutes}
+                    disabled={features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, attackBarbarianIntervalMinutes: Math.max(1, Number(e.target.value) || 1) })}
+                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-16" />
+                  <span className="text-xs text-slate-700 whitespace-nowrap">分钟</span>
+                  <span className="text-[11px] text-slate-400">跑完一批后等待多久再打</span>
                 </div>
               </div>
             </div>
