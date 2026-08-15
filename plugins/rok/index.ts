@@ -576,19 +576,19 @@ export const RiseOfKingdomsPlugin: Plugin = {
       id: 'train-troops',
       name: '训练兵种',
       description: '按队列训练兵种，busy 时停止',
-      run: async (ctx, params: { trainQueue: { building: string; tier: number }[] }) => {
+      run: async (ctx, params: { trainQueue: { building: string; tier: number; promote?: boolean }[] }) => {
         if (await ensureNoPopupBlocking(ctx, 'train-troops')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         const queue = params.trainQueue.filter(t => t.building && t.tier);
 
-        ctx.log(`训练队列: [${queue.map(t => `${t.building} T${t.tier}`).join(', ')}]`);
+        ctx.log(`训练队列: [${queue.map(t => `${t.building} T${t.tier}${t.promote ? '(晋升)' : ''}`).join(', ')}]`);
 
         for (let i = 0; i < queue.length; i++) {
           const task = queue[i];
           ctx.log(`--- [${i + 1}/${queue.length}] ${task.building} T${task.tier} ---`);
-          const result = await trainTroopsSingle(ctx, config, task.building, task.tier);
+          const result = await trainTroopsSingle(ctx, config, task.building, task.tier, task.promote);
           if (result === 'success') {
-            ctx.log(`✅ ${task.building} T${task.tier} 训练完成`);
+            ctx.log(`✅ ${task.building} T${task.tier} ${task.promote ? '晋升' : '训练'}完成`);
           } else if (result === 'busy') {
             ctx.log(`⏳ ${task.building} 正在训练中，跳过`);
           } else {

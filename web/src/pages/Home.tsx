@@ -421,6 +421,10 @@ export function HomePage() {
         if (Array.isArray(parsed.trainTasks)) {
           parsed.trainTasks = DEFAULT_FEATURES.trainTasks;
         }
+        // 老配置缺 trainPromote 时补默认
+        if (!parsed.trainPromote || typeof parsed.trainPromote !== 'object') {
+          parsed.trainPromote = DEFAULT_FEATURES.trainPromote;
+        }
         // Migrate old state without completed arrays
         const merged = { ...DEFAULT_FEATURES, ...parsed };
         if (!Array.isArray(merged.completedBuildings) || merged.completedBuildings.length !== 5) {
@@ -2460,6 +2464,7 @@ export function HomePage() {
             '攻城武器厂': timers.train_gongcheng,
           };
           const tasks = features.trainTasks as Record<string, number>;
+          const promoteFlags = features.trainPromote as Record<string, boolean>;
           const upgradingBuildings = new Set([timers.build1Building, timers.build2Building].filter(Boolean));
           const trainQueue = ['兵营', '马厩', '靶场', '攻城武器厂']
             .filter(b => {
@@ -2471,7 +2476,7 @@ export function HomePage() {
               }
               return true;
             })
-            .map(b => ({ building: b, tier: tasks[b] }));
+            .map(b => ({ building: b, tier: tasks[b], promote: !!promoteFlags[b] }));
           if (trainQueue.length > 0) { await runTask('train-troops', { trainQueue }); dispatchedAny = true; }
         }
 
@@ -3767,25 +3772,15 @@ export function HomePage() {
                   <span className="text-[11px] text-slate-400 pl-6">建议选择加减等级打野，防止一直打同一等级的野怪，跑太远</span>
                 </div>
 
-                {/* 已开启野蛮人城寨 */}
-                <div className="flex flex-col gap-1 px-4 py-2.5 border-t border-slate-100">
-                  <div className="flex items-center gap-2">
-                    <label className={`relative inline-flex items-center ${features.autoWorldChat ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
-                      <input type="checkbox" checked={features.attackBarbarianFortressEnabled}
-                        disabled={features.autoWorldChat}
-                        onChange={(e) => setFeatures({ ...features, attackBarbarianFortressEnabled: e.target.checked })}
-                        className="sr-only peer" />
-                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${features.attackBarbarianFortressEnabled ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
-                        {features.attackBarbarianFortressEnabled && (
-                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                          </svg>
-                        )}
-                      </span>
-                    </label>
-                    <span className="text-xs text-slate-500 whitespace-nowrap">已开启野蛮人城寨</span>
-                  </div>
-                  <span className="text-[11px] text-slate-400 pl-6">新区未开启野蛮人城寨之前，界面不一样，需要取消勾选</span>
+                {/* 循环间隔 */}
+                <div className="flex items-center gap-2 px-4 py-2.5 border-t border-slate-100">
+                  <span className="text-xs text-slate-500 whitespace-nowrap w-16">循环间隔</span>
+                  <input type="number" min={1} value={features.attackBarbarianIntervalMinutes}
+                    disabled={features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, attackBarbarianIntervalMinutes: Math.max(1, Number(e.target.value) || 1) })}
+                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-16" />
+                  <span className="text-xs text-slate-700 whitespace-nowrap">分钟</span>
+                  <span className="text-[11px] text-slate-400">跑完一批后等待多久再打</span>
                 </div>
 
                 {/* 使用体力药水 */}
@@ -3806,15 +3801,25 @@ export function HomePage() {
                   <span className="text-xs text-slate-500 whitespace-nowrap">行动力不足时使用体力药水</span>
                 </div>
 
-                {/* 循环间隔 */}
-                <div className="flex items-center gap-2 px-4 py-2.5 border-t border-slate-100">
-                  <span className="text-xs text-slate-500 whitespace-nowrap w-16">循环间隔</span>
-                  <input type="number" min={1} value={features.attackBarbarianIntervalMinutes}
-                    disabled={features.autoWorldChat}
-                    onChange={(e) => setFeatures({ ...features, attackBarbarianIntervalMinutes: Math.max(1, Number(e.target.value) || 1) })}
-                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-16" />
-                  <span className="text-xs text-slate-700 whitespace-nowrap">分钟</span>
-                  <span className="text-[11px] text-slate-400">跑完一批后等待多久再打</span>
+                {/* 已开启野蛮人城寨 */}
+                <div className="flex flex-col gap-1 px-4 py-2.5 border-t border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <label className={`relative inline-flex items-center ${features.autoWorldChat ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                      <input type="checkbox" checked={features.attackBarbarianFortressEnabled}
+                        disabled={features.autoWorldChat}
+                        onChange={(e) => setFeatures({ ...features, attackBarbarianFortressEnabled: e.target.checked })}
+                        className="sr-only peer" />
+                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${features.attackBarbarianFortressEnabled ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
+                        {features.attackBarbarianFortressEnabled && (
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </span>
+                    </label>
+                    <span className="text-xs text-slate-500 whitespace-nowrap">已开启野蛮人城寨</span>
+                  </div>
+                  <span className="text-[11px] text-slate-400 pl-6">新区未开启野蛮人城寨之前，界面不一样，需要取消勾选</span>
                 </div>
               </div>
             </div>
@@ -3841,10 +3846,14 @@ export function HomePage() {
                 </label>
               </div>
               <div className="grid grid-cols-2 gap-2 mt-2">
-                {(['兵营', '马厩', '靶场', '攻城武器厂'] as const).map(building => (
+                {(['兵营', '马厩', '靶场', '攻城武器厂'] as const).map(building => {
+                  const tier = (features.trainTasks as Record<string, number>)[building] ?? 0;
+                  const promote = (features.trainPromote as Record<string, boolean>)[building] ?? false;
+                  const promoteDisabled = features.autoWorldChat || tier <= 1;
+                  return (
                   <div key={building} className="flex items-center gap-2">
                     <span className="text-xs text-slate-500 w-16">{({ 兵营: '⚔️', 马厩: '🐴', 靶场: '🎯', 攻城武器厂: '⚙️' } as Record<string, string>)[building]} {building}</span>
-                    <select value={(features.trainTasks as Record<string, number>)[building] ?? 0} disabled={features.autoWorldChat} onChange={(e) => {
+                    <select value={tier} disabled={features.autoWorldChat} onChange={(e) => {
                       const next = { ...features.trainTasks as Record<string, number>, [building]: Number(e.target.value) };
                       setFeatures({ ...features, trainTasks: next });
                     }}
@@ -3852,8 +3861,26 @@ export function HomePage() {
                       <option value={0}>-</option>
                       {TRAIN_TIERS.map(t => (<option key={t} value={t}>T{t}</option>))}
                     </select>
+                    <label className={`relative inline-flex items-center gap-1 ${promoteDisabled ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                      <input type="checkbox" checked={promote}
+                        disabled={promoteDisabled}
+                        onChange={(e) => {
+                          const next = { ...features.trainPromote as Record<string, boolean>, [building]: e.target.checked };
+                          setFeatures({ ...features, trainPromote: next });
+                        }}
+                        className="sr-only peer" />
+                      <span className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-colors ${promote ? 'bg-amber-500 border-amber-500' : 'bg-white border-slate-300'}`}>
+                        {promote && (
+                          <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </span>
+                      <span className="text-xs text-slate-500 whitespace-nowrap">晋升</span>
+                    </label>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 

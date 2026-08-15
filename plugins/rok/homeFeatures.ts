@@ -23,6 +23,8 @@ export interface HomeFeatures {
   resourceGatherTeamPage: TeamPageChoice;
   trainTroops: boolean;
   trainTasks: Record<string, number>;
+  /** 每个建筑是否优先晋升低于目标等级的兵种 */
+  trainPromote: Record<string, boolean>;
   autoExplore: boolean;
   autoWorldChat: boolean;
   worldChatMessages: string[];
@@ -111,6 +113,7 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   resourceGatherTeamPage: 'gather',
   trainTroops: false,
   trainTasks: { '兵营': 0, '马厩': 0, '靶场': 0, '攻城武器厂': 0 },
+  trainPromote: { '兵营': false, '马厩': false, '靶场': false, '攻城武器厂': false },
   autoExplore: false,
   autoWorldChat: false,
   worldChatMessages: ['', '', ''],

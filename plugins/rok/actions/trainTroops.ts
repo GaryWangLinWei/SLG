@@ -27,13 +27,22 @@ const TIER_BUTTONS: Record<number, { x: number; y: number }> = {
 
 const TRAIN_BUTTON = { x: 1213, y: 730 };
 
+// 各低等级兵种按钮坐标（T1~T4），晋升时从低到高依次点击
+const PROMOTE_TIER_BUTTONS: Record<number, { x: number; y: number }> = {
+  1: { x: 787, y: 218 },
+  2: { x: 915, y: 218 },
+  3: { x: 1040, y: 218 },
+  4: { x: 1172, y: 218 },
+};
+
 export type TrainResult = 'success' | 'busy' | 'not_found' | 'no_train_button';
 
 export async function trainTroopsSingle(
   ctx: PluginContext,
   config: RokConfig,
   targetBuilding: string,
-  targetTier: number
+  targetTier: number,
+  promote: boolean = false
 ): Promise<TrainResult> {
   const trainTemplateFile = TRAIN_TEMPLATES[targetBuilding];
   if (!trainTemplateFile) {
@@ -93,6 +102,47 @@ export async function trainTroopsSingle(
   ctx.log(`  训练队列空闲 (confidence: ${detail.confidence.toFixed(3)})，继续`);
 
   // ============================================
+  // 第 3.5 步: 自动晋升 — 优先把低于目标等级的兵种晋升上来
+  // 从 T1 到 T(target-1) 依次点击，识别到晋升按钮 btn_jinsheng.png 就点击，
+  // 然后复用第 4 步及以后（选目标等级→训练→资源补充）的同样流程。
+  // ============================================
+  if (promote && targetTier > 1) {
+    ctx.log('--- 第 3.5 步: 自动晋升低级兵种 ---');
+    const promoteTemplate = path.join(TEMPLATE_DIR, 'btn_jinsheng.png');
+    for (let t = 1; t < targetTier; t++) {
+      const tierBtn = PROMOTE_TIER_BUTTONS[t];
+      if (!tierBtn) continue;
+      ctx.log(`  检查 T${t} (${tierBtn.x}, ${tierBtn.y})`);
+      await ctx.tap(tierBtn.x, tierBtn.y);
+      await ctx.sleep(1);
+      const promoteBtn = await ctx.findImageWithLocation(promoteTemplate, 0.7);
+      if (promoteBtn.found) {
+        ctx.log(`  识别到晋升按钮 (${promoteBtn.x}, ${promoteBtn.y}, ${promoteBtn.confidence.toFixed(3)})，点击晋升`);
+        await ctx.tap(promoteBtn.x, promoteBtn.y);
+        await ctx.sleep(1);
+        // 晋升也是同样的流程：处理资源弹窗并最终回到训练界面
+        return finishTrainFlow(ctx, config, detailUpgradeTemplate, targetBuilding, targetTier, '晋升');
+      }
+      ctx.log(`  T${t} 无晋升按钮 (${promoteBtn.confidence.toFixed(3)})`);
+    }
+  }
+
+  return finishTrainFlow(ctx, config, detailUpgradeTemplate, targetBuilding, targetTier, '训练');
+}
+
+// ============================================
+// 第 4~6 步：选择目标等级 → 点击训练 → 处理资源不足弹窗
+// action 为 '训练' | '晋升'，仅用于日志区分。晋升与训练复用同一套收尾流程。
+// ============================================
+async function finishTrainFlow(
+  ctx: PluginContext,
+  config: RokConfig,
+  detailUpgradeTemplate: string,
+  targetBuilding: string,
+  targetTier: number,
+  action: string
+): Promise<TrainResult> {
+  // ============================================
   // 第 4 步: 选择兵种等级 T1-T5
   // ============================================
   const tierBtn = TIER_BUTTONS[targetTier];
@@ -107,7 +157,7 @@ export async function trainTroopsSingle(
   // ============================================
   // 第 5 步: 点击训练按钮
   // ============================================
-  ctx.log(`--- 第 5 步: 点击训练按钮 (${TRAIN_BUTTON.x}, ${TRAIN_BUTTON.y}) ---`);
+  ctx.log(`--- 第 5 步: 点击${action}按钮 (${TRAIN_BUTTON.x}, ${TRAIN_BUTTON.y}) ---`);
   await ctx.tap(TRAIN_BUTTON.x, TRAIN_BUTTON.y);
   await ctx.sleep(1);
 
@@ -124,7 +174,7 @@ export async function trainTroopsSingle(
   await fs.unlink(closeRegion).catch(() => {});
 
   if (closeDiff >= 0.3) {
-    ctx.log(`=== ${targetBuilding} T${targetTier} 训练完成 ===`);
+    ctx.log(`=== ${targetBuilding} T${targetTier} ${action}完成 ===`);
     return 'success';
   }
 
@@ -149,10 +199,10 @@ export async function trainTroopsSingle(
   if (detail2.found) {
     // 识别到 detailUpgradeButton → 资源补完，回到训练界面
     ctx.log(`  资源补充完成，回到训练界面 (confidence: ${detail2.confidence.toFixed(3)})`);
-    ctx.log('  点击训练按钮');
+    ctx.log(`  点击${action}按钮`);
     await ctx.tap(TRAIN_BUTTON.x, TRAIN_BUTTON.y);
     await ctx.sleep(1);
-    ctx.log(`=== ${targetBuilding} T${targetTier} 训练完成 ===`);
+    ctx.log(`=== ${targetBuilding} T${targetTier} ${action}完成 ===`);
     return 'success';
   }
   ctx.log(`  未识别到 detailUpgradeButton (${detail2.confidence.toFixed(3)})`);
@@ -169,10 +219,10 @@ export async function trainTroopsSingle(
     ctx.log('  资源超出保护提示，点击确认');
     await ctx.tap(567, 611);
     await ctx.sleep(1);
-    ctx.log('  点击训练按钮');
+    ctx.log(`  点击${action}按钮`);
     await ctx.tap(TRAIN_BUTTON.x, TRAIN_BUTTON.y);
     await ctx.sleep(1);
-    ctx.log(`=== ${targetBuilding} T${targetTier} 训练完成 ===`);
+    ctx.log(`=== ${targetBuilding} T${targetTier} ${action}完成 ===`);
     return 'success';
   }
 
@@ -194,10 +244,10 @@ export async function trainTroopsSingle(
     await ctx.sleep(1);
   }
 
-  ctx.log('  点击训练按钮');
+  ctx.log(`  点击${action}按钮`);
   await ctx.tap(TRAIN_BUTTON.x, TRAIN_BUTTON.y);
   await ctx.sleep(1);
 
-  ctx.log(`=== ${targetBuilding} T${targetTier} 训练完成 ===`);
+  ctx.log(`=== ${targetBuilding} T${targetTier} ${action}完成 ===`);
   return 'success';
 }
