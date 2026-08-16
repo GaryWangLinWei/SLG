@@ -1,6 +1,6 @@
 {
   "name": "rok-automation",
-  "version": "1.2.7",
+  "version": "1.2.8",
   "description": "万国觉醒自动化助手",
   "main": "dist/electron/main.js",
   "scripts": {
@@ -21,7 +21,7 @@
     "appId": "com.rok.automation",
     "productName": "ROK助手",
     "releaseInfo": {
-      "releaseNotes": "1.2.7更新内容\n1.修复练兵bug\n2.修改自动打野等级范围：1-55\n3.修复自动打野拉取错误队列bug\n4.修复运行日志不显示bug"
+      "releaseNotes": "1.2.8更新内容\n1.增加账号解绑功能，30天可解绑一次\n2.“建筑升级”优化：当有前置建筑未达到要求时，自动升级前置建筑\n3.“自动打野”新增循环间隔和自动使用体力药水\n4.“自动训练”增加晋升选项。\n5.修复山洞探索，重复探洞bug\n6.优化采集资源流程"
     },
     "directories": {
       "output": "release"
