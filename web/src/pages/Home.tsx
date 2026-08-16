@@ -3845,14 +3845,14 @@ export function HomePage() {
                   <span className={`absolute top-[2px] left-[2px] w-[18px] h-[18px] bg-white rounded-full transition-transform shadow-sm ${features.trainTroops ? 'translate-x-[18px]' : ''}`} />
                 </label>
               </div>
-              <div className="grid grid-cols-2 gap-2 mt-2">
+              <div className="flex flex-col gap-2 mt-2">
                 {(['兵营', '马厩', '靶场', '攻城武器厂'] as const).map(building => {
                   const tier = (features.trainTasks as Record<string, number>)[building] ?? 0;
                   const promote = (features.trainPromote as Record<string, boolean>)[building] ?? false;
                   const promoteDisabled = features.autoWorldChat || tier <= 1;
                   return (
                   <div key={building} className="flex items-center gap-2">
-                    <span className="text-xs text-slate-500 w-16">{({ 兵营: '⚔️', 马厩: '🐴', 靶场: '🎯', 攻城武器厂: '⚙️' } as Record<string, string>)[building]} {building}</span>
+                    <span className="text-xs text-slate-500 w-20 whitespace-nowrap">{({ 兵营: '⚔️', 马厩: '🐴', 靶场: '🎯', 攻城武器厂: '⚙️' } as Record<string, string>)[building]} {building}</span>
                     <select value={tier} disabled={features.autoWorldChat} onChange={(e) => {
                       const next = { ...features.trainTasks as Record<string, number>, [building]: Number(e.target.value) };
                       setFeatures({ ...features, trainTasks: next });
@@ -3861,7 +3861,7 @@ export function HomePage() {
                       <option value={0}>-</option>
                       {TRAIN_TIERS.map(t => (<option key={t} value={t}>T{t}</option>))}
                     </select>
-                    <label className={`relative inline-flex items-center gap-1 ${promoteDisabled ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
+                    <label className={`relative inline-flex items-center gap-1 ml-4 ${promoteDisabled ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
                       <input type="checkbox" checked={promote}
                         disabled={promoteDisabled}
                         onChange={(e) => {
@@ -3882,6 +3882,7 @@ export function HomePage() {
                   );
                 })}
               </div>
+              <span className="text-[11px] text-slate-400 mt-2">勾选晋升，优先将低于目标等级的兵种晋升</span>
             </div>
 
             {/* 自动喊话 */}

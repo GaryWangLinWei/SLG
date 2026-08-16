@@ -103,27 +103,43 @@ export async function trainTroopsSingle(
 
   // ============================================
   // 第 3.5 步: 自动晋升 — 优先把低于目标等级的兵种晋升上来
-  // 从 T1 到 T(target-1) 依次点击，识别到晋升按钮 btn_jinsheng.png 就点击，
+  // 从 T1 到 T(target-1) 依次点击，在晋升按钮固定位置 (288,225) 附近
+  // 截模板大小区域与 btn_jinsheng.png 逐像素比对，命中就点击 (288,225)，
   // 然后复用第 4 步及以后（选目标等级→训练→资源补充）的同样流程。
   // ============================================
   if (promote && targetTier > 1) {
     ctx.log('--- 第 3.5 步: 自动晋升低级兵种 ---');
     const promoteTemplate = path.join(TEMPLATE_DIR, 'btn_jinsheng.png');
+    const { width: promoteW = 71, height: promoteH = 56 } = await sharp(promoteTemplate).metadata();
+    const PROMOTE_POINT = { x: 288, y: 225 };
+    const regionX = PROMOTE_POINT.x - Math.floor(promoteW! / 2);
+    const regionY = PROMOTE_POINT.y - Math.floor(promoteH! / 2);
+    let promoted = false;
     for (let t = 1; t < targetTier; t++) {
       const tierBtn = PROMOTE_TIER_BUTTONS[t];
       if (!tierBtn) continue;
       ctx.log(`  检查 T${t} (${tierBtn.x}, ${tierBtn.y})`);
       await ctx.tap(tierBtn.x, tierBtn.y);
       await ctx.sleep(1);
-      const promoteBtn = await ctx.findImageWithLocation(promoteTemplate, 0.7);
-      if (promoteBtn.found) {
-        ctx.log(`  识别到晋升按钮 (${promoteBtn.x}, ${promoteBtn.y}, ${promoteBtn.confidence.toFixed(3)})，点击晋升`);
-        await ctx.tap(promoteBtn.x, promoteBtn.y);
-        await ctx.sleep(1);
-        // 晋升也是同样的流程：处理资源弹窗并最终回到训练界面
-        return finishTrainFlow(ctx, config, detailUpgradeTemplate, targetBuilding, targetTier, '晋升');
+      // 切等级后画面会变，必须每次重新截取该固定区域再比对
+      const promoteRegion = await ctx.captureRegion(regionX, regionY, promoteW!, promoteH!);
+      try {
+        const promoteDiff = await ctx.compareImages(promoteRegion, promoteTemplate);
+        ctx.log(`  晋升按钮匹配差异: ${(promoteDiff * 100).toFixed(1)}%`);
+        if (promoteDiff < 0.3) {
+          ctx.log(`  识别到晋升按钮，点击 (${PROMOTE_POINT.x}, ${PROMOTE_POINT.y})`);
+          await ctx.tap(PROMOTE_POINT.x, PROMOTE_POINT.y);
+          await ctx.sleep(1);
+          promoted = true;
+          break;
+        }
+      } finally {
+        await fs.unlink(promoteRegion).catch(() => {});
       }
-      ctx.log(`  T${t} 无晋升按钮 (${promoteBtn.confidence.toFixed(3)})`);
+    }
+    if (promoted) {
+      // 晋升也是同样的流程：处理资源弹窗并最终回到训练界面
+      return finishTrainFlow(ctx, config, detailUpgradeTemplate, targetBuilding, targetTier, '晋升');
     }
   }
 
