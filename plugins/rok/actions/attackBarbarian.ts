@@ -368,7 +368,7 @@ async function recallTopGarrison(ctx: PluginContext): Promise<boolean> {
     Math.round(found.x + AVATAR_OFFSET.dx),
     Math.round(found.y + AVATAR_OFFSET.dy)
   );
-  await ctx.sleep(1);
+  await ctx.sleep(1.5);
   ctx.log(`  点击召回部队 (${RECALL_BUTTON.x},${RECALL_BUTTON.y})`);
   await ctx.tap(RECALL_BUTTON.x, RECALL_BUTTON.y);
   await ctx.sleep(1.5);
