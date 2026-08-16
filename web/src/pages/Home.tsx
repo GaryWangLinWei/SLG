@@ -425,6 +425,9 @@ export function HomePage() {
         if (!parsed.trainPromote || typeof parsed.trainPromote !== 'object') {
           parsed.trainPromote = DEFAULT_FEATURES.trainPromote;
         }
+        if (typeof parsed.attackBarbarianLoopCount !== 'number') {
+          parsed.attackBarbarianLoopCount = DEFAULT_FEATURES.attackBarbarianLoopCount;
+        }
         // Migrate old state without completed arrays
         const merged = { ...DEFAULT_FEATURES, ...parsed };
         if (!Array.isArray(merged.completedBuildings) || merged.completedBuildings.length !== 5) {
@@ -1448,8 +1451,12 @@ export function HomePage() {
       // 自动打野独立循环 — 固定间隔（attackBarbarianIntervalMinutes）重复执行
       const attackBarbarianLoop = (async () => {
         let first = true;
+        let ranCount = 0;
+        let countSeq = cooldownResetSeq;
         while (!isStopped()) {
           if (first) { first = false; await sleep(3); }
+          // 切号后重置循环次数计数
+          if (cooldownResetSeq !== countSeq) { countSeq = cooldownResetSeq; ranCount = 0; }
           if (offlineActive) { await sleep(30); continue; }
           const enabled = featuresRef.current.autoAttackBarbarian && featuresRef.current.attackBarbarianLevel > 0 && !featuresRef.current.autoWorldChat && !isFeatureLocked('attackBarbarian');
           if (enabled && !isStopped()) {
@@ -1503,9 +1510,15 @@ export function HomePage() {
 
             // 跑完按配置间隔等待（带 ±15% 抖动）；切号或停止时立即唤醒
             if (ran) {
+              ranCount++;
+              const loopLimit = Math.max(0, Math.floor(Number(featuresRef.current.attackBarbarianLoopCount) || 0));
+              if (loopLimit > 0 && ranCount >= loopLimit) {
+                pushLog(`⚔️ 打野已完成 ${ranCount}/${loopLimit} 轮，停止本轮循环`);
+                return;
+              }
               const intervalMinutes = Math.max(1, Number(featuresRef.current.attackBarbarianIntervalMinutes) || 10);
               const cd = intervalMinutes * 60 * (0.85 + Math.random() * 0.3);
-              pushLog(`⚔️ 打野完成，${cd.toFixed(0)} 秒后下一轮`);
+              pushLog(`⚔️ 打野完成 ${loopLimit > 0 ? ranCount + '/' + loopLimit : ''}，${cd.toFixed(0)} 秒后下一轮`);
               const startWait = monotonicNow();
               const waitSeq = cooldownResetSeq;
               while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < cd * 1000) {
@@ -3781,6 +3794,16 @@ export function HomePage() {
                     className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-16" />
                   <span className="text-xs text-slate-700 whitespace-nowrap">分钟</span>
                   <span className="text-[11px] text-slate-400">跑完一批后等待多久再打</span>
+                </div>
+
+                {/* 循环次数 */}
+                <div className="flex items-center gap-2 px-4 py-2.5 border-t border-slate-100">
+                  <span className="text-xs text-slate-500 whitespace-nowrap w-16">循环次数</span>
+                  <input type="number" min={0} value={features.attackBarbarianLoopCount}
+                    disabled={features.autoWorldChat}
+                    onChange={(e) => setFeatures({ ...features, attackBarbarianLoopCount: Math.max(0, Math.floor(Number(e.target.value) || 0)) })}
+                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-16" />
+                  <span className="text-[11px] text-slate-400">最多打多少批，0 表示无限循环</span>
                 </div>
 
                 {/* 使用体力药水 */}
