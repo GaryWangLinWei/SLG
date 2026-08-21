@@ -9,7 +9,7 @@ import * as path from 'path';
 import * as fsp from 'fs/promises';
 import sharp from 'sharp';
 
-const FORT_MAX_LEVEL = 10;
+const FORT_MAX_LEVEL = 15;
 const FORT_LEVEL_RECT = { x1: 126, y1: 425, x2: 564, y2: 454 };
 const FORT_LEVEL_RESET_BTN = { x: 167, y: 486 };
 
