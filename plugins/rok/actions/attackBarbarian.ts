@@ -33,6 +33,9 @@ const CLOSE_STAMINA_POPUP = { x: 1363, y: 103 };
 const TILI_BUTTON_REGION = { x: 1014, y: 242, width: 1358 - 1014, height: 407 - 242 };
 
 const BTN_ATTACK_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_attack.png');
+const BTN_TREATMENT_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_treatment.png');
+// 治疗弹窗「确认治疗」按钮固定坐标
+const TREATMENT_CONFIRM_BUTTON = { x: 1198, y: 725 };
 const BTN_BIANDUI_TEMPLATE = path.join(TEMPLATE_DIR, 'jijie', 'btn_biandui.png');
 const BTN_XINGJUN_TEMPLATE = path.join(TEMPLATE_DIR, 'btn_xingjun.png');
 const BTN_XINGJUN_REGION = { x: 1068, y: 20, width: 362, height: 860 };
@@ -48,6 +51,19 @@ const RECALL_BUTTON = { x: 924, y: 570 };
 
 const ZHUZHA_WAIT_TIMEOUT_SEC = 600;
 const ZHUZHA_POLL_INTERVAL_SEC = 4;
+const ZHUZHA_CONFIRM_INTERVAL_SEC = 2;
+
+// dev 环境下：识别不到行军按钮时的全屏截图保存目录
+const XINGJUN_FAIL_DIR = path.join(process.cwd(), 'temp', 'debug', 'xingjun_fail');
+
+function isDevEnv(): boolean {
+  try {
+    const { app } = require('electron');
+    return !app.isPackaged;
+  } catch {
+    return true;
+  }
+}
 
 export type AttackBarbarianResult =
   | 'success' | 'not_found' | 'no_march_button' | 'no_biandui'
@@ -330,7 +346,7 @@ async function detectTopZhuzha(ctx: PluginContext): Promise<ZhuzhaSlot | null> {
 }
 
 /** 等待最上方槽位出现驻扎状态，超时返回 false。
- *  需连续两次检测都识别到蓝环才算驻扎：第一次通过后等 5s 再测一次，两次都通过才确认，避免误判。 */
+ *  需连续两次检测都识别到蓝环才算驻扎：第一次通过后等 2s 再测一次，两次都通过才确认，避免误判。 */
 async function waitForTopZhuzha(ctx: PluginContext): Promise<boolean> {
   const deadline = Date.now() + ZHUZHA_WAIT_TIMEOUT_SEC * 1000;
   let pending = false; // 已通过第一次检测，等待第二次确认
@@ -342,13 +358,14 @@ async function waitForTopZhuzha(ctx: PluginContext): Promise<boolean> {
         ctx.log(`  队伍已驻扎 ${detail}（二次确认通过）`);
         return true;
       }
-      ctx.log(`  首次检测到驻扎 ${detail}，${ZHUZHA_POLL_INTERVAL_SEC}s 后二次确认`);
+      ctx.log(`  首次检测到驻扎 ${detail}，${ZHUZHA_CONFIRM_INTERVAL_SEC}s 后二次确认`);
       pending = true;
     } else {
       if (pending) ctx.log(`  二次确认未检测到驻扎，继续等待`);
       pending = false;
     }
-    for (let i = 0; i < ZHUZHA_POLL_INTERVAL_SEC; i++) {
+    const waitSec = pending ? ZHUZHA_CONFIRM_INTERVAL_SEC : ZHUZHA_POLL_INTERVAL_SEC;
+    for (let i = 0; i < waitSec; i++) {
       if (Date.now() >= deadline) break;
       await ctx.sleep(1);
     }
@@ -425,6 +442,18 @@ async function marchFromGarrison(
   );
   if (!btn.found) {
     ctx.log(`  ⚠️ 未找到行军按钮 (conf=${btn.confidence.toFixed(3)})`);
+    if (isDevEnv()) {
+      try {
+        const shot = await ctx.captureRegion(0, 0, 1600, 900);
+        await fsp.mkdir(XINGJUN_FAIL_DIR, { recursive: true });
+        const dumpPath = path.join(XINGJUN_FAIL_DIR, `xingjun_fail_${Date.now()}.png`);
+        await fsp.copyFile(shot, dumpPath);
+        await fsp.unlink(shot);
+        ctx.log(`  [debug] 未找到行军按钮截图已保存: ${dumpPath}`);
+      } catch (e) {
+        ctx.log(`  [debug] 保存截图失败: ${(e as Error).message}`);
+      }
+    }
     return 'no_march_button';
   }
 
@@ -443,6 +472,26 @@ async function marchFromGarrison(
   );
 
   return result === 'marched' ? 'marched' : 'stamina_insufficient';
+}
+
+/** 末次召回回城后：识别治疗按钮，识别到则点击，再点弹窗中的确认治疗并请求帮助 */
+async function treatWounded(ctx: PluginContext): Promise<void> {
+  const btn = await ctx.findImageWithLocation(BTN_TREATMENT_TEMPLATE, 0.7);
+  if (!btn.found) {
+    ctx.log(`  未识别到治疗按钮，跳过治疗`);
+    return;
+  }
+  ctx.log(`  识别到治疗按钮 (${btn.x},${btn.y}) conf=${btn.confidence.toFixed(3)}，点击`);
+  await ctx.tap(btn.x, btn.y);
+  await ctx.sleep(1.5);
+  ctx.log(`  点击确认治疗 (${TREATMENT_CONFIRM_BUTTON.x},${TREATMENT_CONFIRM_BUTTON.y})`);
+  await ctx.tap(TREATMENT_CONFIRM_BUTTON.x, TREATMENT_CONFIRM_BUTTON.y);
+  await ctx.sleep(1.5);
+  // 点治疗按钮坐标 +(0,70) 请求帮助
+  const helpTarget = { x: btn.x, y: btn.y + 70 };
+  ctx.log(`  请求帮助 (${helpTarget.x},${helpTarget.y})`);
+  await ctx.tap(helpTarget.x, helpTarget.y);
+  await ctx.sleep(1.5);
 }
 
 export async function attackBarbarian(
@@ -529,6 +578,11 @@ export async function attackBarbarian(
   }
 
   await backToCity(ctx);
+
+  // 回城后治疗伤兵（识别到才治，并记录坐标供下次任务收兵）
+  ctx.log(`  --- 治疗伤兵 ---`);
+  await treatWounded(ctx);
+
   ctx.log(`=== 自动打野完成，共 ${count} 次 ===`);
   return { result: 'success' };
 }
