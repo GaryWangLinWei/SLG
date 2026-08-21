@@ -30,8 +30,7 @@ import { checkGameRunning } from './actions/checkGameRunning';
 import { checkAttack } from './actions/checkAttack';
 import { autoShield } from './actions/autoShield';
 import { switchAccount } from './actions/switchAccount';
-import { switchLinkedRole } from './actions/switchLinkedRole';
-import { resolveSwitchKind } from './actions/switchAccountKind';
+import { switchRole } from './actions/switchRole';
 import { ensureInCity, ensureBottomBarCollapsed, ensureNoPopupBlocking } from './utils/location';
 import { TeamPage } from './utils/teamPage';
 import { ocrService } from '../../core/ocr/OcrService';
@@ -174,8 +173,12 @@ export interface RokConfig {
   };
 
   accountSwitch: {
-    accountName: string;   // 账号编号，连体号填主号相同的编号
-    targetType: 'account' | 'linked';  // account=常规主号，linked=连体号
+    accountName: string;    // 游戏账号编号
+    /**
+     * 星标序号（1 开始），仅当同一账号编号有多个配置方案参与轮换时需要。
+     * 类型（account/role）不存储，由切号列表按账号编号分组推导。
+     */
+    starredIndex?: number;
   };
   homeFeatures?: HomeFeatures;
 }
@@ -327,7 +330,6 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
 
   accountSwitch: {
     accountName: '',
-    targetType: 'account',
   },
   homeFeatures: DEFAULT_HOME_FEATURES,
 };
@@ -971,25 +973,52 @@ export const RiseOfKingdomsPlugin: Plugin = {
     {
       id: 'switch-account',
       name: '切换账号',
-      description: '切换游戏账号，或在同一账号下切换连体号角色',
+      description: '按显式步骤切换游戏账号和/或同账号下的星标角色',
       run: async (ctx, params) => {
-        const currentName = (params?.currentName as string) ?? '';
-        const currentType = ((params?.currentType as 'account' | 'linked') ?? 'account');
-        const targetName = (params?.targetName as string) ?? '';
-        const targetType = ((params?.targetType as 'account' | 'linked') ?? 'account');
+        // 前端算好步骤传进来，这里只顺序执行，不再做隐式方式推断。
+        const accountStep = params?.accountSwitch as { accountName?: string } | undefined;
+        const roleStep = params?.roleSwitch as { starredIndex?: number } | undefined;
 
-        const decision = resolveSwitchKind({ currentName, currentType, targetName, targetType });
-        let result: string;
-        if (decision.kind === 'linked') {
-          result = await switchLinkedRole(ctx, decision.direction);
-        } else {
+        if (!accountStep && !roleStep) {
+          ctx.log('❌ 未提供任何切换步骤');
+          ctx.log('切换账号: no_steps');
+          return;
+        }
+
+        if (accountStep) {
+          const targetName = (accountStep.accountName || '').trim();
           if (!targetName) {
-            ctx.log('❌ 未提供 targetName');
+            ctx.log('❌ accountSwitch 缺少 accountName');
+            ctx.log('切换账号: no_steps');
             return;
           }
-          result = await switchAccount(ctx, targetName);
+          const accResult = await switchAccount(ctx, targetName);
+          if (accResult !== 'success' && accResult !== 'switched_load_timeout') {
+            ctx.log(`切换账号: ${accResult}`);
+            return;
+          }
+          if (accResult === 'switched_load_timeout') {
+            ctx.log('  ⚠️ 账号已切换但未检测到进城');
+          }
+          if (!roleStep) {
+            ctx.log(`切换账号: ${accResult}`);
+            return;
+          }
         }
-        ctx.log(`切换账号: ${result}`);
+
+        const starredIndex = roleStep?.starredIndex;
+        if (typeof starredIndex !== 'number') {
+          ctx.log('❌ roleSwitch 缺少 starredIndex');
+          ctx.log('切换账号: no_steps');
+          return;
+        }
+        const roleResult = await switchRole(ctx, starredIndex);
+        if (roleResult === 'already_active') {
+          ctx.log('  ℹ️ 目标角色已是当前角色，跳过登录');
+        }
+        // already_active 对调用方等价于成功：日志保持 "切换账号: success" 前缀，
+        // Home.tsx 的成功判定依赖 includes('切换账号: success')。
+        ctx.log(`切换账号: ${roleResult === 'already_active' ? 'success (角色已在目标位置)' : roleResult}`);
       }
     },
   ],
