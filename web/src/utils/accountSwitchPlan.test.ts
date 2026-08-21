@@ -81,6 +81,30 @@ describe('validateSwitchProfiles', () => {
       { name: 'B', accountName: '1002' },
     ])).toEqual([]);
   });
+
+  test('role 型星标序号为 NaN → invalid-starred-index', () => {
+    expect(validateSwitchProfiles([
+      { name: 'B1', accountName: '1002', starredIndex: NaN },
+      { name: 'B2', accountName: '1002', starredIndex: 2 },
+    ])).toEqual([{ profileName: 'B1', reason: 'invalid-starred-index' }]);
+  });
+
+  test('同账号三个方案星标序号全相同 → 三个都报 duplicate', () => {
+    expect(validateSwitchProfiles([
+      { name: 'B1', accountName: '1002', starredIndex: 2 },
+      { name: 'B2', accountName: '1002', starredIndex: 2 },
+      { name: 'B3', accountName: '1002', starredIndex: 2 },
+    ])).toEqual([
+      { profileName: 'B1', reason: 'duplicate-starred-index' },
+      { profileName: 'B2', reason: 'duplicate-starred-index' },
+      { profileName: 'B3', reason: 'duplicate-starred-index' },
+    ]);
+  });
+
+  test('空数组 → deriveProfileKinds 返回 {}，validateSwitchProfiles 返回 []', () => {
+    expect(deriveProfileKinds([])).toEqual({});
+    expect(validateSwitchProfiles([])).toEqual([]);
+  });
 });
 
 describe('buildSwitchSteps', () => {
@@ -119,6 +143,12 @@ describe('buildSwitchSteps', () => {
       accountSwitch: { accountName: '1002' },
       roleSwitch: { starredIndex: 1 },
     });
+  });
+
+  test('role 型目标星标序号为 NaN → 不产出 roleSwitch（回归防护）', () => {
+    const bad = { name: 'B3', accountName: '1002', starredIndex: NaN };
+    const metas = [A, B1, B2, bad];
+    expect(buildSwitchSteps(B2, bad, metas).roleSwitch).toBeUndefined();
   });
 
   test('两个 account 型同账号编号不会发生（分组即 role），跨账号 account 型只切账号', () => {

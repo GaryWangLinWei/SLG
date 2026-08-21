@@ -17,6 +17,11 @@ export interface ProfileSwitchMeta {
   starredIndex?: number;
 }
 
+/** 星标序号是否合法（≥1 的整数）。校验与步骤计算共用，避免两处判定漂移（如 NaN 同时被 typeof 放行）。 */
+function isValidStarredIndex(v: unknown): v is number {
+  return typeof v === 'number' && Number.isInteger(v) && v >= 1;
+}
+
 /** 按账号编号分组推导每个 profile 的类型。 */
 export function deriveProfileKinds(profiles: ProfileSwitchMeta[]): Record<string, ProfileKind> {
   const countByAccount = new Map<string, number>();
@@ -56,8 +61,7 @@ export function validateSwitchProfiles(profiles: ProfileSwitchMeta[]): SlotIssue
   const seenByAccount = new Map<string, Set<number>>();
   for (const p of profiles) {
     const acc = (p.accountName || '').trim();
-    if (!acc || kinds[p.name] !== 'role') continue;
-    if (typeof p.starredIndex !== 'number' || !Number.isInteger(p.starredIndex) || p.starredIndex < 1) continue;
+    if (!acc || kinds[p.name] !== 'role' || !isValidStarredIndex(p.starredIndex)) continue;
     const seen = seenByAccount.get(acc) ?? new Set<number>();
     if (seen.has(p.starredIndex)) {
       const dup = dupIndexesByAccount.get(acc) ?? new Set<number>();
@@ -79,7 +83,7 @@ export function validateSwitchProfiles(profiles: ProfileSwitchMeta[]): SlotIssue
       issues.push({ profileName: p.name, reason: 'missing-starred-index' });
       continue;
     }
-    if (!Number.isInteger(p.starredIndex) || p.starredIndex < 1) {
+    if (!isValidStarredIndex(p.starredIndex)) {
       issues.push({ profileName: p.name, reason: 'invalid-starred-index' });
       continue;
     }
@@ -119,7 +123,7 @@ export function buildSwitchSteps(
   if (!currentAcc || currentAcc !== targetAcc) {
     steps.accountSwitch = { accountName: targetAcc };
   }
-  if (kinds[target.name] === 'role' && typeof target.starredIndex === 'number') {
+  if (kinds[target.name] === 'role' && isValidStarredIndex(target.starredIndex)) {
     steps.roleSwitch = { starredIndex: target.starredIndex };
   }
   return steps;
