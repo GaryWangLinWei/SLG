@@ -89,3 +89,50 @@ export function validateSwitchProfiles(profiles: ProfileSwitchMeta[]): SlotIssue
   }
   return issues;
 }
+
+export interface SwitchSteps {
+  /** 目标账号与当前不同时存在 */
+  accountSwitch?: { accountName: string };
+  /** 目标是 role 型时总是存在 */
+  roleSwitch?: { starredIndex: number };
+}
+
+/**
+ * 算出从 current 切到 target 需要的显式步骤。
+ *
+ * 规则（与 spec 2.3 一致）：
+ * - 目标 account 型 → 只切账号（切过去落点即正确角色）。
+ * - 目标 role 型 → 账号不同则先切账号；然后**总是**位置切角色。
+ *   "总是"是必需的：切账号只会落在该账号最近使用的角色上，
+ *   而轮换每轮结束时该账号的最近使用角色都不是下一轮的目标。
+ */
+export function buildSwitchSteps(
+  current: ProfileSwitchMeta | undefined,
+  target: ProfileSwitchMeta,
+  profiles: ProfileSwitchMeta[],
+): SwitchSteps {
+  const kinds = deriveProfileKinds(profiles);
+  const targetAcc = (target.accountName || '').trim();
+  const currentAcc = (current?.accountName || '').trim();
+  const steps: SwitchSteps = {};
+
+  if (!currentAcc || currentAcc !== targetAcc) {
+    steps.accountSwitch = { accountName: targetAcc };
+  }
+  if (kinds[target.name] === 'role' && typeof target.starredIndex === 'number') {
+    steps.roleSwitch = { starredIndex: target.starredIndex };
+  }
+  return steps;
+}
+
+/**
+ * 环向推进切号目标索引：返回 active 在 validIds 中的下一格。
+ * 替代旧的 `findIndex(x => x !== nextProfile)`——那个写法只在恰好 2 个
+ * 有效 profile 时正确，3+ 槽位时会跳到任意非当前项，轮换顺序不确定。
+ */
+export function nextSwitchTargetIdx(validIds: string[], activeName: string): number {
+  if (validIds.length === 0) return 0;
+  const idx = validIds.indexOf(activeName);
+  if (idx < 0) return 0;
+  return (idx + 1) % validIds.length;
+}

@@ -1,4 +1,4 @@
-import { deriveProfileKinds, validateSwitchProfiles } from './accountSwitchPlan';
+import { buildSwitchSteps, deriveProfileKinds, nextSwitchTargetIdx, validateSwitchProfiles } from './accountSwitchPlan';
 
 describe('deriveProfileKinds', () => {
   test('账号编号只出现一次 → account 型', () => {
@@ -80,5 +80,78 @@ describe('validateSwitchProfiles', () => {
       { name: 'A', accountName: '1001', starredIndex: 9 },
       { name: 'B', accountName: '1002' },
     ])).toEqual([]);
+  });
+});
+
+describe('buildSwitchSteps', () => {
+  const A = { name: 'A', accountName: '1001' };
+  const B1 = { name: 'B1', accountName: '1002', starredIndex: 1 };
+  const B2 = { name: 'B2', accountName: '1002', starredIndex: 2 };
+  const all = [A, B1, B2];
+
+  test('A → B1（跨账号 role 型）：先切账号再切角色', () => {
+    expect(buildSwitchSteps(A, B1, all)).toEqual({
+      accountSwitch: { accountName: '1002' },
+      roleSwitch: { starredIndex: 1 },
+    });
+  });
+
+  test('B1 → B2（同账号 role 型）：只切角色', () => {
+    expect(buildSwitchSteps(B1, B2, all)).toEqual({
+      roleSwitch: { starredIndex: 2 },
+    });
+  });
+
+  test('B2 → A（目标 account 型）：只切账号', () => {
+    expect(buildSwitchSteps(B2, A, all)).toEqual({
+      accountSwitch: { accountName: '1001' },
+    });
+  });
+
+  test('目标 role 型且账号相同也总是带 roleSwitch（切账号无法选落点，必须补切）', () => {
+    const steps = buildSwitchSteps(B2, B1, all);
+    expect(steps.accountSwitch).toBeUndefined();
+    expect(steps.roleSwitch).toEqual({ starredIndex: 1 });
+  });
+
+  test('当前 profile 未知（首轮无 active）：role 型给出完整两步', () => {
+    expect(buildSwitchSteps(undefined, B1, all)).toEqual({
+      accountSwitch: { accountName: '1002' },
+      roleSwitch: { starredIndex: 1 },
+    });
+  });
+
+  test('两个 account 型同账号编号不会发生（分组即 role），跨账号 account 型只切账号', () => {
+    const C = { name: 'C', accountName: '1003' };
+    expect(buildSwitchSteps(A, C, [A, C])).toEqual({
+      accountSwitch: { accountName: '1003' },
+    });
+  });
+});
+
+describe('nextSwitchTargetIdx', () => {
+  test('环向推进到下一格', () => {
+    expect(nextSwitchTargetIdx(['A', 'B', 'C'], 'A')).toBe(1);
+    expect(nextSwitchTargetIdx(['A', 'B', 'C'], 'B')).toBe(2);
+  });
+
+  test('最后一格回绕到 0', () => {
+    expect(nextSwitchTargetIdx(['A', 'B', 'C'], 'C')).toBe(0);
+  });
+
+  test('当前 active 不在列表里 → 0', () => {
+    expect(nextSwitchTargetIdx(['A', 'B'], 'Z')).toBe(0);
+  });
+
+  test('空列表 → 0', () => {
+    expect(nextSwitchTargetIdx([], 'A')).toBe(0);
+  });
+
+  test('四槽轮换完整走一圈', () => {
+    const ids = ['A', 'B1', 'B2', 'C'];
+    expect(nextSwitchTargetIdx(ids, 'A')).toBe(1);
+    expect(nextSwitchTargetIdx(ids, 'B1')).toBe(2);
+    expect(nextSwitchTargetIdx(ids, 'B2')).toBe(3);
+    expect(nextSwitchTargetIdx(ids, 'C')).toBe(0);
   });
 });
