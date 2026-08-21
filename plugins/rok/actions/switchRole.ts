@@ -32,9 +32,27 @@ const SWIPE_DURATION_MS = 800;
 /** 归顶：连续下滑若干次，保证起点归一化到列表顶部。 */
 const SCROLL_TOP_TIMES = 3;
 
+/** 确认登录按钮轮询：约 3s 窗口内多次检测，避免慢机渲染延迟被误判成"已在目标角色"。 */
+const SURELOGIN_POLL_TIMES = 6;
+const SURELOGIN_POLL_INTERVAL_SEC = 0.5;
+
 const SURELOGIN_SEARCH_REGION = { x: 864, y: 598, width: 1168 - 864, height: 680 - 598 };
 const ICON_ROLE_TEMPLATE = path.join(getTemplatesDir(), 'icon_role.png');
 const BTN_SURELOGIN_TEMPLATE = path.join(getTemplatesDir(), 'btn_surelogin.png');
+
+/** 确认登录按钮轮询：约 3s 内多次检测。返回首次命中的检测结果，全程未命中返回 null。 */
+async function waitForSureLogin(ctx: PluginContext) {
+  let attempt = 0;
+  for (; attempt < SURELOGIN_POLL_TIMES; attempt++) {
+    ctx.log(`  [6/6] 轮询确认登录第 ${attempt + 1}/${SURELOGIN_POLL_TIMES} 次`);
+    const r = await ctx.findImageWithLocation(
+      BTN_SURELOGIN_TEMPLATE, 0.7, undefined, undefined, undefined, SURELOGIN_SEARCH_REGION,
+    );
+    if (r.found) return r;
+    if (attempt < SURELOGIN_POLL_TIMES - 1) await ctx.sleep(SURELOGIN_POLL_INTERVAL_SEC);
+  }
+  return null;
+}
 
 /**
  * 位置式角色切换：头像 → 设置 → 角色管理 → 归顶 → 按需翻页 → 点目标星标位 → 确认登录 → 等进城。
@@ -92,13 +110,11 @@ export async function switchRole(ctx: PluginContext, starredIndex: number): Prom
   const target = ROLE_SLOT_POS[slotIdx];
   ctx.log(`  [5/6] 点第 ${slotIdx + 1} 号位 (${target.x},${target.y})`);
   await ctx.tap(target.x, target.y);
-  await ctx.sleep(1.5);
+  await ctx.sleep(0.5);
 
-  const sureLogin = await ctx.findImageWithLocation(
-    BTN_SURELOGIN_TEMPLATE, 0.7, undefined, undefined, undefined, SURELOGIN_SEARCH_REGION,
-  );
-  ctx.log(`  [6/6] btn_surelogin.png found=${sureLogin.found} conf=${sureLogin.confidence.toFixed(3)}`);
-  if (!sureLogin.found) {
+  const sureLogin = await waitForSureLogin(ctx);
+  ctx.log(`  [6/6] btn_surelogin.png ${sureLogin ? '找到确认登录' : '约 6 次轮询后仍未出现确认登录，判定已在目标角色'}`);
+  if (!sureLogin) {
     // 点击当前已激活的角色不会重新登录，界面原地不动 —— 判定已在目标角色，
     // 逐层关掉打开的 3 个界面回城，报 already_active（调用方视作成功）。
     ctx.log(`  ℹ️ 未出现确认登录，判定已在目标角色，关闭角色管理/设置/玩家页`);
