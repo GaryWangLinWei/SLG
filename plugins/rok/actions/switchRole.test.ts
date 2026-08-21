@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { switchRole } from './switchRole';
+import { switchRole, SURELOGIN_POLL_TIMES } from './switchRole';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import * as locationUtil from '../utils/location';
 
@@ -127,4 +127,19 @@ test('确认登录第 3 次轮询才出现 → success（不是 already_active�
   expect(result).toBe('success');
   expect(ctx.taps).not.toContainEqual({ x: 1366, y: 105 }); // 未点关闭角色管理，说明走了真实切换分支
   expect(ctx.taps).toContainEqual({ x: 320, y: 334 });       // 已点目标位
+});
+
+test('确认登录始终未出现时，轮询次数有界 = SURELOGIN_POLL_TIMES', async () => {
+  let sureloginCalls = 0;
+  const ctx = makeCtx({
+    findImageWithLocation: jest.fn(async (p: string) => {
+      if (p === ICON_ROLE) return { found: true, x: 200, y: 300, confidence: 0.9 };
+      if (p === BTN_SURELOGIN) { sureloginCalls += 1; return { found: false, x: 0, y: 0, confidence: 0.2 }; }
+      return { found: false, x: 0, y: 0, confidence: 0 };
+    }),
+  });
+  const result = await switchRole(ctx as any, 1);
+  expect(result).toBe('already_active');
+  // 锁死终止性：恒未命中时检测次数恰为轮询上限，防止将来改成无限循环
+  expect(sureloginCalls).toBe(SURELOGIN_POLL_TIMES);
 });

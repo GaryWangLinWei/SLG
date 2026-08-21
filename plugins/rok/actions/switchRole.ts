@@ -33,20 +33,22 @@ const SWIPE_DURATION_MS = 800;
 const SCROLL_TOP_TIMES = 3;
 
 /** 确认登录按钮轮询：约 3s 窗口内多次检测，避免慢机渲染延迟被误判成"已在目标角色"。 */
-const SURELOGIN_POLL_TIMES = 6;
+export const SURELOGIN_POLL_TIMES = 6;
 const SURELOGIN_POLL_INTERVAL_SEC = 0.5;
 
 const SURELOGIN_SEARCH_REGION = { x: 864, y: 598, width: 1168 - 864, height: 680 - 598 };
 const ICON_ROLE_TEMPLATE = path.join(getTemplatesDir(), 'icon_role.png');
+const ICON_ROLE_THRESHOLD = 0.75;
 const BTN_SURELOGIN_TEMPLATE = path.join(getTemplatesDir(), 'btn_surelogin.png');
+const SURELOGIN_THRESHOLD = 0.7;
 
 /** 确认登录按钮轮询：约 3s 内多次检测。返回首次命中的检测结果，全程未命中返回 null。 */
 async function waitForSureLogin(ctx: PluginContext) {
   let attempt = 0;
   for (; attempt < SURELOGIN_POLL_TIMES; attempt++) {
-    ctx.log(`  [6/6] 轮询确认登录第 ${attempt + 1}/${SURELOGIN_POLL_TIMES} 次`);
+    ctx.log(`  [确认登录轮询] 第 ${attempt + 1}/${SURELOGIN_POLL_TIMES} 次`);
     const r = await ctx.findImageWithLocation(
-      BTN_SURELOGIN_TEMPLATE, 0.7, undefined, undefined, undefined, SURELOGIN_SEARCH_REGION,
+      BTN_SURELOGIN_TEMPLATE, SURELOGIN_THRESHOLD, undefined, undefined, undefined, SURELOGIN_SEARCH_REGION,
     );
     if (r.found) return r;
     if (attempt < SURELOGIN_POLL_TIMES - 1) await ctx.sleep(SURELOGIN_POLL_INTERVAL_SEC);
@@ -78,7 +80,7 @@ export async function switchRole(ctx: PluginContext, starredIndex: number): Prom
   await ctx.tap(SETTINGS_BTN.x, SETTINGS_BTN.y);
   await ctx.sleep(1);
 
-  const roleIcon = await ctx.findImageWithLocation(ICON_ROLE_TEMPLATE, 0.75);
+  const roleIcon = await ctx.findImageWithLocation(ICON_ROLE_TEMPLATE, ICON_ROLE_THRESHOLD);
   ctx.log(`  [3/6] icon_role.png found=${roleIcon.found} conf=${roleIcon.confidence.toFixed(3)}`);
   if (!roleIcon.found) {
     ctx.log(`  ❌ 未找到角色管理入口，关闭设置和玩家页后结束`);
@@ -100,7 +102,7 @@ export async function switchRole(ctx: PluginContext, starredIndex: number): Prom
   const pageIdx = Math.floor((starredIndex - 1) / PAGE_SIZE);
   const slotIdx = (starredIndex - 1) % PAGE_SIZE;
   if (pageIdx > 0) {
-    ctx.log(`  [5/6] 向下翻 ${pageIdx} 页`);
+    ctx.log(`  [5a/6] 向下翻 ${pageIdx} 页`);
     for (let i = 0; i < pageIdx; i++) {
       await ctx.swipe(SWIPE_X, PAGE_UP_FROM_Y, SWIPE_X, PAGE_UP_TO_Y, SWIPE_DURATION_MS, false, true);
       await ctx.sleep(0.5);
@@ -113,7 +115,7 @@ export async function switchRole(ctx: PluginContext, starredIndex: number): Prom
   await ctx.sleep(0.5);
 
   const sureLogin = await waitForSureLogin(ctx);
-  ctx.log(`  [6/6] btn_surelogin.png ${sureLogin ? '找到确认登录' : '约 6 次轮询后仍未出现确认登录，判定已在目标角色'}`);
+  ctx.log(`  [6/6] btn_surelogin.png ${sureLogin ? '找到确认登录' : `约 ${SURELOGIN_POLL_TIMES} 次轮询后仍未出现确认登录，判定已在目标角色`}`);
   if (!sureLogin) {
     // 点击当前已激活的角色不会重新登录，界面原地不动 —— 判定已在目标角色，
     // 逐层关掉打开的 3 个界面回城，报 already_active（调用方视作成功）。
