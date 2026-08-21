@@ -32,3 +32,60 @@ export function deriveProfileKinds(profiles: ProfileSwitchMeta[]): Record<string
   }
   return out;
 }
+export type SlotIssueReason =
+  | 'no-account'
+  | 'missing-starred-index'
+  | 'invalid-starred-index'
+  | 'duplicate-starred-index';
+
+export interface SlotIssue {
+  profileName: string;
+  reason: SlotIssueReason;
+}
+
+/**
+ * 校验切号列表：account 型只要求填了账号编号；
+ * role 型（同账号多方案）额外要求星标序号为正整数且组内互不相同。
+ */
+export function validateSwitchProfiles(profiles: ProfileSwitchMeta[]): SlotIssue[] {
+  const kinds = deriveProfileKinds(profiles);
+  const issues: SlotIssue[] = [];
+
+  // 先算出每个账号组里重复的星标序号
+  const dupIndexesByAccount = new Map<string, Set<number>>();
+  const seenByAccount = new Map<string, Set<number>>();
+  for (const p of profiles) {
+    const acc = (p.accountName || '').trim();
+    if (!acc || kinds[p.name] !== 'role') continue;
+    if (typeof p.starredIndex !== 'number' || !Number.isInteger(p.starredIndex) || p.starredIndex < 1) continue;
+    const seen = seenByAccount.get(acc) ?? new Set<number>();
+    if (seen.has(p.starredIndex)) {
+      const dup = dupIndexesByAccount.get(acc) ?? new Set<number>();
+      dup.add(p.starredIndex);
+      dupIndexesByAccount.set(acc, dup);
+    }
+    seen.add(p.starredIndex);
+    seenByAccount.set(acc, seen);
+  }
+
+  for (const p of profiles) {
+    const acc = (p.accountName || '').trim();
+    if (!acc) {
+      issues.push({ profileName: p.name, reason: 'no-account' });
+      continue;
+    }
+    if (kinds[p.name] !== 'role') continue;
+    if (p.starredIndex === undefined || p.starredIndex === null) {
+      issues.push({ profileName: p.name, reason: 'missing-starred-index' });
+      continue;
+    }
+    if (!Number.isInteger(p.starredIndex) || p.starredIndex < 1) {
+      issues.push({ profileName: p.name, reason: 'invalid-starred-index' });
+      continue;
+    }
+    if (dupIndexesByAccount.get(acc)?.has(p.starredIndex)) {
+      issues.push({ profileName: p.name, reason: 'duplicate-starred-index' });
+    }
+  }
+  return issues;
+}
