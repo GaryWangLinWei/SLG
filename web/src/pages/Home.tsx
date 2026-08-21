@@ -3375,13 +3375,14 @@ export function HomePage() {
                 {/* 目标等级 + 派遣 */}
                 <div className="flex items-center gap-2 px-4 py-2.5 border-t border-slate-100">
                   <span className="text-xs text-slate-500 whitespace-nowrap w-16">目标等级</span>
-                  <select value={features.rallyFortLevel}
+                  <input type="number" min={1} max={15} value={features.rallyFortLevel || ''}
                     disabled={features.autoWorldChat}
-                    onChange={(e) => setFeatures({ ...features, rallyFortLevel: Number(e.target.value) })}
-                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-20">
-                    <option value={0}>—</option>
-                    {[1,2,3,4,5,6,7,8,9,10].map(l => (<option key={l} value={l}>Lv.{l}</option>))}
-                  </select>
+                    onChange={(e) => {
+                      const v = e.target.value === '' ? 0 : Math.max(1, Math.min(15, Number(e.target.value)));
+                      setFeatures({ ...features, rallyFortLevel: v });
+                    }}
+                    placeholder="等级"
+                    className="px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs w-20" />
                   <span className="text-xs text-slate-500 whitespace-nowrap ml-3">派遣第</span>
                   <select value={features.rallyFortTeam}
                     disabled={features.autoWorldChat}
@@ -3905,7 +3906,7 @@ export function HomePage() {
                   );
                 })}
               </div>
-              <span className="text-[11px] text-slate-400 mt-2">勾选晋升，优先将低于目标等级的兵种晋升</span>
+              <span className="text-[11px] text-slate-400 mt-2">勾选晋升，优先晋升低级兵种</span>
             </div>
 
             {/* 自动喊话 */}
