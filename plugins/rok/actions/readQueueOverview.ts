@@ -109,9 +109,9 @@ export async function readQueueOverview(
     await ensureQueueFilters(ctx, config);
   }
 
-  // 向下滑动确保所有队列都显示
+  // 向下滑动确保所有队列都显示（singleShot：一条 input swipe，不分段，避免多段惯性滑动过头）
   if (qo.swipeDown) {
-    await ctx.swipe(qo.swipeDown.fromX, qo.swipeDown.fromY, qo.swipeDown.toX, qo.swipeDown.toY);
+    await ctx.swipe(qo.swipeDown.fromX, qo.swipeDown.fromY, qo.swipeDown.toX, qo.swipeDown.toY, 500, false, true);
     await ctx.sleep(1.5);
   }
 
