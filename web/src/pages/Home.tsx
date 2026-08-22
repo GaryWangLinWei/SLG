@@ -767,6 +767,15 @@ export function HomePage() {
   };
 
   const startAllImpl = async (source: 'local' | 'remote' = 'local') => {
+    // ============================================================================
+    // ⚠️ 循环读配置约定（本 bug 家族第三例，务必遵守）：
+    // startAllImpl 内所有子循环（main、喊话、gather/help/collect/rally/attackBarbarian/…）
+    // 每轮求值配置必须读 featuresRef.current —— 它是每帧同步的 ref。
+    // 直接读外层 `features`（React state）拿到的是"循环启动那一刻"的闭包快照：
+    // 切号后 setFeatures(merged) 只更新了 state 与 ref，闭包里 stale 的 features 永不变化。
+    // 后果：第1个账号勾的功能被后面所有账号无脑沿用（前车之鉴：全员升级建筑/金矿），
+    //       或 while(!isStopped() && features.autoWorldChat) 这类守卫永远为真而卡死。
+    // ============================================================================
     if (!currentAccountId) {
       pushLog(`❌ 未选择账号`);
       return;
@@ -2320,11 +2329,13 @@ export function HomePage() {
       })();
 
       // 山洞探索 — 独立模式，与其他 action 互斥
-      const hasMainWork = features.autoWorldChat || features.upgradeBuildings || features.autoResearch || features.trainTroops;
-      if (!hasMainWork) {
+      // 主循环"有活"判定：必须每轮通过 featuresRef.current 读取，切号后按新账号配置重评估
+      const hasMainWork = (): boolean =>
+        featuresRef.current.autoWorldChat || featuresRef.current.upgradeBuildings || featuresRef.current.autoResearch || featuresRef.current.trainTroops;
+      if (!hasMainWork()) {
         pushLog(`ℹ️ 未启用建筑/科技/训练，主循环跳过`);
       }
-      while (!isStopped() && hasMainWork) {
+      while (!isStopped() && hasMainWork()) {
         round++;
         pushLog(`🔄 第${round}轮`);
         saveLoopState(currentAccountId);
@@ -2429,15 +2440,15 @@ export function HomePage() {
         }
 
         // 喊话模式：与其他任务互斥，只执行世界喊话
-        if (features.autoWorldChat) {
-          const messages = (features.worldChatMessages || []).filter((m: string) => m.trim());
+        if (featuresRef.current.autoWorldChat) {
+          const messages = (featuresRef.current.worldChatMessages || []).filter((m: string) => m.trim());
           if (messages.length === 0) {
             pushLog(`⚠️ 未填写喊话内容，跳过`);
             loopStopped = true;
             break;
           }
 
-          while (!isStopped() && features.autoWorldChat) {
+          while (!isStopped() && featuresRef.current.autoWorldChat) {
             // 一轮：依次发送所有消息，每条间隔 15s
             for (let i = 0; i < messages.length && !isStopped(); i++) {
               // 第一条不等，后续等 15s
@@ -2457,7 +2468,7 @@ export function HomePage() {
             if (isStopped()) break;
 
             // 一轮结束，等 CD
-            const cd = features.worldChatInterval || 300;
+            const cd = featuresRef.current.worldChatInterval || 300;
             const cdJitter = cd * (0.85 + Math.random() * 0.3);
             pushLog(`📢 一轮喊话完成，${cdJitter.toFixed(0)} 秒后开始下一轮`);
 
@@ -2485,15 +2496,15 @@ export function HomePage() {
         if (isStopped()) break;
 
         // Step 2: 执行到期/就绪的 action
-        const hasUpgrade = features.upgradeBuildings &&
-          features.selectedBuildings.some((b: string, i: number) => b && !loopCompletedBuildings[i]);
-        const hasResearch = features.autoResearch &&
-          features.selectedTechs.some((t: string, i: number) => t && !loopCompletedTechs[i]);
-        const hasTrain = features.trainTroops &&
-          (Object.values(features.trainTasks as Record<string, number>) as number[]).some((v: number) => v > 0);
+        const hasUpgrade = featuresRef.current.upgradeBuildings &&
+          featuresRef.current.selectedBuildings.some((b: string, i: number) => b && !loopCompletedBuildings[i]);
+        const hasResearch = featuresRef.current.autoResearch &&
+          featuresRef.current.selectedTechs.some((t: string, i: number) => t && !loopCompletedTechs[i]);
+        const hasTrain = featuresRef.current.trainTroops &&
+          (Object.values(featuresRef.current.trainTasks as Record<string, number>) as number[]).some((v: number) => v > 0);
 
         if (hasUpgrade && (timers.build1 === null || timers.build1! <= 0 || timers.build2 === null || timers.build2! <= 0)) {
-          const targetBuildings = features.selectedBuildings
+          const targetBuildings = featuresRef.current.selectedBuildings
             .filter((b: string, i: number) => b && !loopCompletedBuildings[i]);
           if (targetBuildings.length > 0) {
             const logs = await runTask('upgrade-buildings', { targetBuildings });
@@ -2504,7 +2515,7 @@ export function HomePage() {
               const m = l.match(/✅ (.+?) 升级成功/);
               if (m) successCounts[m[1]] = (successCounts[m[1]] || 0) + 1;
             }
-            features.selectedBuildings.forEach((b: string, i: number) => {
+            featuresRef.current.selectedBuildings.forEach((b: string, i: number) => {
               if (b && !loopCompletedBuildings[i] && (successCounts[b] || 0) > 0) {
                 successCounts[b]--;
                 loopCompletedBuildings[i] = true;
@@ -2523,7 +2534,7 @@ export function HomePage() {
           } else if (timers.build1Building === '学院' || timers.build2Building === '学院') {
             pushLog(`🏗️ 学院正在升级中，跳过研究科技`);
           } else {
-            const techs = features.selectedTechs.filter((t: string, i: number) => t && !loopCompletedTechs[i]);
+            const techs = featuresRef.current.selectedTechs.filter((t: string, i: number) => t && !loopCompletedTechs[i]);
             if (techs.length > 0) {
               const logs = await runTask('research-tech-queue', { targetTechs: techs, researchBuilding: '学院' });
               dispatchedAny = true;
@@ -2533,7 +2544,7 @@ export function HomePage() {
                 const m = l.match(/✅ (.+?) 研究成功/);
                 if (m) techSuccessCounts[m[1]] = (techSuccessCounts[m[1]] || 0) + 1;
               }
-              features.selectedTechs.forEach((t: string, i: number) => {
+              featuresRef.current.selectedTechs.forEach((t: string, i: number) => {
                 if (t && !loopCompletedTechs[i] && (techSuccessCounts[t] || 0) > 0) {
                   techSuccessCounts[t]--;
                   loopCompletedTechs[i] = true;
@@ -2554,8 +2565,8 @@ export function HomePage() {
             '靶场': timers.train_bachang,
             '攻城武器厂': timers.train_gongcheng,
           };
-          const tasks = features.trainTasks as Record<string, number>;
-          const promoteFlags = features.trainPromote as Record<string, boolean>;
+          const tasks = featuresRef.current.trainTasks as Record<string, number>;
+          const promoteFlags = featuresRef.current.trainPromote as Record<string, boolean>;
           const upgradingBuildings = new Set([timers.build1Building, timers.build2Building].filter(Boolean));
           const trainQueue = ['兵营', '马厩', '靶场', '攻城武器厂']
             .filter(b => {
