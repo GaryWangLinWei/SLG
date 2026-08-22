@@ -41,7 +41,8 @@ export function ConfigPage() {
   const [clearConfirm, setClearConfirm] = useState(false);
   const [overwriteTarget, setOverwriteTarget] = useState<string | null>(null);
   const [accountSwitchName, setAccountSwitchName] = useState<string>('');
-  const [accountTargetType, setAccountTargetType] = useState<'account' | 'linked'>('account');
+  // 星标序号：空字符串表示未填（account 型不需要）
+  const [accountStarredIndex, setAccountStarredIndex] = useState<string>('');
 
   const checkStatus = useCallback(async () => {
     if (!currentAccountId) return;
@@ -61,9 +62,10 @@ export function ConfigPage() {
           setBuildingPositions(entries.map(([name, pos]) => ({ name, x: pos.x, y: pos.y })));
         }
         setAccountSwitchName((res.config as any).accountSwitch?.accountName ?? '');
-        const loadedType = (res.config as any).accountSwitch?.targetType === 'linked' ? 'linked' : 'account';
-        setAccountTargetType(loadedType);
-        accountTargetTypeSyncedRef.current = loadedType;
+        const loadedIdx = (res.config as any).accountSwitch?.starredIndex;
+        const loadedIdxStr = typeof loadedIdx === 'number' ? String(loadedIdx) : '';
+        setAccountStarredIndex(loadedIdxStr);
+        accountStarredIndexSyncedRef.current = loadedIdxStr;
       }
     } catch { /* ignore */ }
   }, [currentAccountId]);
@@ -95,10 +97,11 @@ export function ConfigPage() {
           setBuildingPositions([]);
         }
         setAccountSwitchName((res.config as any).accountSwitch?.accountName ?? '');
-        const loadedType = (res.config as any).accountSwitch?.targetType === 'linked' ? 'linked' : 'account';
-        setAccountTargetType(loadedType);
+        const loadedIdx = (res.config as any).accountSwitch?.starredIndex;
+        const loadedIdxStr = typeof loadedIdx === 'number' ? String(loadedIdx) : '';
+        setAccountStarredIndex(loadedIdxStr);
         accountSwitchNameSyncedRef.current = (res.config as any).accountSwitch?.accountName ?? '';
-        accountTargetTypeSyncedRef.current = loadedType;
+        accountStarredIndexSyncedRef.current = loadedIdxStr;
       }
     } catch (e: any) {
       setMessage(e.message || '切换失败');
@@ -125,23 +128,22 @@ export function ConfigPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountSwitchName, currentAccountId, configName]);
 
-  // 账号类型 debounce 保存：select onChange 里直接 autoSave 会闭包旧值（setState 尚未 re-render），
-  // 因此改用 effect 监听变化，停顿 600ms 后写入，与账号编号同一模式。
-  const accountTargetTypeSyncedRef = useRef<'account' | 'linked' | null>(null);
+  // 星标序号 debounce 保存：与账号编号同样处理，输入停顿 600ms 后写入
+  const accountStarredIndexSyncedRef = useRef<string | null>(null);
   useEffect(() => {
     if (!currentAccountId) return;
-    if (accountTargetTypeSyncedRef.current === null) {
-      accountTargetTypeSyncedRef.current = accountTargetType;
+    if (accountStarredIndexSyncedRef.current === null) {
+      accountStarredIndexSyncedRef.current = accountStarredIndex;
       return;
     }
-    if (accountTargetTypeSyncedRef.current === accountTargetType) return;
+    if (accountStarredIndexSyncedRef.current === accountStarredIndex) return;
     const t = setTimeout(() => {
+      accountStarredIndexSyncedRef.current = accountStarredIndex;
       autoSave(buildingPositions);
-      accountTargetTypeSyncedRef.current = accountTargetType;
     }, 600);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountTargetType, currentAccountId, configName]);
+  }, [accountStarredIndex, currentAccountId, configName]);
 
   useEffect(() => {
     if (!dropdownOpen) return;
@@ -200,7 +202,10 @@ export function ConfigPage() {
     const bp: Record<string, { x: number; y: number }> = {};
     positions.forEach(b => { bp[b.name] = { x: b.x, y: b.y }; });
     try {
-      await api.config.saveRokConfig(currentAccountId, { buildingPositions: bp, accountSwitch: { accountName: accountSwitchName, targetType: accountTargetType } } as any, configName);
+      const parsedIdx = parseInt(accountStarredIndex, 10);
+      const accountSwitch: { accountName: string; starredIndex?: number } = { accountName: accountSwitchName };
+      if (Number.isInteger(parsedIdx) && parsedIdx >= 1) accountSwitch.starredIndex = parsedIdx;
+      await api.config.saveRokConfig(currentAccountId, { buildingPositions: bp, accountSwitch } as any, configName);
       setMessage('已保存');
     } catch { setMessage('保存失败'); }
   };
@@ -395,26 +400,27 @@ export function ConfigPage() {
 
         <span className="text-xs text-slate-400 ml-auto">{configNames.length}/5</span>
 
-        {/* 账号类型 + 账号编号（与配置同一行） */}
-        <label className="text-sm text-slate-600 whitespace-nowrap ml-2">类型:</label>
-        <select
-          value={accountTargetType}
-          onChange={(e) => {
-            setAccountTargetType(e.target.value as 'account' | 'linked');
-          }}
-          className="px-2 py-1 text-sm border border-slate-300 rounded"
-        >
-          <option value="account">常规账号</option>
-          <option value="linked">连体号</option>
-        </select>
+        {/* 账号编号 + 星标序号（与配置同一行） */}
         <label className="text-sm text-slate-600 whitespace-nowrap ml-2">账号编号:</label>
         <input
           type="text"
           value={accountSwitchName}
           onChange={(e) => setAccountSwitchName(e.target.value)}
           onBlur={() => autoSave(buildingPositions)}
-          placeholder={accountTargetType === 'linked' ? '填主号相同的编号' : '请输入'}
+          placeholder="请输入"
           className="px-2 py-1 text-sm border border-slate-300 rounded w-40"
+        />
+        <label className="text-sm text-slate-600 whitespace-nowrap ml-2" title="同一账号有多个方案参与轮换时必填：游戏内「角色管理 → 星标角色」列表中的第几个">
+          星标序号:
+        </label>
+        <input
+          type="number"
+          min={1}
+          value={accountStarredIndex}
+          onChange={(e) => setAccountStarredIndex(e.target.value)}
+          onBlur={() => autoSave(buildingPositions)}
+          placeholder="同账号多角色必填"
+          className="px-2 py-1 text-sm border border-slate-300 rounded w-32"
         />
       </div>
 
