@@ -202,7 +202,7 @@ export function ConfigPage() {
     const bp: Record<string, { x: number; y: number }> = {};
     positions.forEach(b => { bp[b.name] = { x: b.x, y: b.y }; });
     try {
-      const parsedIdx = parseInt(accountStarredIndex, 10);
+      const parsedIdx = Number(accountStarredIndex);
       const accountSwitch: { accountName: string; starredIndex?: number } = { accountName: accountSwitchName };
       if (Number.isInteger(parsedIdx) && parsedIdx >= 1) accountSwitch.starredIndex = parsedIdx;
       await api.config.saveRokConfig(currentAccountId, { buildingPositions: bp, accountSwitch } as any, configName);
@@ -410,18 +410,19 @@ export function ConfigPage() {
           placeholder="请输入"
           className="px-2 py-1 text-sm border border-slate-300 rounded w-40"
         />
-        <label className="text-sm text-slate-600 whitespace-nowrap ml-2" title="同一账号有多个方案参与轮换时必填：游戏内「角色管理 → 星标角色」列表中的第几个">
-          星标序号:
-        </label>
-        <input
-          type="number"
-          min={1}
-          value={accountStarredIndex}
-          onChange={(e) => setAccountStarredIndex(e.target.value)}
-          onBlur={() => autoSave(buildingPositions)}
-          placeholder="同账号多角色必填"
-          className="px-2 py-1 text-sm border border-slate-300 rounded w-32"
-        />
+        <div className="flex flex-col items-stretch ml-2">
+          <label className="text-sm text-slate-600 whitespace-nowrap">星标序号:</label>
+          <input
+            type="number"
+            min={1}
+            value={accountStarredIndex}
+            onChange={(e) => setAccountStarredIndex(e.target.value)}
+            onBlur={() => autoSave(buildingPositions)}
+            placeholder="可留空"
+            className="px-2 py-1 text-sm border border-slate-300 rounded w-32"
+          />
+          <span className="text-xs text-slate-400 mt-0.5 leading-snug">同一账号配了多个方案时才需要填，序号 = 游戏内「角色管理 → 星标角色」列表里的第几个</span>
+        </div>
       </div>
 
       {/* Create inline input */}
