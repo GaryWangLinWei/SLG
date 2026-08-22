@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Fragment } from 'react';
+import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAccount } from '../contexts/AccountContext';
@@ -492,7 +492,7 @@ export function HomePage() {
   const [configNames, setConfigNames] = useState<string[]>([]);
   // 每个 profile 的账号编号，用于账号调度下拉禁用"未填编号"的选项
   const [profileAccountNames, setProfileAccountNames] = useState<Record<string, string>>({});
-  const [profileTargetTypes, setProfileTargetTypes] = useState<Record<string, 'account' | 'linked'>>({});
+  const [profileStarredIndexes, setProfileStarredIndexes] = useState<Record<string, number | undefined>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -604,6 +604,30 @@ export function HomePage() {
     }).catch(() => {});
   }, [currentAccountId]);
 
+  // profile 的账号编号 / 星标序号缓存刷新。原先在初始化 effect 与 focus effect 里
+  // 各写了一遍几乎相同的 Promise.all，这里合并为单一入口。
+  const refreshProfileSwitchMeta = useCallback(async (): Promise<string[] | null> => {
+    if (!currentAccountId) return null;
+    try {
+      const pRes = await api.config.getProfiles(currentAccountId);
+      if (!pRes.success) return null;
+      setConfigNames(pRes.profiles);
+      const nameMap: Record<string, string> = {};
+      const idxMap: Record<string, number | undefined> = {};
+      await Promise.all(pRes.profiles.map(async (p: string) => {
+        try {
+          const cfg = await api.config.getRokConfig(currentAccountId, p);
+          nameMap[p] = ((cfg.config as any)?.accountSwitch?.accountName || '').trim();
+          const idx = (cfg.config as any)?.accountSwitch?.starredIndex;
+          idxMap[p] = typeof idx === 'number' ? idx : undefined;
+        } catch { nameMap[p] = ''; idxMap[p] = undefined; }
+      }));
+      setProfileAccountNames(nameMap);
+      setProfileStarredIndexes(idxMap);
+      return pRes.profiles;
+    } catch { return null; }
+  }, [currentAccountId]);
+
   // On mount + account change: load features from config, migrate from localStorage if needed
   useEffect(() => {
     if (!currentAccountId) return;
@@ -627,59 +651,29 @@ export function HomePage() {
         }
       } catch {}
       try {
-        const pRes = await api.config.getProfiles(currentAccountId);
-        if (pRes.success) {
-          setConfigNames(pRes.profiles);
-          if (!activeConfigName) setActiveConfigName(pRes.active);
-          // 拉每个 profile 的 accountSwitch.accountName 缓存到 UI
-          const map: Record<string, string> = {};
-          const typeMap: Record<string, 'account' | 'linked'> = {};
-          await Promise.all(pRes.profiles.map(async (p: string) => {
-            try {
-              const cfg = await api.config.getRokConfig(currentAccountId, p);
-              map[p] = ((cfg.config as any)?.accountSwitch?.accountName || '').trim();
-              typeMap[p] = (cfg.config as any)?.accountSwitch?.targetType === 'linked' ? 'linked' : 'account';
-            } catch { map[p] = ''; typeMap[p] = 'account'; }
-          }));
-          setProfileAccountNames(map);
-          setProfileTargetTypes(typeMap);
+        const profiles = await refreshProfileSwitchMeta();
+        if (profiles && !activeConfigName) {
+          const pRes = await api.config.getProfiles(currentAccountId);
+          if (pRes.success) setActiveConfigName(pRes.active);
         }
       } catch {}
     })();
-  }, [currentAccountId]);
+  }, [currentAccountId, refreshProfileSwitchMeta]);
 
-  // 窗口重新获得焦点、或从其它页面切回 Home 时，重拉 profile 的 accountName 缓存，
-  // 使账号调度下拉里"未填编号"的禁用状态跟着更新。
+  // 窗口重新获得焦点、或从其它页面切回 Home 时，重拉 profile 的账号编号/星标序号缓存，
+  // 使账号调度下拉里的禁用状态与提示跟着更新。
   useEffect(() => {
     if (!currentAccountId) return;
-    const refresh = async () => {
-      try {
-        const pRes = await api.config.getProfiles(currentAccountId);
-        if (!pRes.success) return;
-        setConfigNames(pRes.profiles);
-        const map: Record<string, string> = {};
-        const typeMap: Record<string, 'account' | 'linked'> = {};
-        await Promise.all(pRes.profiles.map(async (p: string) => {
-          try {
-            const cfg = await api.config.getRokConfig(currentAccountId, p);
-            map[p] = ((cfg.config as any)?.accountSwitch?.accountName || '').trim();
-            typeMap[p] = (cfg.config as any)?.accountSwitch?.targetType === 'linked' ? 'linked' : 'account';
-          } catch { map[p] = ''; typeMap[p] = 'account'; }
-        }));
-        setProfileAccountNames(map);
-        setProfileTargetTypes(typeMap);
-      } catch {}
-    };
-    // 路由回到 Home 时立即刷一次
-    refresh();
-    const onVis = () => { if (document.visibilityState === 'visible') refresh(); };
-    window.addEventListener('focus', refresh);
+    refreshProfileSwitchMeta();
+    const onFocus = () => { refreshProfileSwitchMeta(); };
+    const onVis = () => { if (document.visibilityState === 'visible') refreshProfileSwitchMeta(); };
+    window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVis);
     return () => {
-      window.removeEventListener('focus', refresh);
+      window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVis);
     };
-  }, [currentAccountId, location.pathname]);
+  }, [currentAccountId, location.pathname, refreshProfileSwitchMeta]);
 
   const handleConfigSwitch = async (newName: string) => {
     if (!currentAccountId || newName === activeConfigName) return;
@@ -1303,7 +1297,7 @@ export function HomePage() {
             const targetName = ((cfgRes.config as any)?.accountSwitch?.accountName || '').trim();
             const currentProfile = activeConfigNameRef.current;
             const currentName = (profileAccountNames[currentProfile] || '').trim();
-            const currentType: 'account' | 'linked' = profileTargetTypes[currentProfile] ?? 'account';
+            const currentType: 'account' | 'linked' = profileStarredIndexes[currentProfile] != null ? 'linked' : 'account';
             if (targetType === 'account' && !targetName) {
               pushLog(`⚠️ profile "${nextProfile}" 未填账号编号，跳过`);
               switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
