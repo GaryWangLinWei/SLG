@@ -15,6 +15,7 @@ const MAX_SWITCH_SLOTS = import.meta.env.DEV ? 4 : 2;
 import { createLoopCancellationPredicate, guardedCreateTask, isCurrentLoopGeneration } from '../utils/loopGeneration';
 import { persistRunningSession, readRunningSession, RunningSession } from '../utils/runningIntent';
 import { deriveRunningControlView, OperationState } from '../utils/runningControlView';
+import { deriveProfileKinds, validateSwitchProfiles, type ProfileSwitchMeta } from '../utils/accountSwitchPlan';
 
 // Module-level loop state — survives component unmount/remount during SPA navigation
 let browserRunningSession: RunningSession = { running: false, accountId: null };
@@ -627,6 +628,14 @@ export function HomePage() {
       return pRes.profiles;
     } catch { return null; }
   }, [currentAccountId]);
+
+  // 把某组 profile 名映射成校验用的元信息
+  const toSwitchMeta = useCallback((names: string[]): ProfileSwitchMeta[] =>
+    names.filter(Boolean).map(n => ({
+      name: n,
+      accountName: profileAccountNames[n] || '',
+      starredIndex: profileStarredIndexes[n],
+    })), [profileAccountNames, profileStarredIndexes]);
 
   // On mount + account change: load features from config, migrate from localStorage if needed
   useEffect(() => {
@@ -2854,6 +2863,7 @@ export function HomePage() {
                       const isActive = !!profileName && profileName === activeConfigName && features.autoSwitchAccount;
                       const others = ids.filter((_: string, j: number) => j !== i);
                       const isPer = features.switchMode === 'per-time';
+                      const slotKinds = deriveProfileKinds(toSwitchMeta(ids));
                       return (
                         <Fragment key={i}>
                           <div className={`w-44 px-3 py-2.5 rounded-lg ${isActive ? 'bg-emerald-50 border-2 border-emerald-500 shadow -translate-y-0.5' : 'bg-white border-2 border-slate-200 hover:border-amber-300'}`}>
@@ -2862,8 +2872,10 @@ export function HomePage() {
                                 <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-400'}`}></span> {isActive ? '当前' : '待切换'}
                               </span>
                               <span className="flex items-center gap-1">
-                                {profileName && profileTargetTypes[profileName] === 'linked' && (
-                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700">连体</span>
+                                {profileName && slotKinds[profileName] === 'role' && typeof profileStarredIndexes[profileName] === 'number' && (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700">
+                                    角色#{profileStarredIndexes[profileName]}
+                                  </span>
                                 )}
                                 <span className="text-[10px] text-slate-300">#{i + 1}</span>
                               </span>
@@ -2881,30 +2893,22 @@ export function HomePage() {
                             >
                               <option value="">-- 不选择 --</option>
                               {configNames.filter(p => !others.includes(p)).map(p => {
-                                const isLinked = profileTargetTypes[p] === 'linked';
+                                // 把 p 放进当前槽位后的假设列表，用统一校验判断这个选择是否可行
+                                const hypothetical = ids.slice();
+                                hypothetical[i] = p;
+                                const issues = validateSwitchProfiles(toSwitchMeta(hypothetical));
+                                const own = issues.find(x => x.profileName === p);
                                 const accName = (profileAccountNames[p] || '').trim();
-                                const hasAccount = isLinked || !!accName;
-                                // 相邻槽位不能都是连体号（环形：2 槽互为邻居）
-                                const prevIdx = (i - 1 + MAX_SWITCH_SLOTS) % MAX_SWITCH_SLOTS;
-                                const nextIdx = (i + 1) % MAX_SWITCH_SLOTS;
-                                const neighborLinked = [prevIdx, nextIdx].some(j => {
-                                  const np = ids[j];
-                                  return !!np && np !== p && profileTargetTypes[np] === 'linked';
-                                });
-                                // 连体号必须有同编号的常规主号被选中
-                                // 注意：必须按槽位索引 idx !== i 排除当前槽，而不是只按 profile 名 sp !== p ——
-                                // 槽 i 当前持有的另一个 profile 会在用户选择 p 时被替换，不应算作已配对的主号
-                                const hasLinkedMaster = !isLinked || ids.some((sp, idx) =>
-                                  idx !== i && !!sp &&
-                                  profileTargetTypes[sp] === 'account' &&
-                                  (profileAccountNames[sp] || '').trim() === accName
-                                );
-                                const disabled = !hasAccount || (isLinked && (neighborLinked || !hasLinkedMaster));
+                                const starIdx = profileStarredIndexes[p];
                                 let suffix = '';
-                                if (isLinked) suffix = '（连体）';
-                                else if (!accName) suffix = '（未填编号）';
+                                if (own?.reason === 'no-account') suffix = '（未填编号）';
+                                else if (own?.reason === 'missing-starred-index') suffix = '（需填星标序号）';
+                                else if (own?.reason === 'invalid-starred-index') suffix = '（星标序号非法）';
+                                else if (own?.reason === 'duplicate-starred-index') suffix = '（星标序号重复）';
+                                else if (typeof starIdx === 'number') suffix = `（账号 ${accName} · 星标#${starIdx}）`;
+                                else if (accName) suffix = `（账号 ${accName}）`;
                                 return (
-                                  <option key={p} value={p} disabled={disabled}>
+                                  <option key={p} value={p} disabled={!!own}>
                                     {p}{suffix}
                                   </option>
                                 );
@@ -2949,7 +2953,18 @@ export function HomePage() {
                 </div>
               </div>
 
-              <p className="mt-2 text-xs text-amber-600/70">💡 切号后自动加载对应方案的全部功能设置 · 共 {MAX_SWITCH_SLOTS} 个账号参与轮换{MAX_SWITCH_SLOTS > 2 && <span className="text-amber-500">（开发模式）</span>}</p>
+              <p className="mt-2 text-xs text-amber-600/70">💡 切号后自动加载对应方案的全部功能设置 · 共 {MAX_SWITCH_SLOTS} 个身份参与轮换{MAX_SWITCH_SLOTS > 2 && <span className="text-amber-500">（开发模式）</span>}</p>
+              {(() => {
+                const issues = validateSwitchProfiles(toSwitchMeta((features.switchProfileIds || []).slice(0, MAX_SWITCH_SLOTS)));
+                if (issues.length === 0) return null;
+                const texts = issues.map(x => {
+                  if (x.reason === 'no-account') return `${x.profileName}: 未填账号编号`;
+                  if (x.reason === 'missing-starred-index') return `${x.profileName}: 同账号多角色需在配置页填星标序号`;
+                  if (x.reason === 'invalid-starred-index') return `${x.profileName}: 星标序号必须是 ≥1 的整数`;
+                  return `${x.profileName}: 星标序号与同账号其它方案重复`;
+                });
+                return <p className="mt-1 text-xs text-rose-600">⚠️ {texts.join('；')}</p>;
+              })()}
             </div>
           )}
         </div>
