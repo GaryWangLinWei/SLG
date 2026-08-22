@@ -669,7 +669,7 @@ export function HomePage() {
       } catch {}
       try {
         const res = await refreshProfileSwitchMeta();
-        if (res && !activeConfigName) setActiveConfigName(res.active);
+        if (res && !activeConfigNameRef.current) setActiveConfigName(res.active);
       } catch {}
     })();
   }, [currentAccountId, refreshProfileSwitchMeta]);
