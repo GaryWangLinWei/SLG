@@ -607,7 +607,7 @@ export function HomePage() {
 
   // profile 的账号编号 / 星标序号缓存刷新。原先在初始化 effect 与 focus effect 里
   // 各写了一遍几乎相同的 Promise.all，这里合并为单一入口。
-  const refreshProfileSwitchMeta = useCallback(async (): Promise<string[] | null> => {
+  const refreshProfileSwitchMeta = useCallback(async (): Promise<{ profiles: string[]; active: string } | null> => {
     if (!currentAccountId) return null;
     try {
       const pRes = await api.config.getProfiles(currentAccountId);
@@ -625,7 +625,7 @@ export function HomePage() {
       }));
       setProfileAccountNames(nameMap);
       setProfileStarredIndexes(idxMap);
-      return pRes.profiles;
+      return { profiles: pRes.profiles, active: pRes.active };
     } catch { return null; }
   }, [currentAccountId]);
 
@@ -660,11 +660,8 @@ export function HomePage() {
         }
       } catch {}
       try {
-        const profiles = await refreshProfileSwitchMeta();
-        if (profiles && !activeConfigName) {
-          const pRes = await api.config.getProfiles(currentAccountId);
-          if (pRes.success) setActiveConfigName(pRes.active);
-        }
+        const res = await refreshProfileSwitchMeta();
+        if (res && !activeConfigName) setActiveConfigName(res.active);
       } catch {}
     })();
   }, [currentAccountId, refreshProfileSwitchMeta]);
@@ -2859,11 +2856,13 @@ export function HomePage() {
                   {(() => {
                     const ids: string[] = (features.switchProfileIds || []).slice(0, MAX_SWITCH_SLOTS);
                     while (ids.length < MAX_SWITCH_SLOTS) ids.push('');
+                    // 不随槽位变化的部分只算一次：baseMeta 供各槽位的假设列表复用
+                    const baseMeta = toSwitchMeta(ids);
+                    const slotKinds = deriveProfileKinds(baseMeta);
                     return ids.map((profileName: string, i: number) => {
                       const isActive = !!profileName && profileName === activeConfigName && features.autoSwitchAccount;
                       const others = ids.filter((_: string, j: number) => j !== i);
                       const isPer = features.switchMode === 'per-time';
-                      const slotKinds = deriveProfileKinds(toSwitchMeta(ids));
                       return (
                         <Fragment key={i}>
                           <div className={`w-44 px-3 py-2.5 rounded-lg ${isActive ? 'bg-emerald-50 border-2 border-emerald-500 shadow -translate-y-0.5' : 'bg-white border-2 border-slate-200 hover:border-amber-300'}`}>
