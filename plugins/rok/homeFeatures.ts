@@ -91,7 +91,8 @@ export interface HomeFeatures {
   autoShieldEnabled: boolean;
   autoSwitchAccount: boolean;
   switchMode: 'per-round' | 'per-time' | 'fort-mode' | 'combo-gem';
-  switchIntervalMinutes: number | number[];
+  /** 每个槽位各自的切号间隔（分钟），下标与 switchProfileIds 对应 */
+  switchIntervalMinutes: number[];
   switchProfileIds: string[];  // dev: 最多 4 个；prod: 最多 2 个
 }
 
@@ -177,6 +178,6 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   autoShieldEnabled: false,
   autoSwitchAccount: false,
   switchMode: 'per-round',
-  switchIntervalMinutes: 30,
+  switchIntervalMinutes: [30, 30],
   switchProfileIds: ['', ''],
 };
