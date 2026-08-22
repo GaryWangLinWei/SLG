@@ -92,21 +92,24 @@ export async function switchRole(ctx: PluginContext, starredIndex: number): Prom
   await ctx.tap(roleIcon.x, roleIcon.y);
   await ctx.sleep(1);
 
-  // 归顶：起点归一化，否则翻页数无意义
-  ctx.log(`  [4/6] 归顶（下滑 ${SCROLL_TOP_TIMES} 次）`);
-  for (let i = 0; i < SCROLL_TOP_TIMES; i++) {
-    await ctx.swipe(SWIPE_X, PAGE_UP_TO_Y, SWIPE_X, PAGE_UP_FROM_Y, SWIPE_DURATION_MS, false, true);
-    await ctx.sleep(0.4);
-  }
-
   const pageIdx = Math.floor((starredIndex - 1) / PAGE_SIZE);
   const slotIdx = (starredIndex - 1) % PAGE_SIZE;
+
   if (pageIdx > 0) {
+    // 归顶：起点归一化，否则翻页数无意义（角色管理面板每次新开都在顶部，仅翻页时作为保险归顶）
+    ctx.log(`  [4/6] 归顶（下滑 ${SCROLL_TOP_TIMES} 次）`);
+    for (let i = 0; i < SCROLL_TOP_TIMES; i++) {
+      await ctx.swipe(SWIPE_X, PAGE_UP_TO_Y, SWIPE_X, PAGE_UP_FROM_Y, SWIPE_DURATION_MS, false, true);
+      await ctx.sleep(0.4);
+    }
+
     ctx.log(`  [5a/6] 向下翻 ${pageIdx} 页`);
     for (let i = 0; i < pageIdx; i++) {
       await ctx.swipe(SWIPE_X, PAGE_UP_FROM_Y, SWIPE_X, PAGE_UP_TO_Y, SWIPE_DURATION_MS, false, true);
       await ctx.sleep(0.5);
     }
+  } else {
+    ctx.log(`  [4/6] 目标在第 1 屏，跳过归顶与翻页`);
   }
 
   const target = ROLE_SLOT_POS[slotIdx];

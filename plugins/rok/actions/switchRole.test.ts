@@ -40,8 +40,8 @@ test('starredIndex=1 点第 1 号位 (320,334)，不翻页', async () => {
   const result = await switchRole(ctx as any, 1);
   expect(result).toBe('success');
   expect(ctx.taps).toContainEqual({ x: 320, y: 334 });
-  // 只有归顶的下滑，没有向上翻页
-  expect(ctx.swipes.every((s: any) => s.y2 > s.y1)).toBe(true);
+  // 目标在第 1 屏：完全不做任何滑动
+  expect(ctx.swipes).toEqual([]);
 });
 
 test('starredIndex=4 点第 4 号位 (909,502)', async () => {
@@ -49,6 +49,8 @@ test('starredIndex=4 点第 4 号位 (909,502)', async () => {
   const result = await switchRole(ctx as any, 4);
   expect(result).toBe('success');
   expect(ctx.taps).toContainEqual({ x: 909, y: 502 });
+  // 目标在第 1 屏：完全不做任何滑动
+  expect(ctx.swipes).toEqual([]);
 });
 
 test('starredIndex=6 点第 6 号位 (909,670) —— 第 6 位是右列', async () => {
@@ -56,6 +58,8 @@ test('starredIndex=6 点第 6 号位 (909,670) —— 第 6 位是右列', async
   const result = await switchRole(ctx as any, 6);
   expect(result).toBe('success');
   expect(ctx.taps).toContainEqual({ x: 909, y: 670 });
+  // 目标在第 1 屏：完全不做任何滑动
+  expect(ctx.swipes).toEqual([]);
 });
 
 test('starredIndex=7 翻 1 页后点第 1 号位', async () => {
