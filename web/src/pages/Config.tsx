@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api/client';
 import { useAccount } from '../contexts/AccountContext';
 import { DeviceSettingsCard } from '../components/DeviceSettingsCard';
+import { MAX_PROFILES } from '../../../plugins/rok/homeFeatures';
 
 interface BuildingPos {
   name: string;
@@ -352,7 +353,7 @@ export function ConfigPage() {
                   )}
                 </div>
               ))}
-              {configNames.length < 5 && (
+              {configNames.length < MAX_PROFILES && (
                 <button
                   onClick={() => { setCreateMode(true); setNewProfileName(''); setDropdownOpen(false); }}
                   className="w-full text-left px-3 py-2 text-sm text-emerald-600 hover:bg-slate-50 border-t border-slate-200"
@@ -398,7 +399,7 @@ export function ConfigPage() {
           </span>
         )}
 
-        <span className="text-xs text-slate-400 ml-auto">{configNames.length}/5</span>
+        <span className="text-xs text-slate-400 ml-auto">{configNames.length}/{MAX_PROFILES}</span>
 
         {/* 账号编号 + 星标序号（与配置同一行） */}
         <label className="text-sm text-slate-600 whitespace-nowrap ml-2">账号编号:</label>

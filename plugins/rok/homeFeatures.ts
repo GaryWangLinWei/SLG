@@ -181,3 +181,10 @@ export const DEFAULT_HOME_FEATURES: HomeFeatures = {
   switchIntervalMinutes: [30, 30],
   switchProfileIds: ['', ''],
 };
+
+/**
+ * 每个本地账号可保存的坐标配置方案数上限。
+ * 前端（Config 页新建按钮 / 计数显示）与后端（ConfigService 创建校验）共用此常量，
+ * 避免两处各写一遍数字导致改一处漏一处。
+ */
+export const MAX_PROFILES = 10;
