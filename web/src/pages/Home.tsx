@@ -15,7 +15,7 @@ const MAX_SWITCH_SLOTS = import.meta.env.DEV ? 4 : 2;
 import { createLoopCancellationPredicate, guardedCreateTask, isCurrentLoopGeneration } from '../utils/loopGeneration';
 import { persistRunningSession, readRunningSession, RunningSession } from '../utils/runningIntent';
 import { deriveRunningControlView, OperationState } from '../utils/runningControlView';
-import { deriveProfileKinds, validateSwitchProfiles, type ProfileSwitchMeta } from '../utils/accountSwitchPlan';
+import { buildSwitchSteps, deriveProfileKinds, nextSwitchTargetIdx, validateSwitchProfiles, type ProfileSwitchMeta } from '../utils/accountSwitchPlan';
 
 // Module-level loop state — survives component unmount/remount during SPA navigation
 let browserRunningSession: RunningSession = { running: false, accountId: null };
@@ -900,8 +900,7 @@ export function HomePage() {
       }
     }
     const initialIds = (featuresRef.current.switchProfileIds || []).filter((s: string) => !!s);
-    switchTargetIdx = initialIds.findIndex((x: string) => x !== activeConfigNameRef.current);
-    if (switchTargetIdx < 0) switchTargetIdx = 0;
+    switchTargetIdx = nextSwitchTargetIdx(initialIds, activeConfigNameRef.current);
     pushLog(`🔀 自动切号目标索引 = ${switchTargetIdx}（当前 active=${activeConfigNameRef.current}, ids=[${initialIds.join(',')}]）`);
     if (switchTimerId) { clearTimeout(switchTimerId); switchTimerId = null; }
     const scheduleSwitchTimer = () => {
@@ -1299,19 +1298,29 @@ export function HomePage() {
           }
           try {
             const cfgRes = await api.config.getRokConfig(currentAccountId, nextProfile);
-            const targetType: 'account' | 'linked' = (cfgRes.config as any)?.accountSwitch?.targetType === 'linked' ? 'linked' : 'account';
             const targetName = ((cfgRes.config as any)?.accountSwitch?.accountName || '').trim();
+            const targetStarredIdx = (cfgRes.config as any)?.accountSwitch?.starredIndex;
             const currentProfile = activeConfigNameRef.current;
-            const currentName = (profileAccountNames[currentProfile] || '').trim();
-            const currentType: 'account' | 'linked' = profileStarredIndexes[currentProfile] != null ? 'linked' : 'account';
-            if (targetType === 'account' && !targetName) {
+            // 用最新读到的目标配置覆盖缓存，避免 Config 页刚改完还没 refresh 就切号
+            const metas: ProfileSwitchMeta[] = validIds.map((n: string) => n === nextProfile
+              ? { name: n, accountName: targetName, starredIndex: typeof targetStarredIdx === 'number' ? targetStarredIdx : undefined }
+              : { name: n, accountName: profileAccountNames[n] || '', starredIndex: profileStarredIndexes[n] });
+            const targetMeta = metas.find(m => m.name === nextProfile)!;
+            const currentMeta = metas.find(m => m.name === currentProfile);
+            const steps = buildSwitchSteps(currentMeta, targetMeta, metas);
+            if (!targetName) {
               pushLog(`⚠️ profile "${nextProfile}" 未填账号编号，跳过`);
+              switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
+            } else if (!steps.accountSwitch && !steps.roleSwitch) {
+              pushLog(`⚠️ profile "${nextProfile}" 与当前身份无差异（可能缺星标序号），跳过`);
               switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
             } else {
               let ok = false;
               for (let attempt = 1; attempt <= 2 && !isStopped(); attempt++) {
+                pushLog(`  🔀 步骤: ${steps.accountSwitch ? `切账号→${steps.accountSwitch.accountName} ` : ''}${steps.roleSwitch ? `切角色→星标#${steps.roleSwitch.starredIndex}` : ''}`);
                 const cr = await createTask(currentAccountId, 'com.rok.automation', 'switch-account', {
-                  currentName, currentType, targetName, targetType,
+                  accountSwitch: steps.accountSwitch,
+                  roleSwitch: steps.roleSwitch,
                 });
                 if (!cr.success) break;
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, cr.task.id];
@@ -1363,9 +1372,8 @@ export function HomePage() {
                 roundActionsDone.clear();  // 新账号从零开始累计
                 scheduleSwitchTimer();  // 按新账号的时长重排定时器
                 scheduleFortModeFallback();  // 重置寨子模式兜底计时
-                // 顺序不变，下次切换目标 = validIds 中不等于新 active 的位置
-                switchTargetIdx = validIds.findIndex((x: string) => x !== nextProfile);
-                if (switchTargetIdx < 0) switchTargetIdx = 0;
+                // 环向推进：下次目标 = 新 active 在 validIds 中的下一格
+                switchTargetIdx = nextSwitchTargetIdx(validIds, nextProfile);
                 pushLog(`✅ 切号完成，已激活 ${nextProfile}`);
               } else {
                 pushLog(`❌ 切号 ${nextProfile} 失败，跳过`);
