@@ -984,6 +984,15 @@ export function HomePage() {
 
     // per-round 切号：本轮已完成一次的 source 集合；集齐所有勾选的 source 才触发切号
     const roundActionsDone = new Set<string>();
+    // 记录循环启动时的日期，供"0点之后捐献"门控判定跨过 0 点
+    const loopStartDate = new Date().toDateString();
+    // 判断联盟科技捐献当天是否被"0点之后捐献"门控挡住。
+    // computeExpectedActions 与 allianceTechLoop 共用此函数，避免两处判定漂移。
+    const isAllianceTechBlockedToday = (): boolean =>
+      !!featuresRef.current.donateAfterMidnight && new Date().toDateString() === loopStartDate;
+    // 打野循环用尽 attackBarbarianLoopCount 后置位，供 expected 判定本轮不应再等打野。
+    // 与 allianceTech 同理：避免"配置开着但运行时已被门控挡住"导致 per-round 永久卡死。
+    let barbarianExhausted = false;
     // combo-gem: 触发条件（分享矿跑完 或 采集分享矿后 pool<5）命中即当场切号，
     // 不再累计 triggered 旗，也不再等其他 action 凑齐一轮
     const computeExpectedActions = (): Set<string> => {
@@ -995,13 +1004,13 @@ export function HomePage() {
       if (f.collectResources) exp.add('collect');
       if (f.gatherResources && f.gatherTasks.some((t: any) => t.type)) exp.add('gather');
       if (f.autoRallyFort && f.rallyFortLevel > 0) exp.add('rally-fort');
-      if (f.autoAttackBarbarian && f.attackBarbarianLevel > 0 && !isFeatureLocked('attackBarbarian')) exp.add('attack-barbarian');
+      if (f.autoAttackBarbarian && f.attackBarbarianLevel > 0 && !isFeatureLocked('attackBarbarian') && !barbarianExhausted) exp.add('attack-barbarian');
       if (f.joinRallyEnabled && !isFeatureLocked('joinRally')) exp.add('join-rally');
       if (f.autoCaveExplore) exp.add('cave');
       if (f.gemGatherEnabled && f.shareGemEnabled && !isFeatureLocked('shareGem')) exp.add('share-gem');
       if (f.produceMaterialEnabled) exp.add('produce-material');
       if (f.claimAllianceTerritoryEnabled) exp.add('alliance-territory');
-      if (f.donateAllianceTechEnabled) exp.add('alliance-tech');
+      if (f.donateAllianceTechEnabled && !isAllianceTechBlockedToday()) exp.add('alliance-tech');
       // gemGather 与 shareGem 互斥：勾了分享，gemLoop 会 skip，不计入 expected
       if (f.gemGatherEnabled && !isFeatureLocked('gemGather') && f.gemGatherTeams.length > 0 && !(f.shareGemEnabled && !isFeatureLocked('shareGem'))) exp.add('gem');
       if (f.upgradeBuildings || f.autoResearch || f.trainTroops) exp.add('main');
@@ -1484,10 +1493,10 @@ export function HomePage() {
         let countSeq = cooldownResetSeq;
         while (!isStopped()) {
           if (first) { first = false; await sleep(3); }
-          // 切号后重置循环次数计数
-          if (cooldownResetSeq !== countSeq) { countSeq = cooldownResetSeq; ranCount = 0; }
+          // 切号后重置循环次数计数，并解除打野耗尽标记（让新账号重新开始打野）
+          if (cooldownResetSeq !== countSeq) { countSeq = cooldownResetSeq; ranCount = 0; barbarianExhausted = false; }
           if (offlineActive) { await sleep(30); continue; }
-          const enabled = featuresRef.current.autoAttackBarbarian && featuresRef.current.attackBarbarianLevel > 0 && !featuresRef.current.autoWorldChat && !isFeatureLocked('attackBarbarian');
+          const enabled = featuresRef.current.autoAttackBarbarian && featuresRef.current.attackBarbarianLevel > 0 && !featuresRef.current.autoWorldChat && !isFeatureLocked('attackBarbarian') && !barbarianExhausted;
           if (enabled && !isStopped()) {
             // 抬抢占旗：让其它普通循环在 acquireLock 处让路，打野优先拿锁
             barbarianPreempt = true;
@@ -1542,8 +1551,12 @@ export function HomePage() {
               ranCount++;
               const loopLimit = Math.max(0, Math.floor(Number(featuresRef.current.attackBarbarianLoopCount) || 0));
               if (loopLimit > 0 && ranCount >= loopLimit) {
-                pushLog(`⚔️ 打野已完成 ${ranCount}/${loopLimit} 轮，停止本轮循环`);
-                return;
+                // 置位耗尽标记并回落 idle（不再 return 杀死整个循环）：
+                // 让 expected 把打野从本轮期待集合剔除，避免 per-round 永久卡死，
+                // 同时保留循环存活，切号到其他账号时由 countSeq 重置计数、可再次打野。
+                barbarianExhausted = true;
+                pushLog(`⚔️ 打野已完成 ${ranCount}/${loopLimit} 轮，本轮不再执行（切号到其他账号会重新开始计数）`);
+                continue;
               }
               const intervalMinutes = Math.max(1, Number(featuresRef.current.attackBarbarianIntervalMinutes) || 10);
               const cd = intervalMinutes * 60 * (0.85 + Math.random() * 0.3);
@@ -1991,15 +2004,13 @@ export function HomePage() {
       // 联盟科技捐献独立循环 —— 每 4 小时执行一次
       const allianceTechLoop = (async () => {
         let first = true;
-        // 勾选"0点之后捐献"时：记录启动时的日期，只有跨过至少一个 0 点才执行
-        const startDate = new Date().toDateString();
         while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (!featuresRef.current.donateAllianceTechEnabled || featuresRef.current.autoWorldChat) {
             await sleep(30); continue;
           }
-          if (featuresRef.current.donateAfterMidnight && new Date().toDateString() === startDate) {
+          if (isAllianceTechBlockedToday()) {
             // 启动当天还没跨过 0 点，跳过；进入下一个 4 小时等待后再判定
             await sleep(30); continue;
           }
@@ -2033,6 +2044,44 @@ export function HomePage() {
           const waitSeq = cooldownResetSeq;
           while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < intervalSec * 1000) {
             await sleep(1);
+          }
+        }
+      })();
+
+      // ── 诊断：per-round 模式下检测"等待中的 action 集合"长时间无变化 ──
+      // 用于暴露"配置开着但运行时被门控挡住"导致 per-round 永久停滞这类问题
+      // （本仓库已犯 donateAfterMidnight、打野 finite loopCount 两例）。只打日志提醒，
+      // 不强切号——强切会掩盖真实原因、且可能造成用户意料外的行为。
+      const stallDiagLoop = (async () => {
+        let lastMissingKey = '';          // 上一次"缺失集合"的稳定 key（排序后拼接）
+        let lastChangeAt = monotonicNow(); // 该集合最后一次发生变化的时间
+        let warnedFor = '';               // 已告警过的集合，避免重复刷屏
+        while (!isStopped()) {
+          await sleep(60 * 1000);
+          if (isStopped()) break;
+          const feat = featuresRef.current;
+          if (!feat.autoSwitchAccount || isFeatureLocked('autoSwitchAccount') || feat.switchMode !== 'per-round') continue;
+          const expected = computeExpectedActions();
+          const missing = [...expected].filter(s => !roundActionsDone.has(s));
+          // 本轮已集齐（即将切号）或本轮无期待动作（喊话模式等）→ 重置诊断状态
+          if (expected.size === 0 || missing.length === 0) {
+            lastMissingKey = '';
+            lastChangeAt = monotonicNow();
+            warnedFor = '';
+            continue;
+          }
+          const key = missing.slice().sort().join(',');
+          if (key !== lastMissingKey) {
+            lastMissingKey = key;
+            lastChangeAt = monotonicNow();
+            warnedFor = '';
+            continue;
+          }
+          const stuckSec = Math.floor((monotonicNow() - lastChangeAt) / 1000);
+          // 同一批缺失集合持续超过 15 分钟无任何完成动作，点名告警一次，之后静默
+          if (stuckSec >= 15 * 60 && warnedFor !== key) {
+            warnedFor = key;
+            pushLog(`⚠️ 诊断：per-round 已连续等待 [${missing.join(',')}] 约 ${Math.floor(stuckSec / 60)} 分钟无变化。这通常是某功能"配置开着但运行时被门控挡住"（如勾了"0点之后捐献"当天永不出手），请检查对应 action 的门控条件`);
           }
         }
       })();
@@ -2571,7 +2620,7 @@ export function HomePage() {
           await sleep(1);
         }
       }
-      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, attackBarbarianLoop, exploreLoop, caveLoop, produceMaterialLoop, allianceTerritoryLoop, allianceTechLoop, offlineLoop, attackLoop, accountSwitchLoop, shareGemLoop]);
+      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, attackBarbarianLoop, exploreLoop, caveLoop, produceMaterialLoop, allianceTerritoryLoop, allianceTechLoop, offlineLoop, attackLoop, accountSwitchLoop, shareGemLoop, stallDiagLoop]);
       if (isCurrentLoopGeneration(myGen, loopGen)) {
         loopRunning = false;
         setLoopRunningState(false);
