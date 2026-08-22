@@ -123,7 +123,10 @@ export function buildSwitchSteps(
   if (!currentAcc || currentAcc !== targetAcc) {
     steps.accountSwitch = { accountName: targetAcc };
   }
-  if (kinds[target.name] === 'role' && isValidStarredIndex(target.starredIndex)) {
+  if (kinds[target.name] === 'role') {
+    // role 型目标缺/错星标序号时拒绝产出任何步骤：
+    // 只切账号会落在该账号最近使用的角色上，静默违反"总是切角色"不变量。
+    if (!isValidStarredIndex(target.starredIndex)) return {};
     steps.roleSwitch = { starredIndex: target.starredIndex };
   }
   return steps;

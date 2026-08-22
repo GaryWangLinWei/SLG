@@ -1328,12 +1328,18 @@ export function HomePage() {
             const targetMeta = metas.find(m => m.name === nextProfile)!;
             const currentMeta = metas.find(m => m.name === currentProfile);
             const steps = buildSwitchSteps(currentMeta, targetMeta, metas);
-            const targetName = targetMeta.accountName;
-            if (!targetName) {
-              pushLog(`⚠️ profile "${nextProfile}" 未填账号编号，跳过`);
+            // 对 fresh 读到的 metas 做一次槽位校验，找出目标自身的问题并给出可诊断日志。
+            // validateSwitchProfiles 同时覆盖 no-account，故原来是单独的 !targetName 判断也被统一到这里。
+            const targetIssue = validateSwitchProfiles(metas).find(x => x.profileName === nextProfile);
+            if (targetIssue) {
+              const why = targetIssue.reason === 'missing-starred-index' ? '未填星标序号'
+                : targetIssue.reason === 'invalid-starred-index' ? '星标序号非法'
+                : targetIssue.reason === 'duplicate-starred-index' ? '星标序号与同账号其它方案重复'
+                : '未填账号编号';
+              pushLog(`⏭️ 跳过 ${nextProfile}：${why}（同账号多角色需在配置页填写星标序号）`);
               switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
             } else if (!steps.accountSwitch && !steps.roleSwitch) {
-              pushLog(`⚠️ profile "${nextProfile}" 与当前身份无差异（可能缺星标序号），跳过`);
+              pushLog(`⚠️ profile "${nextProfile}" 与当前身份无差异，跳过`);
               switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
             } else {
               let ok = false;

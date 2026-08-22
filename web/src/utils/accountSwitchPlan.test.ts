@@ -145,10 +145,22 @@ describe('buildSwitchSteps', () => {
     });
   });
 
-  test('role 型目标星标序号为 NaN → 不产出 roleSwitch（回归防护）', () => {
+  test('跨账号 role 型目标、缺失星标序号 → 整组空步骤（不做半吊子切账号）', () => {
+    const bad = { name: 'B3', accountName: '1002', starredIndex: undefined };
+    const metas = [A, B1, B2, bad];
+    expect(buildSwitchSteps(A, bad, metas)).toEqual({});
+  });
+
+  test('跨账号 role 型目标、星标序号为 0 → 整组空步骤', () => {
+    const bad = { name: 'B3', accountName: '1002', starredIndex: 0 };
+    const metas = [A, B1, B2, bad];
+    expect(buildSwitchSteps(A, bad, metas)).toEqual({});
+  });
+
+  test('跨账号 role 型目标、星标序号为 NaN → 整组空步骤（回归防护）', () => {
     const bad = { name: 'B3', accountName: '1002', starredIndex: NaN };
     const metas = [A, B1, B2, bad];
-    expect(buildSwitchSteps(B2, bad, metas).roleSwitch).toBeUndefined();
+    expect(buildSwitchSteps(A, bad, metas)).toEqual({});
   });
 
   test('两个 account 型同账号编号不会发生（分组即 role），跨账号 account 型只切账号', () => {
