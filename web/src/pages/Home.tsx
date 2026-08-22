@@ -681,6 +681,16 @@ export function HomePage() {
     };
   }, [currentAccountId, location.pathname, refreshProfileSwitchMeta]);
 
+  // 载入指定 profile 的功能开关并合并进当前 features。
+  // 返回合并后的对象，调用方决定是否还要写 featuresRef（切号循环需要，手动切换不需要）。
+  const buildFeaturesForProfile = (hf: any) => preserveGlobalFields(featuresRef.current, padGatherTasks({
+    ...DEFAULT_HOME_FEATURES,
+    ...hf,
+    gemGatherMode: migrateGemMode(hf),
+    completedBuildings: [false, false, false, false, false],
+    completedTechs: [false, false, false, false, false],
+  }));
+
   const handleConfigSwitch = async (newName: string) => {
     if (!currentAccountId || newName === activeConfigName) return;
     // 运行中禁止手动切换配置：自动切号循环排队等锁期间若 profile 被手动换掉，
@@ -701,27 +711,19 @@ export function HomePage() {
       setActiveConfigName(newName);
       const res = await api.config.getRokConfig(currentAccountId);
       if (res.success && res.config?.homeFeatures) {
-        setFeatures((prev: typeof DEFAULT_FEATURES) => {
-          const merged = preserveGlobalFields(prev, padGatherTasks({
-            ...DEFAULT_HOME_FEATURES,
-            ...res.config.homeFeatures,
-            gemGatherMode: migrateGemMode(res.config.homeFeatures),
-            completedBuildings: [false, false, false, false, false],
-            completedTechs: [false, false, false, false, false],
-          })) as any;
-          // 若开启自动切号且新 active 不在 switchProfileIds → 找空槽填，无空槽覆盖槽 0
-          if (merged.autoSwitchAccount) {
-            const cur: string[] = (merged.switchProfileIds || []).slice(0, MAX_SWITCH_SLOTS);
-            while (cur.length < MAX_SWITCH_SLOTS) cur.push('');
-            if (!cur.includes(newName)) {
-              const emptyIdx = cur.findIndex((s: string) => !s);
-              const slotIdx = emptyIdx >= 0 ? emptyIdx : 0;
-              cur[slotIdx] = newName;
-              merged.switchProfileIds = cur;
-            }
+        const merged = buildFeaturesForProfile(res.config.homeFeatures) as any;
+        // 若开启自动切号且新 active 不在 switchProfileIds → 找空槽填，无空槽覆盖槽 0
+        if (merged.autoSwitchAccount) {
+          const cur: string[] = (merged.switchProfileIds || []).slice(0, MAX_SWITCH_SLOTS);
+          while (cur.length < MAX_SWITCH_SLOTS) cur.push('');
+          if (!cur.includes(newName)) {
+            const emptyIdx = cur.findIndex((s: string) => !s);
+            const slotIdx = emptyIdx >= 0 ? emptyIdx : 0;
+            cur[slotIdx] = newName;
+            merged.switchProfileIds = cur;
           }
-          return merged;
-        });
+        }
+        setFeatures(merged);
       } else {
         setFeatures((prev: typeof DEFAULT_FEATURES) => preserveGlobalFields(prev, { ...DEFAULT_FEATURES }));
       }
@@ -1354,13 +1356,7 @@ export function HomePage() {
                   pushLog(`  🔍 载入 ${nextProfile} homeFeatures: hasHF=${hasHF}, autoRallyFort=${(hf as any).autoRallyFort}, autoAttackBarbarian=${(hf as any).autoAttackBarbarian}, joinRallyEnabled=${(hf as any).joinRallyEnabled}`);
                   setActiveConfigName(nextProfile);
                   activeConfigNameRef.current = nextProfile;
-                  const merged = preserveGlobalFields(featuresRef.current, padGatherTasks({
-                    ...DEFAULT_HOME_FEATURES,
-                    ...hf,
-                    gemGatherMode: migrateGemMode(hf),
-                    completedBuildings: [false, false, false, false, false],
-                    completedTechs: [false, false, false, false, false],
-                  }));
+                  const merged = buildFeaturesForProfile(hf);
                   // switchProfileIds 顺序保持不变；UI 通过对比 activeConfigName 判定激活态
                   featuresRef.current = merged as any;
                   setFeatures(merged as any);
