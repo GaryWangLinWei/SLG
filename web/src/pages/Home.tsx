@@ -2329,13 +2329,16 @@ export function HomePage() {
       })();
 
       // 山洞探索 — 独立模式，与其他 action 互斥
-      // 主循环"有活"判定：必须每轮通过 featuresRef.current 读取，切号后按新账号配置重评估
+      // 主循环"有活"判定：必须每轮通过 featuresRef.current 读取，切号后按新账号配置重评估。
+      // 注意：无活时必须"空转跳过"而不是退出 while —— 退出会让主循环彻底死掉，
+      // 之后轮换回有活的账号时 markRoundDone('main') 再也不会触发，per-round 永久卡在等待 [main]。
       const hasMainWork = (): boolean =>
         featuresRef.current.autoWorldChat || featuresRef.current.upgradeBuildings || featuresRef.current.autoResearch || featuresRef.current.trainTroops;
       if (!hasMainWork()) {
-        pushLog(`ℹ️ 未启用建筑/科技/训练，主循环跳过`);
+        pushLog(`ℹ️ 未启用建筑/科技/训练，主循环待命（切号到有活账号后自动开工）`);
       }
-      while (!isStopped() && hasMainWork()) {
+      while (!isStopped()) {
+        if (!hasMainWork()) { await sleep(30); continue; }
         round++;
         pushLog(`🔄 第${round}轮`);
         saveLoopState(currentAccountId);
