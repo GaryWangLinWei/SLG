@@ -334,6 +334,13 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
   homeFeatures: DEFAULT_HOME_FEATURES,
 };
 
+/**
+ * 账号切换后若未检测到进城，给游戏留的界面稳定等待秒数（再进角色切换）。
+ * 见 switch-account action：进城未确认时游戏可能仍在加载过渡态，
+ * 角色切换的名称/头像点击会落空，多等一段再继续避免整个步骤被无谓重试。
+ */
+const ACCOUNT_TIMEOUT_SETTLE_SEC = 5;
+
 export const RiseOfKingdomsPlugin: Plugin = {
   id: 'com.rok.automation',
   name: '万国觉醒自动化',
@@ -979,27 +986,40 @@ export const RiseOfKingdomsPlugin: Plugin = {
         const accountStep = params?.accountSwitch as { accountName?: string } | undefined;
         const roleStep = params?.roleSwitch as { starredIndex?: number } | undefined;
 
+        // 统一收口失败结果：每类失败独立结果串便于真机排查，错误详情走 ❌ 日志。
+        // 这些结果都非 success 前缀，前端只用 includes('切换账号: success'/'switched_load_timeout') 判定成功，不受影响。
+        const finish = (result: string, error?: string) => {
+          if (error) ctx.log(`❌ ${error}`);
+          ctx.log(`切换账号: ${result}`);
+        };
+
+        // 完全没传任何步骤：前端没算出步骤，或直接裸调本 action。
         if (!accountStep && !roleStep) {
-          ctx.log('❌ 未提供任何切换步骤');
-          ctx.log('切换账号: no_steps');
+          finish('no_steps', '未提供任何切换步骤');
           return;
         }
 
         if (accountStep) {
           const targetName = (accountStep.accountName || '').trim();
           if (!targetName) {
-            ctx.log('❌ accountSwitch 缺少 accountName');
-            ctx.log('切换账号: no_steps');
+            finish('bad_account_param', 'accountSwitch 缺少 accountName');
             return;
           }
           const accResult = await switchAccount(ctx, targetName);
           if (accResult !== 'success' && accResult !== 'switched_load_timeout') {
-            ctx.log(`切换账号: ${accResult}`);
+            finish(accResult);
             return;
           }
           if (accResult === 'switched_load_timeout') {
             ctx.log('  ⚠️ 账号已切换但未检测到进城');
+            if (roleStep) {
+              // 进城未确认时游戏可能还在加载过渡态，角色切换的头像点击会落空。
+              // 多等一段再继续，避免整个步骤（含账号切换）被无谓重试。
+              ctx.log(`  ⏳ 额外等待 ${ACCOUNT_TIMEOUT_SETTLE_SEC}s 让界面稳定后再切角色`);
+              await ctx.sleep(ACCOUNT_TIMEOUT_SETTLE_SEC);
+            }
           }
+          // 若没有角色步骤，此处即可返回：账号步骤的结果即最终结果。
           if (!roleStep) {
             ctx.log(`切换账号: ${accResult}`);
             return;
@@ -1008,8 +1028,7 @@ export const RiseOfKingdomsPlugin: Plugin = {
 
         const starredIndex = roleStep?.starredIndex;
         if (typeof starredIndex !== 'number') {
-          ctx.log('❌ roleSwitch 缺少 starredIndex');
-          ctx.log('切换账号: no_steps');
+          finish('bad_role_param', 'roleSwitch 缺少 starredIndex');
           return;
         }
         const roleResult = await switchRole(ctx, starredIndex);
