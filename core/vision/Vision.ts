@@ -148,11 +148,29 @@ export class Vision {
     }
 
     candidates.sort((a, b) => b.confidence - a.confidence);
-    candidates.length = Math.min(candidates.length, 10);
+
+    const searchRadius = 8;
+
+    // 粗扫是隔行隔列采样、且格子未必对齐真实位置，真实匹配点的粗扫分数可能很低
+    // （实测只有 0.44）。直接取前 10 名时，画面里大片近似色区域产生的假阳性会把
+    // 真实位置挤出候选表，精扫根本不会去看它 —— 表现为"图里明明有按钮却检测不到"。
+    // 所以先做非极大值抑制：同一簇（精扫半径内）只保留最高分的一个代表，
+    // 这样候选表里都是彼此独立的位置，再放宽上限。
+    const picked: Array<{ x: number; y: number; confidence: number }> = [];
+    // 抑制半径只能取精扫半径：更大会把真实位置的格子当成邻近假阳性的"同一簇"误删
+    const suppressRadius = searchRadius;
+    for (const c of candidates) {
+      if (picked.length >= 64) break;
+      if (picked.some(p => Math.abs(p.x - c.x) <= suppressRadius && Math.abs(p.y - c.y) <= suppressRadius)) {
+        continue;
+      }
+      picked.push(c);
+    }
+    candidates.length = 0;
+    candidates.push(...picked);
 
     // --- Fine scan ---
     let bestMatch = { x: 0, y: 0, confidence: 0 };
-    const searchRadius = 8;
     const effectiveOpaque = hasAlpha ? opaqueCount : totalPixels;
 
     for (const candidate of candidates) {
@@ -163,7 +181,9 @@ export class Vision {
           if (cx < 0 || cy < 0 || cx > sWidth - tWidth || cy > sHeight - tHeight) continue;
 
           let diffPixels = 0;
-          for (let ty = 0; ty < tHeight; ty++) {
+          // 已经比当前最优差就没必要算完，候选表放宽后靠这个剪枝控制耗时
+          const diffBudget = Math.floor(effectiveOpaque * (1 - bestMatch.confidence));
+          scan: for (let ty = 0; ty < tHeight; ty++) {
             for (let tx = 0; tx < tWidth; tx++) {
               const tFlat = ty * tWidth + tx;
               if (hasAlpha && !tOpaque[tFlat]) continue;
@@ -174,6 +194,7 @@ export class Vision {
               for (let c = 0; c < Math.min(3, channels); c++) {
                 if (Math.abs(sPixels[sIdx + c] - tPixels[tIdx + c]) > 48) {
                   diffPixels++;
+                  if (diffPixels > diffBudget) break scan;
                   break;
                 }
               }

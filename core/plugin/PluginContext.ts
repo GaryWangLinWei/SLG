@@ -121,6 +121,28 @@ export class PluginContext {
   }
 
   /**
+   * Match a template against an existing image file instead of a fresh screenshot.
+   * Use this when several templates must be matched against the exact same frame,
+   * or when the matched frame needs to be kept for later inspection.
+   */
+  async findImageWithLocationIn(
+    imagePath: string,
+    templatePath: string,
+    threshold: number = 0.85,
+    scales?: number[],
+    normalize?: boolean,
+    channel?: string
+  ): Promise<{ found: boolean; x: number; y: number; confidence: number }> {
+    this.checkCancellation();
+    const result = await this.vision.findImage(imagePath, templatePath, threshold, scales, normalize, channel);
+    if (result.found) {
+      const tapLoc = this.vision.getTapLocation(result);
+      return { found: true, x: tapLoc.x, y: tapLoc.y, confidence: result.confidence };
+    }
+    return { found: false, x: 0, y: 0, confidence: result.confidence };
+  }
+
+  /**
    * Find all occurrences of a template image on screen.
    * If searchRegion is provided, only searches within that area
    * and adjusts returned coordinates to absolute screen positions.
