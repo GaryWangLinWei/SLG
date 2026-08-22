@@ -1306,17 +1306,29 @@ export function HomePage() {
             continue;
           }
           try {
-            const cfgRes = await api.config.getRokConfig(currentAccountId, nextProfile);
-            const targetName = ((cfgRes.config as any)?.accountSwitch?.accountName || '').trim();
-            const targetStarredIdx = (cfgRes.config as any)?.accountSwitch?.starredIndex;
             const currentProfile = activeConfigNameRef.current;
-            // 用最新读到的目标配置覆盖缓存，避免 Config 页刚改完还没 refresh 就切号
-            const metas: ProfileSwitchMeta[] = validIds.map((n: string) => n === nextProfile
-              ? { name: n, accountName: targetName, starredIndex: typeof targetStarredIdx === 'number' ? targetStarredIdx : undefined }
-              : { name: n, accountName: profileAccountNames[n] || '', starredIndex: profileStarredIndexes[n] });
+            // 切号决策必须基于后端真相：UI 缓存（profileAccountNames/profileStarredIndexes）
+            // 是切号循环启动时的快照，运行中用户改配置读不到，会导致类型推导用过期分组。
+            // 单个 profile 读失败降级成空 accountName，会被下方"未填账号编号"分支跳过，不让整批挂掉。
+            const metas: ProfileSwitchMeta[] = await Promise.all(
+              validIds.map(async (n: string) => {
+                try {
+                  const c = await api.config.getRokConfig(currentAccountId, n);
+                  const idx = (c.config as any)?.accountSwitch?.starredIndex;
+                  return {
+                    name: n,
+                    accountName: ((c.config as any)?.accountSwitch?.accountName || '').trim(),
+                    starredIndex: typeof idx === 'number' ? idx : undefined,
+                  };
+                } catch {
+                  return { name: n, accountName: '', starredIndex: undefined };
+                }
+              }),
+            );
             const targetMeta = metas.find(m => m.name === nextProfile)!;
             const currentMeta = metas.find(m => m.name === currentProfile);
             const steps = buildSwitchSteps(currentMeta, targetMeta, metas);
+            const targetName = targetMeta.accountName;
             if (!targetName) {
               pushLog(`⚠️ profile "${nextProfile}" 未填账号编号，跳过`);
               switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
