@@ -414,6 +414,14 @@ export function HomePage() {
     return out;
   };
 
+  // 老配置可能把 switchIntervalMinutes 存成单个 number，统一读成长度 = MAX_SWITCH_SLOTS 的数组
+  const normalizeIntervals = (raw: unknown): number[] => {
+    const fallback = typeof raw === 'number' ? raw : 30;
+    const arr = Array.isArray(raw) ? raw.slice() : [];
+    while (arr.length < MAX_SWITCH_SLOTS) arr.push(fallback);
+    return arr.slice(0, MAX_SWITCH_SLOTS).map((v: any) => Math.max(1, parseInt(String(v), 10) || 30));
+  };
+
   const loadFeatures = () => {    try {
       const saved = localStorage.getItem('home-features');
       if (saved) {
@@ -911,9 +919,8 @@ export function HomePage() {
       if (!feat.autoSwitchAccount || isFeatureLocked('autoSwitchAccount') || feat.switchMode !== 'per-time') return;
       const ids = feat.switchProfileIds || [];
       const curIdx = ids.indexOf(activeConfigNameRef.current);
-      const defaultMin = typeof feat.switchIntervalMinutes === 'number' ? feat.switchIntervalMinutes : 30;
-      const intervals = Array.isArray(feat.switchIntervalMinutes) ? feat.switchIntervalMinutes : [];
-      const minutes = Math.max(1, intervals[curIdx >= 0 ? curIdx : 0] ?? defaultMin);
+      const intervals = normalizeIntervals(feat.switchIntervalMinutes);
+      const minutes = intervals[curIdx >= 0 ? curIdx : 0];
       pushLog(`⏲️ 切号定时器: ${minutes} 分钟后切号（当前 ${activeConfigNameRef.current}）`);
       switchTimerId = setTimeout(() => {
         pendingAccountSwitch = true;
@@ -2922,19 +2929,10 @@ export function HomePage() {
                                 <input
                                   type="number"
                                   min={1}
-                                  value={(() => {
-                                    if (Array.isArray(features.switchIntervalMinutes)) {
-                                      return features.switchIntervalMinutes[i] ?? (typeof features.switchIntervalMinutes === 'number' ? features.switchIntervalMinutes : 30);
-                                    }
-                                    return features.switchIntervalMinutes || 30;
-                                  })()}
+                                  value={normalizeIntervals(features.switchIntervalMinutes)[i]}
                                   onChange={(e) => {
-                                    const base = typeof features.switchIntervalMinutes === 'number' ? features.switchIntervalMinutes : 30;
-                                    const cur = Array.isArray(features.switchIntervalMinutes)
-                                      ? features.switchIntervalMinutes.slice()
-                                      : [];
-                                    while (cur.length < MAX_SWITCH_SLOTS) cur.push(base);
-                                    cur[i] = Math.max(1, parseInt(e.target.value) || 30);
+                                    const cur = normalizeIntervals(features.switchIntervalMinutes);
+                                    cur[i] = Math.max(1, parseInt(e.target.value, 10) || 30);
                                     setFeatures({ ...features, switchIntervalMinutes: cur });
                                   }}
                                   className="w-12 px-1 py-0.5 text-xs bg-white border border-slate-200 rounded text-center"
