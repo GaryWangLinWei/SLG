@@ -2566,7 +2566,8 @@ export function HomePage() {
 
         // 等待期间
         const startWait = monotonicNow();
-        while (!isStopped() && (monotonicNow() - startWait) < nextWake * 1000) {
+        const waitSeq = cooldownResetSeq;
+        while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < nextWake * 1000) {
           await sleep(1);
         }
       }
