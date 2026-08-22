@@ -10,6 +10,14 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-21-role-switch-starred-position-design.md`
 
+**构建前提：** web 前端构建/类型检查必须带 edition 环境变量，否则 `web/vite.config.ts` 直接 throw：
+
+```bash
+cd web && VITE_APP_EDITION=main npm run build
+```
+
+本计划中所有写作 `cd web && npm run build` 的步骤都按此执行。
+
 ---
 
 ## File Structure
@@ -1721,7 +1729,31 @@ git commit -m "chore(switch): remove residual legacy switch-type references"
 
 - [ ] **Step 6: 老配置兼容**
 
-用一个仍带 `targetType: 'linked'` 的历史配置文件（`~/.slg-automation/configs/{accountId}.json`）加载 Home 页。期望：不报错；该 profile 因缺 `starredIndex` 在槽位下拉里显示"（需填星标序号）"且不可选；到 Config 页填入星标序号后即可选。
+用一个仍带 `targetType: 'linked'` 的历史配置文件（`~/.slg-automation/configs/{accountId}.json`）加载 Home 页。期望：不报错。分两种边界各验一次：
+  - **成对**旧 linked（主号 + 连体号同编号）→ 因缺 `starredIndex` 在槽位下拉里显示"（需填星标序号）"且不可选；到 Config 页填入后可选、且能正常按位置切角色
+  - **孤立**旧 linked（账号编号在列表里唯一）→ 判为 account 型、按只切账号处理、不提示（这是设计接受的降级，见 spec 第八节）
+
+- [ ] **Step 8: 星标序号被清空后不得静默降级（核心防护）**
+
+把某个 role 型 profile（与另一 profile 同账号编号）的星标序号在 Config 页清空，然后让它在混合轮换里作为**不同账号**的目标被切到。
+
+期望：日志出现 `⏭️ 跳过 <profile>：未填星标序号`，轮换推进到下一个目标，**不发生只切账号的行为**。
+
+反例（修复前的错误行为）：只切账号 → 落在该账号最近使用的角色上 → 上报成功 → 前端 profile 切过去了但设备在错误角色。
+
+- [ ] **Step 9: 重试幂等（账号已在目标账号时重跑账号步骤）**
+
+构造"账号步骤成功 + 角色步骤失败"让循环进入第 2 次尝试（例如临时把某个 role profile 的星标序号填成一个不存在的大序号）。
+
+期望：第 2 次尝试重跑 `switchAccount` 时，设备已在目标账号，**不应误判 `not_found`、不应触发 `am force-stop` 重启游戏**。若观察到重启，说明 `switchAccount` 的下拉列表在"目标即当前账号"时行为异常，需要单独处理（spec 5.1 要求容忍这种情况，但本次未改 `switchAccount.ts`）。
+
+- [ ] **Step 10: 账号进城超时后接角色切换**
+
+难以主动构造，留意日志即可：若出现 `⚠️ 账号已切换但未检测到进城` 紧跟 `⏳ 额外等待 5s`，观察随后的角色切换是否成功。若角色切换总是失败，说明 5s 不够，调大 `plugins/rok/index.ts` 的 `ACCOUNT_TIMEOUT_SETTLE_SEC`。
+
+- [ ] **Step 11: 确认登录轮询窗口是否够（慢机）**
+
+留意是否出现"真实切换被误判成已在目标角色"——表现为日志报 `切换账号: success (角色已在目标位置)` 但设备实际正在登录/落到了错误角色。若出现，调大 `plugins/rok/actions/switchRole.ts` 的 `SURELOGIN_POLL_TIMES`（当前 6 次 × 0.5s = 3s 窗口）。
 
 - [ ] **Step 7: 环向轮换（4 槽）**
 
