@@ -32,8 +32,8 @@ const PAGE_SIZE = ROLE_SLOT_POS.length;
 const SWIPE_X = 800;
 const PAGE_UP_FROM_Y = 700;
 const PAGE_UP_TO_Y = PAGE_UP_FROM_Y - 504;
-/** 抬手前静止时长：给 VelocityTracker 归零的时间 */
-const DRAG_HOLD_MS = 1000;
+/** 抬手前静止时长：给 VelocityTracker 归零的时间。8 步 MOVE 本身拖得很慢，500ms 足够压掉 fling */
+const DRAG_HOLD_MS = 500;
 
 /** 确认登录按钮轮询：约 3s 窗口内多次检测，避免慢机渲染延迟被误判成"已在目标角色"。 */
 export const SURELOGIN_POLL_TIMES = 6;
