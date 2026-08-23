@@ -615,6 +615,11 @@ export class AdbDevice implements Device {
    * 路径为严格直线、位移严格等于传入的 (x2-x1, y2-y1)：只对起点做随机抖动，
    * 终点按位移推算，避免两端独立抖动破坏距离精度。
    *
+   * @param holdMs 抬手前静止时长
+   * @param moveMs 手指移动这段的总时长（在 MOVE 之间插入等间隔停顿摊开）。
+   *               0 = 尽可能快（约 85ms 走完）。移动越慢末速度越低，越不容易触发 fling。
+   * @param steps  移动分几步
+   *
    * 用 `input motionevent`（Android 9+ / API 28+）实现；整串命令拼在一次 shell 调用里，
    * 时序由设备端的 sleep 控制，避免多次 adb 往返带来的抖动。
    */
@@ -622,6 +627,7 @@ export class AdbDevice implements Device {
     x1: number, y1: number,
     x2: number, y2: number,
     holdMs: number = 1000,
+    moveMs: number = 0,
     steps: number = 8
   ): Promise<void> {
     // 只抖动起点，终点按精确位移推算：
@@ -636,11 +642,15 @@ export class AdbDevice implements Device {
     const sy2 = sy1 + dy;
 
     const n = Math.max(1, steps);
+    // 把 moveMs 摊成 n 段等间隔停顿，插在每步 MOVE 前，让移动匀速走满指定时长。
+    // 命令本身还有约 85ms 开销，所以实际略长于 moveMs。
+    const gapSec = moveMs > 0 ? (moveMs / 1000 / n) : 0;
+    const gap = gapSec > 0 ? `sleep ${gapSec.toFixed(3)}; ` : '';
     const parts: string[] = [`input motionevent DOWN ${sx1} ${sy1}`];
     for (let i = 1; i <= n; i++) {
       const mx = sx1 + Math.round((dx * i) / n);
       const my = sy1 + Math.round((dy * i) / n);
-      parts.push(`input motionevent MOVE ${mx} ${my}`);
+      parts.push(`${gap}input motionevent MOVE ${mx} ${my}`);
     }
     // 抬手前静止：让 VelocityTracker 采到 0 速度，抑制 fling
     parts.push(`sleep ${(holdMs / 1000).toFixed(2)}`);

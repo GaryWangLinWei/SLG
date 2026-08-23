@@ -32,8 +32,10 @@ const PAGE_SIZE = ROLE_SLOT_POS.length;
 const SWIPE_X = 800;
 const PAGE_UP_FROM_Y = 700;
 const PAGE_UP_TO_Y = PAGE_UP_FROM_Y - 504;
-/** 抬手前静止时长：给 VelocityTracker 归零的时间。8 步 MOVE 本身拖得很慢，500ms 足够压掉 fling */
+/** 抬手前静止时长：给 VelocityTracker 归零的时间 */
 const DRAG_HOLD_MS = 500;
+/** 手指移动这段的时长：走满 500ms，末速度低，配合静止彻底压掉 fling */
+const DRAG_MOVE_MS = 500;
 
 /** 确认登录按钮轮询：约 3s 窗口内多次检测，避免慢机渲染延迟被误判成"已在目标角色"。 */
 export const SURELOGIN_POLL_TIMES = 6;
@@ -103,7 +105,7 @@ export async function switchRole(ctx: PluginContext, starredIndex: number): Prom
     // 在顶部继续下拉既浪费时间，还可能触发列表回弹/下拉刷新。
     ctx.log(`  [4/6] 向下翻 ${pageIdx} 页`);
     for (let i = 0; i < pageIdx; i++) {
-      await ctx.dragNoFling(SWIPE_X, PAGE_UP_FROM_Y, SWIPE_X, PAGE_UP_TO_Y, DRAG_HOLD_MS);
+      await ctx.dragNoFling(SWIPE_X, PAGE_UP_FROM_Y, SWIPE_X, PAGE_UP_TO_Y, DRAG_HOLD_MS, DRAG_MOVE_MS);
       await ctx.sleep(0.5);
     }
   } else {
