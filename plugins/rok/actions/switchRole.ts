@@ -34,8 +34,6 @@ const PAGE_UP_FROM_Y = 700;
 const PAGE_UP_TO_Y = PAGE_UP_FROM_Y - 504;
 /** 抬手前静止时长：给 VelocityTracker 归零的时间 */
 const DRAG_HOLD_MS = 1000;
-/** 归顶：连续下拉若干次，保证起点归一化到列表顶部。 */
-const SCROLL_TOP_TIMES = 3;
 
 /** 确认登录按钮轮询：约 3s 窗口内多次检测，避免慢机渲染延迟被误判成"已在目标角色"。 */
 export const SURELOGIN_POLL_TIMES = 6;
@@ -62,7 +60,7 @@ async function waitForSureLogin(ctx: PluginContext) {
 }
 
 /**
- * 位置式角色切换：头像 → 设置 → 角色管理 → 归顶 → 按需翻页 → 点目标星标位 → 确认登录 → 等进城。
+ * 位置式角色切换：头像 → 设置 → 角色管理 → 按需翻页 → 点目标星标位 → 确认登录 → 等进城。
  *
  * 零 OCR：角色名可自定义（含繁体、符号）不可靠，服务器号同服可重复；
  * 星标区按添加顺序排列且不重排，因此星标序号是稳定索引。
@@ -101,20 +99,15 @@ export async function switchRole(ctx: PluginContext, starredIndex: number): Prom
   const slotIdx = (starredIndex - 1) % PAGE_SIZE;
 
   if (pageIdx > 0) {
-    // 归顶：起点归一化，否则翻页数无意义（角色管理面板每次新开都在顶部，仅翻页时作为保险归顶）
-    ctx.log(`  [4/6] 归顶（下拉 ${SCROLL_TOP_TIMES} 次）`);
-    for (let i = 0; i < SCROLL_TOP_TIMES; i++) {
-      await ctx.dragNoFling(SWIPE_X, PAGE_UP_TO_Y, SWIPE_X, PAGE_UP_FROM_Y, DRAG_HOLD_MS);
-      await ctx.sleep(0.4);
-    }
-
-    ctx.log(`  [5a/6] 向下翻 ${pageIdx} 页`);
+    // 不做归顶：角色管理面板每次都是新打开的，列表必然在顶部。
+    // 在顶部继续下拉既浪费时间，还可能触发列表回弹/下拉刷新。
+    ctx.log(`  [4/6] 向下翻 ${pageIdx} 页`);
     for (let i = 0; i < pageIdx; i++) {
       await ctx.dragNoFling(SWIPE_X, PAGE_UP_FROM_Y, SWIPE_X, PAGE_UP_TO_Y, DRAG_HOLD_MS);
       await ctx.sleep(0.5);
     }
   } else {
-    ctx.log(`  [4/6] 目标在第 1 屏，跳过归顶与翻页`);
+    ctx.log(`  [4/6] 目标在第 1 屏，无需翻页`);
   }
 
   const target = ROLE_SLOT_POS[slotIdx];
