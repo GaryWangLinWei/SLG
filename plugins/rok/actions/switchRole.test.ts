@@ -14,6 +14,8 @@ function makeCtx(overrides: Partial<any> = {}): any {
     sleep: jest.fn(async () => {}),
     tap: jest.fn(async (x: number, y: number) => { taps.push({ x, y }); }),
     swipe: jest.fn(async (x1: number, y1: number, x2: number, y2: number) => { swipes.push({ x1, y1, x2, y2 }); }),
+    // 翻页走 dragNoFling（抬手前静止抑制惯性），记录到同一个数组便于断言
+    dragNoFling: jest.fn(async (x1: number, y1: number, x2: number, y2: number) => { swipes.push({ x1, y1, x2, y2 }); }),
     log: jest.fn(),
     findImageWithLocation: jest.fn(),
     ...overrides,

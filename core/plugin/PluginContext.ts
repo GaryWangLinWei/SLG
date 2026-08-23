@@ -254,6 +254,25 @@ export class PluginContext {
     }
   }
 
+  /**
+   * 无惯性拖动：抬手前静止一段，抑制 fling（惯性滚动），使列表位移严格等于拖拽距离。
+   * 需要按像素精确滚动的场景（如按位置索引翻页）用这个，不要用 swipe。
+   * 设备不支持时回退到普通 swipe。
+   */
+  async dragNoFling(
+    x1: number, y1: number,
+    x2: number, y2: number,
+    holdMs: number = 1000,
+    steps: number = 8
+  ): Promise<void> {
+    this.checkCancellation();
+    if (this.device.dragNoFling) {
+      await this.device.dragNoFling(x1, y1, x2, y2, holdMs, steps);
+    } else {
+      await this.device.swipe(x1, y1, x2, y2, 800, false, true);
+    }
+  }
+
   async pinch(x1: number, y1: number, x2: number, y2: number, toX1: number, toY1: number, toX2: number, toY2: number, duration: number = 500): Promise<void> {
     this.checkCancellation();
     await this.device.pinch(x1, y1, x2, y2, toX1, toY1, toX2, toY2, duration);

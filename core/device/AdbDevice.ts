@@ -606,6 +606,41 @@ export class AdbDevice implements Device {
   private holdProcess: ChildProcess | null = null;
 
   /**
+   * 无惯性拖动：按下 → 分步移动到终点 → 保持静止 holdMs → 抬起。
+   *
+   * 与 swipe 的区别在于抬手前有一段静止：Android 的 VelocityTracker 取的是抬手瞬间的
+   * 速度，静止一段后速度归零，就不会触发 fling（惯性滚动）。因此列表位移严格等于
+   * 拖拽距离，可按像素精确翻页，且不受模拟器性能影响。
+   *
+   * 用 `input motionevent`（Android 9+ / API 28+）实现；整串命令拼在一次 shell 调用里，
+   * 时序由设备端的 sleep 控制，避免多次 adb 往返带来的抖动。
+   */
+  async dragNoFling(
+    x1: number, y1: number,
+    x2: number, y2: number,
+    holdMs: number = 1000,
+    steps: number = 8
+  ): Promise<void> {
+    const sx1 = Math.round(this.jitterCoord(x1));
+    const sy1 = Math.round(this.jitterCoord(y1));
+    const sx2 = Math.round(this.jitterCoord(x2));
+    const sy2 = Math.round(this.jitterCoord(y2));
+
+    const n = Math.max(1, steps);
+    const parts: string[] = [`input motionevent DOWN ${sx1} ${sy1}`];
+    for (let i = 1; i <= n; i++) {
+      const mx = Math.round(sx1 + ((sx2 - sx1) * i) / n);
+      const my = Math.round(sy1 + ((sy2 - sy1) * i) / n);
+      parts.push(`input motionevent MOVE ${mx} ${my}`);
+    }
+    // 抬手前静止：让 VelocityTracker 采到 0 速度，抑制 fling
+    parts.push(`sleep ${(holdMs / 1000).toFixed(2)}`);
+    parts.push(`input motionevent UP ${sx2} ${sy2}`);
+
+    await this.execShell(parts.join('; '));
+  }
+
+  /**
    * 拖动到目标位置并保持按住（不松手）。
    * 使用单次 input swipe，手指从起点移动到终点，终点自然释放被游戏视为滑动结束而非点击。
    * spawn 非阻塞，调用后等待 ~0.15s 即可开始截图/检测。

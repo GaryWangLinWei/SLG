@@ -24,12 +24,17 @@ const ROLE_SLOT_POS = [
 ];
 const PAGE_SIZE = ROLE_SLOT_POS.length;
 
-/** 翻页滑动：一次推进 3 行 = 504px。singleShot 避免惯性滚动导致位移不可控。 */
+/**
+ * 翻页拖动：一次推进 3 行 = 504px（行间距 168px）。
+ * 用 dragNoFling（抬手前静止 1s 抑制惯性），位移严格等于拖拽距离，
+ * 不能用 swipe —— fling 会让实际滚动超过 504px，翻页落错行。
+ */
 const SWIPE_X = 800;
 const PAGE_UP_FROM_Y = 700;
 const PAGE_UP_TO_Y = PAGE_UP_FROM_Y - 504;
-const SWIPE_DURATION_MS = 800;
-/** 归顶：连续下滑若干次，保证起点归一化到列表顶部。 */
+/** 抬手前静止时长：给 VelocityTracker 归零的时间 */
+const DRAG_HOLD_MS = 1000;
+/** 归顶：连续下拉若干次，保证起点归一化到列表顶部。 */
 const SCROLL_TOP_TIMES = 3;
 
 /** 确认登录按钮轮询：约 3s 窗口内多次检测，避免慢机渲染延迟被误判成"已在目标角色"。 */
@@ -97,15 +102,15 @@ export async function switchRole(ctx: PluginContext, starredIndex: number): Prom
 
   if (pageIdx > 0) {
     // 归顶：起点归一化，否则翻页数无意义（角色管理面板每次新开都在顶部，仅翻页时作为保险归顶）
-    ctx.log(`  [4/6] 归顶（下滑 ${SCROLL_TOP_TIMES} 次）`);
+    ctx.log(`  [4/6] 归顶（下拉 ${SCROLL_TOP_TIMES} 次）`);
     for (let i = 0; i < SCROLL_TOP_TIMES; i++) {
-      await ctx.swipe(SWIPE_X, PAGE_UP_TO_Y, SWIPE_X, PAGE_UP_FROM_Y, SWIPE_DURATION_MS, false, true);
+      await ctx.dragNoFling(SWIPE_X, PAGE_UP_TO_Y, SWIPE_X, PAGE_UP_FROM_Y, DRAG_HOLD_MS);
       await ctx.sleep(0.4);
     }
 
     ctx.log(`  [5a/6] 向下翻 ${pageIdx} 页`);
     for (let i = 0; i < pageIdx; i++) {
-      await ctx.swipe(SWIPE_X, PAGE_UP_FROM_Y, SWIPE_X, PAGE_UP_TO_Y, SWIPE_DURATION_MS, false, true);
+      await ctx.dragNoFling(SWIPE_X, PAGE_UP_FROM_Y, SWIPE_X, PAGE_UP_TO_Y, DRAG_HOLD_MS);
       await ctx.sleep(0.5);
     }
   } else {
