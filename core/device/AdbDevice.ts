@@ -606,11 +606,14 @@ export class AdbDevice implements Device {
   private holdProcess: ChildProcess | null = null;
 
   /**
-   * 无惯性拖动：按下 → 分步移动到终点 → 保持静止 holdMs → 抬起。
+   * 无惯性直线拖动：按下 → 沿直线分步移动到终点 → 保持静止 holdMs → 抬起。
    *
    * 与 swipe 的区别在于抬手前有一段静止：Android 的 VelocityTracker 取的是抬手瞬间的
    * 速度，静止一段后速度归零，就不会触发 fling（惯性滚动）。因此列表位移严格等于
    * 拖拽距离，可按像素精确翻页，且不受模拟器性能影响。
+   *
+   * 路径为严格直线、位移严格等于传入的 (x2-x1, y2-y1)：只对起点做随机抖动，
+   * 终点按位移推算，避免两端独立抖动破坏距离精度。
    *
    * 用 `input motionevent`（Android 9+ / API 28+）实现；整串命令拼在一次 shell 调用里，
    * 时序由设备端的 sleep 控制，避免多次 adb 往返带来的抖动。
@@ -621,16 +624,22 @@ export class AdbDevice implements Device {
     holdMs: number = 1000,
     steps: number = 8
   ): Promise<void> {
+    // 只抖动起点，终点按精确位移推算：
+    // 若起终点各自独立抖动，位移就会变成 504±抖动，破坏按像素翻页的精度；
+    // 且 x 两端抖不同值会让路径变成斜线。这样既保留位置随机化，又保证
+    // 路径为直线、位移严格等于 (x2-x1, y2-y1)。
+    const dx = Math.round(x2 - x1);
+    const dy = Math.round(y2 - y1);
     const sx1 = Math.round(this.jitterCoord(x1));
     const sy1 = Math.round(this.jitterCoord(y1));
-    const sx2 = Math.round(this.jitterCoord(x2));
-    const sy2 = Math.round(this.jitterCoord(y2));
+    const sx2 = sx1 + dx;
+    const sy2 = sy1 + dy;
 
     const n = Math.max(1, steps);
     const parts: string[] = [`input motionevent DOWN ${sx1} ${sy1}`];
     for (let i = 1; i <= n; i++) {
-      const mx = Math.round(sx1 + ((sx2 - sx1) * i) / n);
-      const my = Math.round(sy1 + ((sy2 - sy1) * i) / n);
+      const mx = sx1 + Math.round((dx * i) / n);
+      const my = sy1 + Math.round((dy * i) / n);
       parts.push(`input motionevent MOVE ${mx} ${my}`);
     }
     // 抬手前静止：让 VelocityTracker 采到 0 速度，抑制 fling
