@@ -619,6 +619,11 @@ export class AdbDevice implements Device {
    * @param moveMs 手指移动这段的总时长（在 MOVE 之间插入等间隔停顿摊开）。
    *               0 = 尽可能快（约 85ms 走完）。移动越慢末速度越低，越不容易触发 fling。
    * @param steps  移动分几步
+   * @param slopPx 破 touch slop 的引导位移，不计入测量位移。
+   *               Android 可滚动控件在第一次超过 touch slop 的 MOVE 上只是进入拖拽态，
+   *               把这一整段位移吃掉不计入滚动；不补这一段，列表实际滚动就会比拖拽距离
+   *               少一个首步步长。引导段独立于 dx/dy 之外，所以补偿量与总距离、步数无关。
+   *               0 = 不补（非滚动场景，如拖动棋子）。
    *
    * 用 `input motionevent`（Android 9+ / API 28+）实现；整串命令拼在一次 shell 调用里，
    * 时序由设备端的 sleep 控制，避免多次 adb 往返带来的抖动。
@@ -628,7 +633,8 @@ export class AdbDevice implements Device {
     x2: number, y2: number,
     holdMs: number = 1000,
     moveMs: number = 0,
-    steps: number = 8
+    steps: number = 8,
+    slopPx: number = 0
   ): Promise<void> {
     // 只抖动起点，终点按精确位移推算：
     // 若起终点各自独立抖动，位移就会变成 504±抖动，破坏按像素翻页的精度；
@@ -638,8 +644,16 @@ export class AdbDevice implements Device {
     const dy = Math.round(y2 - y1);
     const sx1 = Math.round(this.jitterCoord(x1));
     const sy1 = Math.round(this.jitterCoord(y1));
-    const sx2 = sx1 + dx;
-    const sy2 = sy1 + dy;
+
+    // 引导段：沿拖拽方向先走 slopPx 破掉 touch slop，这一段的位移会被控件吞掉。
+    // 之后的 n 步才是被计入滚动的测量位移，所以从引导段终点起算。
+    const len = Math.hypot(dx, dy) || 1;
+    const ox = Math.round((dx / len) * slopPx);
+    const oy = Math.round((dy / len) * slopPx);
+    const bx = sx1 + ox;
+    const by = sy1 + oy;
+    const sx2 = bx + dx;
+    const sy2 = by + dy;
 
     const n = Math.max(1, steps);
     // 把 moveMs 摊成 n 段等间隔停顿，插在每步 MOVE 前，让移动匀速走满指定时长。
@@ -647,9 +661,12 @@ export class AdbDevice implements Device {
     const gapSec = moveMs > 0 ? (moveMs / 1000 / n) : 0;
     const gap = gapSec > 0 ? `sleep ${gapSec.toFixed(3)}; ` : '';
     const parts: string[] = [`input motionevent DOWN ${sx1} ${sy1}`];
+    if (ox !== 0 || oy !== 0) {
+      parts.push(`input motionevent MOVE ${bx} ${by}`);
+    }
     for (let i = 1; i <= n; i++) {
-      const mx = sx1 + Math.round((dx * i) / n);
-      const my = sy1 + Math.round((dy * i) / n);
+      const mx = bx + Math.round((dx * i) / n);
+      const my = by + Math.round((dy * i) / n);
       parts.push(`${gap}input motionevent MOVE ${mx} ${my}`);
     }
     // 抬手前静止：让 VelocityTracker 采到 0 速度，抑制 fling

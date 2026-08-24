@@ -36,6 +36,13 @@ const PAGE_UP_TO_Y = PAGE_UP_FROM_Y - 504;
 const DRAG_HOLD_MS = 500;
 /** 手指移动这段的时长：走满 500ms，末速度低，配合静止彻底压掉 fling */
 const DRAG_MOVE_MS = 500;
+/**
+ * 破 touch slop 的引导位移，不计入 504px。
+ * 列表在第一次超过 touch slop 的 MOVE 上只进入拖拽态，把那段位移吞掉不计入滚动。
+ * 真机实测：不补这一段时实际滚动比 504 少约 62px（= 504/8，正好一个首步步长）。
+ * 引导段独立于测量位移之外，所以补偿量与距离、步数无关。
+ */
+const DRAG_SLOP_PX = 70;
 
 /** 确认登录按钮轮询：约 3s 窗口内多次检测，避免慢机渲染延迟被误判成"已在目标角色"。 */
 export const SURELOGIN_POLL_TIMES = 6;
@@ -105,7 +112,7 @@ export async function switchRole(ctx: PluginContext, starredIndex: number): Prom
     // 在顶部继续下拉既浪费时间，还可能触发列表回弹/下拉刷新。
     ctx.log(`  [4/6] 向下翻 ${pageIdx} 页`);
     for (let i = 0; i < pageIdx; i++) {
-      await ctx.dragNoFling(SWIPE_X, PAGE_UP_FROM_Y, SWIPE_X, PAGE_UP_TO_Y, DRAG_HOLD_MS, DRAG_MOVE_MS);
+      await ctx.dragNoFling(SWIPE_X, PAGE_UP_FROM_Y, SWIPE_X, PAGE_UP_TO_Y, DRAG_HOLD_MS, DRAG_MOVE_MS, 8, DRAG_SLOP_PX);
       await ctx.sleep(0.5);
     }
   } else {
