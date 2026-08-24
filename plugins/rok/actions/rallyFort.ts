@@ -220,7 +220,7 @@ export async function rallyFort(
    * 返回 'opened'（集结弹窗已打开，继续 [7/8]）、'not_found'（搜不到城寨）、
    * 'rally_full'（队伍已满）、'already_rallied'（城寨正被集结，应搜下一个）。
    */
-  const MAX_ATTEMPTS_PER_LEVEL = 5;
+  const MAX_ATTEMPTS_PER_LEVEL = 2;
   async function searchAndOpenRally(reopenPanel: boolean): Promise<'opened' | 'not_found' | 'rally_full' | 'already_rallied'> {
     if (reopenPanel) {
       ctx.log(`  重新打开搜索面板，直接搜索（不切页签、不重设等级）`);
@@ -278,14 +278,14 @@ export async function rallyFort(
     return 'opened';
   }
 
-  // 每个等级最多尝试 MAX_ATTEMPTS_PER_LEVEL 次（首次 + 最多 4 次重试）。
-  // 城寨被集结时，重新打开搜索面板直接搜下一个；5 次都被集结且允许降级时，
-  // 降级一个等级后再给 5 次机会。
+  // 每个等级最多尝试 MAX_ATTEMPTS_PER_LEVEL 次（首次 + 最多 1 次重试）。
+  // 城寨被集结时，重新打开搜索面板直接搜下一个；2 次都被集结且允许降级时，
+  // 降级一个等级后再给 2 次机会。
   let attemptOutcome: 'opened' | 'not_found' | 'rally_full' = 'not_found';
   // panelOpen：进入搜索时面板是否已开着（首次已开；点击集结按钮后面板关闭，重试需重开）
   let panelOpen = true;
-  // 降级次数上限：最多降 2 级，或已到 Lv.1 即停
-  const MAX_DOWNGRADE = 2;
+  // 降级次数上限：最多降 1 级，或已到 Lv.1 即停
+  const MAX_DOWNGRADE = 1;
   let downgradeCount = 0;
   while (true) {
     let ralliedCount = 0;
