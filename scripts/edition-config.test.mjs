@@ -6,12 +6,14 @@ import test from 'node:test';
 
 import { getEdition, loadEditions } from './edition-config.mjs';
 
+// 注意：这份 fixture 同时是第 36 行"仓库真实配置"的期望值，
+// 所以改 config/editions.json 后必须同步这里。
 const validEditions = {
   main: {
     id: 'main',
     artifactName: 'ROK助手 Setup ${version}.exe',
     outputDir: 'release/main',
-    updateUrl: 'https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates',
+    updateUrl: 'https://updates.slgbot.com/updates',
     remotePrefix: 'updates',
     capabilities: { showPurchaseEntry: true, showRenewEntry: true },
   },
@@ -19,7 +21,7 @@ const validEditions = {
     id: 'agent',
     artifactName: 'ROK助手-代理商版 Setup ${version}.exe',
     outputDir: 'release/agent',
-    updateUrl: 'https://slg-updates.oss-cn-shanghai.aliyuncs.com/updates/agent',
+    updateUrl: 'https://updates.slgbot.com/updates/agent',
     remotePrefix: 'updates/agent',
     capabilities: { showPurchaseEntry: false, showRenewEntry: false },
   },
