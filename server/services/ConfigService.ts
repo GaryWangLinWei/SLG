@@ -2,10 +2,10 @@ import * as fs from 'fs/promises';
 import { existsSync } from 'fs';
 import * as path from 'path';
 import { RokConfig, DEFAULT_ROK_CONFIG } from '../../plugins/rok';
+import { MAX_PROFILES } from '../../plugins/rok/homeFeatures';
 import { CONFIG_DIR, CONFIGS_DIR, accountService } from './AccountService';
 
 const LEGACY_CONFIG_FILE = path.join(CONFIG_DIR, 'rok-config.json');
-const MAX_PROFILES = 5;
 
 interface MultiConfigFile {
   activeConfigName: string;

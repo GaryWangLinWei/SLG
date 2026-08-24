@@ -606,6 +606,60 @@ export class AdbDevice implements Device {
   private holdProcess: ChildProcess | null = null;
 
   /**
+   * 无惯性直线拖动：按下 → 沿直线分步移动到终点 → 保持静止 holdMs → 抬起。
+   *
+   * 与 swipe 的区别在于抬手前有一段静止：Android 的 VelocityTracker 取的是抬手瞬间的
+   * 速度，静止一段后速度归零，就不会触发 fling（惯性滚动）。因此列表位移严格等于
+   * 拖拽距离，可按像素精确翻页，且不受模拟器性能影响。
+   *
+   * 路径为严格直线、位移严格等于传入的 (x2-x1, y2-y1)：只对起点做随机抖动，
+   * 终点按位移推算，避免两端独立抖动破坏距离精度。
+   *
+   * @param holdMs 抬手前静止时长
+   * @param moveMs 手指移动这段的总时长（在 MOVE 之间插入等间隔停顿摊开）。
+   *               0 = 尽可能快（约 85ms 走完）。移动越慢末速度越低，越不容易触发 fling。
+   * @param steps  移动分几步
+   *
+   * 用 `input motionevent`（Android 9+ / API 28+）实现；整串命令拼在一次 shell 调用里，
+   * 时序由设备端的 sleep 控制，避免多次 adb 往返带来的抖动。
+   */
+  async dragNoFling(
+    x1: number, y1: number,
+    x2: number, y2: number,
+    holdMs: number = 1000,
+    moveMs: number = 0,
+    steps: number = 8
+  ): Promise<void> {
+    // 只抖动起点，终点按精确位移推算：
+    // 若起终点各自独立抖动，位移就会变成 504±抖动，破坏按像素翻页的精度；
+    // 且 x 两端抖不同值会让路径变成斜线。这样既保留位置随机化，又保证
+    // 路径为直线、位移严格等于 (x2-x1, y2-y1)。
+    const dx = Math.round(x2 - x1);
+    const dy = Math.round(y2 - y1);
+    const sx1 = Math.round(this.jitterCoord(x1));
+    const sy1 = Math.round(this.jitterCoord(y1));
+    const sx2 = sx1 + dx;
+    const sy2 = sy1 + dy;
+
+    const n = Math.max(1, steps);
+    // 把 moveMs 摊成 n 段等间隔停顿，插在每步 MOVE 前，让移动匀速走满指定时长。
+    // 命令本身还有约 85ms 开销，所以实际略长于 moveMs。
+    const gapSec = moveMs > 0 ? (moveMs / 1000 / n) : 0;
+    const gap = gapSec > 0 ? `sleep ${gapSec.toFixed(3)}; ` : '';
+    const parts: string[] = [`input motionevent DOWN ${sx1} ${sy1}`];
+    for (let i = 1; i <= n; i++) {
+      const mx = sx1 + Math.round((dx * i) / n);
+      const my = sy1 + Math.round((dy * i) / n);
+      parts.push(`${gap}input motionevent MOVE ${mx} ${my}`);
+    }
+    // 抬手前静止：让 VelocityTracker 采到 0 速度，抑制 fling
+    parts.push(`sleep ${(holdMs / 1000).toFixed(2)}`);
+    parts.push(`input motionevent UP ${sx2} ${sy2}`);
+
+    await this.execShell(parts.join('; '));
+  }
+
+  /**
    * 拖动到目标位置并保持按住（不松手）。
    * 使用单次 input swipe，手指从起点移动到终点，终点自然释放被游戏视为滑动结束而非点击。
    * spawn 非阻塞，调用后等待 ~0.15s 即可开始截图/检测。

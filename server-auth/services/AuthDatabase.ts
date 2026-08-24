@@ -54,6 +54,8 @@ function initTables() {
       FOREIGN KEY (activation_code_id) REFERENCES activation_codes(id)
     )
   `);
+  // 按时间清理过期心跳日志用（cleanupHeartbeatLogs）
+  database.exec(`CREATE INDEX IF NOT EXISTS idx_heartbeat_logs_time ON heartbeat_logs(heartbeat_at)`);
 
   // 邀请关系表
   database.exec(`

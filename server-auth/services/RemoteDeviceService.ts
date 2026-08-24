@@ -103,4 +103,6 @@ class RemoteDeviceService {
 }
 
 export const remoteDeviceService = new RemoteDeviceService();
-setInterval(() => remoteDeviceService.cleanup(), 60 * 60 * 1000);
+// unref() 与其他 sweep 保持一致：定时器不应阻止进程（尤其测试进程）退出
+const sessionSweepTimer = setInterval(() => remoteDeviceService.cleanup(), 60 * 60 * 1000);
+sessionSweepTimer.unref();

@@ -32,6 +32,8 @@ class WebSocketHub {
 
   attach(server: HttpServer): void {
     this.wss = new WebSocketServer({ server, path: '/ws/remote' });
+    // 服务器级错误（握手阶段 socket 断开等）没有监听器会冒泡成未捕获异常打死进程
+    this.wss.on('error', (err) => console.error('[WS] server error:', err));
     this.startSweep();
     this.wss.on('connection', (ws, req) => {
       let authed = false;

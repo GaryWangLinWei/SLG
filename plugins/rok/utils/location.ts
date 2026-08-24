@@ -3,6 +3,7 @@ import { RokConfig } from '../index';
 import { getTemplatesDir } from '../../../core/resourcePath';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import sharp from 'sharp';
 
 const TEMPLATE_DIR = getTemplatesDir();
@@ -251,24 +252,39 @@ const POPUP_DEBUG_DIR = path.join(process.cwd(), 'temp', 'popup_blocked');
 export async function ensureNoPopupBlocking(ctx: PluginContext, tag: string = 'popup-check'): Promise<boolean> {
   const cityTpl = path.join(TEMPLATE_DIR, 'switch_in_city.png');
   const worldTpl = path.join(TEMPLATE_DIR, 'switch_in_world.png');
-  const city = await ctx.findImageWithLocation(cityTpl, 0.7);
-  const world = await ctx.findImageWithLocation(worldTpl, 0.7);
-  if (city.found || world.found) {
-    ctx.log(`  [${tag}] 切换按钮可见 (city=${city.confidence.toFixed(2)} world=${world.confidence.toFixed(2)})，无弹窗遮挡`);
-    return false;
-  }
 
-  ctx.log(`  ⚠️ [${tag}] 切换按钮均不可见 (city=${city.confidence.toFixed(2)} world=${world.confidence.toFixed(2)})，判定弹窗遮挡`);
-
-  // 保存截图便于排查
+  // 两个模板必须匹配同一帧，且落盘的就是这一帧。
+  // 否则 city / world / dump 会各截一次屏，屏幕状态在期间变化会让存下来的图
+  // 和真正判定失败的那一帧对不上，排查时看到"图里明明有按钮"。
+  const framePath = path.join(os.tmpdir(), `popup-frame-${Date.now()}.png`);
+  let city = { found: false, confidence: 0 };
+  let world = { found: false, confidence: 0 };
+  let frameSaved = false;
   try {
-    if (!fs.existsSync(POPUP_DEBUG_DIR)) fs.mkdirSync(POPUP_DEBUG_DIR, { recursive: true });
-    const shotBuf = await ctx.getScreenshot();
-    const dumpPath = path.join(POPUP_DEBUG_DIR, `${tag}_${Date.now()}.png`);
-    await sharp(shotBuf).toFile(dumpPath);
-    ctx.log(`  [${tag}] 已保存遮挡截图: ${dumpPath}`);
-  } catch (e: any) {
-    ctx.log(`  [${tag}] 保存截图失败: ${e?.message || e}`);
+    fs.writeFileSync(framePath, await ctx.getScreenshot());
+    frameSaved = true;
+    city = await ctx.findImageWithLocationIn(framePath, cityTpl, 0.7);
+    world = await ctx.findImageWithLocationIn(framePath, worldTpl, 0.7);
+    if (city.found || world.found) {
+      ctx.log(`  [${tag}] 切换按钮可见 (city=${city.confidence.toFixed(2)} world=${world.confidence.toFixed(2)})，无弹窗遮挡`);
+      return false;
+    }
+
+    ctx.log(`  ⚠️ [${tag}] 切换按钮均不可见 (city=${city.confidence.toFixed(2)} world=${world.confidence.toFixed(2)})，判定弹窗遮挡`);
+
+    // 保存刚刚用于判定的那一帧，便于排查
+    try {
+      if (!fs.existsSync(POPUP_DEBUG_DIR)) fs.mkdirSync(POPUP_DEBUG_DIR, { recursive: true });
+      const dumpPath = path.join(POPUP_DEBUG_DIR, `${tag}_${Date.now()}.png`);
+      fs.copyFileSync(framePath, dumpPath);
+      ctx.log(`  [${tag}] 已保存遮挡截图: ${dumpPath}`);
+    } catch (e: any) {
+      ctx.log(`  [${tag}] 保存截图失败: ${e?.message || e}`);
+    }
+  } finally {
+    if (frameSaved) {
+      try { fs.unlinkSync(framePath); } catch { /* ignore */ }
+    }
   }
 
   // force-stop 游戏

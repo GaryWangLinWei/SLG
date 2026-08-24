@@ -2,8 +2,9 @@ import WebSocket from 'ws';
 import { randomUUID } from 'crypto';
 import { WsMessage, AuthData, LogData, StatusData, CommandData, ResponseData } from './messages';
 
-const RECONNECT_DELAY_MS = 3000;
-const HEARTBEAT_INTERVAL_MS = 30000;
+const DEFAULT_RECONNECT_DELAY_MS = 3000;
+const DEFAULT_HEARTBEAT_INTERVAL_MS = 30000;
+const DEFAULT_PONG_TIMEOUT_MS = 90000;
 const LOG_BATCH_INTERVAL_MS = 1000;
 const LOG_BATCH_SIZE = 10;
 
@@ -13,9 +14,15 @@ export interface RemoteClientOptions {
   serverUrl: string;
   deviceId: string;
   activationCode: string;
+  /** 心跳/探活间隔，默认 30s */
+  heartbeatIntervalMs?: number;
+  /** 超过该时长没收到对端任何数据（含 pong）就判定连接已死，默认 90s */
+  pongTimeoutMs?: number;
+  /** 断线重连延迟，默认 3s */
+  reconnectDelayMs?: number;
 }
 
-class RemoteClient {
+export class RemoteClient {
   private ws: WebSocket | null = null;
   private opts: RemoteClientOptions | null = null;
   private logBuffer: Array<{ message: string; level: string; timestamp: number }> = [];
@@ -26,6 +33,8 @@ class RemoteClient {
   private statusProvider: (() => StatusData) | null = null;
   private connected = false;
   private stopped = false;
+  /** 最近一次收到对端数据（业务消息或 pong）的时间，用于识别半开的僵尸连接 */
+  private lastInboundAt = 0;
 
   start(opts: RemoteClientOptions): void {
     this.opts = opts;
@@ -39,7 +48,7 @@ class RemoteClient {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
     if (this.logFlushTimer) clearInterval(this.logFlushTimer);
-    if (this.ws) { this.ws.close(); this.ws = null; }
+    if (this.ws) { this.ws.terminate(); this.ws = null; }
   }
 
   onCommand(handler: CommandCallback): void { this.commandHandler = handler; }
@@ -74,6 +83,7 @@ class RemoteClient {
       this.ws = new WebSocket(this.opts.serverUrl);
       this.ws.on('open', () => this.onOpen());
       this.ws.on('message', (raw) => this.onMessage(raw.toString()));
+      this.ws.on('pong', () => { this.lastInboundAt = Date.now(); });
       this.ws.on('close', () => this.onClose());
       this.ws.on('error', (err) => console.error('[RemoteClient] WS error:', err.message));
     } catch (e) {
@@ -93,6 +103,7 @@ class RemoteClient {
   }
 
   private onMessage(raw: string): void {
+    this.lastInboundAt = Date.now();
     let msg: WsMessage;
     try { msg = JSON.parse(raw); } catch { return; }
     if (msg.type === 'response' && msg.data?.success && !this.connected) {
@@ -125,6 +136,7 @@ class RemoteClient {
 
   private onClose(): void {
     this.connected = false;
+    this.ws = null;
     if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
     if (!this.stopped) this.scheduleReconnect();
   }
@@ -135,16 +147,27 @@ class RemoteClient {
       this.reconnectTimer = null;
       console.log('[RemoteClient] reconnecting...');
       this.connect();
-    }, RECONNECT_DELAY_MS);
+    }, this.opts?.reconnectDelayMs ?? DEFAULT_RECONNECT_DELAY_MS);
   }
 
   private startHeartbeat(): void {
     if (this.heartbeatTimer) return;
+    this.lastInboundAt = Date.now();
     this.heartbeatTimer = setInterval(() => {
-      if (this.connected && this.ws) {
-        this.send({ type: 'heartbeat', id: randomUUID(), deviceId: this.opts!.deviceId, data: {}, timestamp: Date.now() });
+      if (!this.connected || !this.ws) return;
+      // 云端不会主动给设备发消息，只能靠协议层 ping/pong 判断链路是否还活着。
+      // 半开连接下 readyState 仍是 OPEN、send 不报错，若不主动探活会永远停留在
+      // “本地显示已连接、云端已判离线”的状态，只能重启进程恢复。
+      const timeout = this.opts?.pongTimeoutMs ?? DEFAULT_PONG_TIMEOUT_MS;
+      if (Date.now() - this.lastInboundAt > timeout) {
+        console.warn(`[RemoteClient] no pong for ${timeout}ms, terminating to force reconnect`);
+        // 必须 terminate：僵尸连接上的 close 握手等不到对端回应，会一直挂住
+        this.ws.terminate();
+        return;
       }
-    }, HEARTBEAT_INTERVAL_MS);
+      this.send({ type: 'heartbeat', id: randomUUID(), deviceId: this.opts!.deviceId, data: {}, timestamp: Date.now() });
+      try { this.ws.ping(); } catch { /* ignore */ }
+    }, this.opts?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_INTERVAL_MS);
   }
 
   private startLogFlushLoop(): void {

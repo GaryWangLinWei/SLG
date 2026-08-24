@@ -72,6 +72,30 @@ export function generateToken(codeId: number): string {
   return jwt.sign({ codeId }, CONFIG.JWT_SECRET, { expiresIn: '1y' });
 }
 
+/** heartbeat_logs 保留期：90 天。这张表只用于审计/排查，长期留存没有价值 */
+export const HEARTBEAT_LOG_RETENTION_MS = 90 * 24 * 60 * 60 * 1000;
+
+/**
+ * 清理超过保留期的心跳日志，返回删除行数。
+ * 每台在线设备每分钟一条，不清理会无限增长（上线至今已累积数万行）。
+ */
+export function cleanupHeartbeatLogs(retentionMs: number = HEARTBEAT_LOG_RETENTION_MS): number {
+  const cutoff = Date.now() - retentionMs;
+  return getDb().prepare('DELETE FROM heartbeat_logs WHERE heartbeat_at < ?').run(cutoff).changes;
+}
+
+// 每小时兜底清理一次，与 RemoteLogService 的 sweep 同构；
+// unref() 避免测试进程被定时器挂住，try/catch 保证异常不会杀掉调度。
+const heartbeatSweepTimer = setInterval(() => {
+  try {
+    const deleted = cleanupHeartbeatLogs();
+    if (deleted > 0) console.log(`[HeartbeatService] 清理过期心跳日志 ${deleted} 行`);
+  } catch (e) {
+    console.error('[HeartbeatService] 定时清理失败:', e);
+  }
+}, 60 * 60 * 1000);
+heartbeatSweepTimer.unref();
+
 export function getActiveDevices(limit: number = 10, offset: number = 0, search?: string): { devices: any[]; total: number } {
   const db = getDb();
   // 先取所有激活绑定，按绑定时间降序

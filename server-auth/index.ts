@@ -13,6 +13,10 @@ import fs from 'fs';
 import { createServer } from 'http';
 import remoteRouter from './routes/remote';
 import { webSocketHub } from './services/WebSocketHub';
+import { installProcessGuard, isTransientNetworkError } from './services/processGuard';
+
+// 尽早安装：瞬时网络错误（EPIPE/ECONNRESET 等）不再打死进程
+installProcessGuard();
 
 const APP_VERSION: string = (() => {
   try {
@@ -26,6 +30,15 @@ const APP_VERSION: string = (() => {
 
 const app = new Koa();
 const router = new Router();
+
+// Koa 默认会把请求期异常打到 stderr；客户端提前断开属于噪音，降级为 warn
+app.on('error', (err) => {
+  if (isTransientNetworkError(err)) {
+    console.warn('[koa] 客户端断开:', err.code);
+    return;
+  }
+  console.error('[koa] 请求处理异常:', err);
+});
 
 // Middleware
 app.use(cors({ origin: CONFIG.CORS_ORIGIN }));
@@ -65,9 +78,23 @@ app.use(router.routes()).use(router.allowedMethods());
 
 // Initialize database
 getDb();
-
 const httpServer = createServer(app.callback());
 webSocketHub.attach(httpServer);
+
+// 客户端半路断开时底层 socket 会抛 ECONNRESET/EPIPE；没有监听器就会冒泡成未捕获异常
+httpServer.on('error', (err) => {
+  if (isTransientNetworkError(err)) {
+    console.warn('[httpServer] 忽略瞬时网络错误:', (err as any).code);
+    return;
+  }
+  console.error('[httpServer] 致命错误，进程退出:', err);
+  process.exit(1);
+});
+httpServer.on('clientError', (err, socket) => {
+  // 畸形请求/提前断开：回一个 400 并关掉，不要影响其他连接
+  if (socket.writable) socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
+  else socket.destroy();
+});
 
 httpServer.listen(CONFIG.PORT, CONFIG.HOST, () => {
   console.log(`========================================`);

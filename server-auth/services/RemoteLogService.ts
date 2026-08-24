@@ -1,6 +1,6 @@
 import { getDb } from './AuthDatabase';
 
-const MAX_LOGS_PER_DEVICE = 500;
+export const MAX_LOGS_PER_DEVICE = 500;
 const LOG_RETENTION_MS = 30 * 24 * 60 * 60 * 1000; // 30 天
 
 export interface RemoteLogEntry {
@@ -25,7 +25,7 @@ class RemoteLogService {
       WHERE device_id = ?
         AND id NOT IN (
           SELECT id FROM remote_logs WHERE device_id = ?
-          ORDER BY timestamp DESC LIMIT 500
+          ORDER BY timestamp DESC LIMIT ${MAX_LOGS_PER_DEVICE}
         )
     `);
     const insertAndTrim = db.transaction((items: typeof logs) => {

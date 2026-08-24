@@ -94,7 +94,7 @@ Action 形态为 `{ id, name, description, run(ctx, params?) }`，统一在 `plu
 
 `server/services/ConfigService.ts` 按账号保存最多 5 个配置方案到 `~/.slg-automation/configs/{accountId}.json`。加载时配置会合并进 `DEFAULT_ROK_CONFIG`；`buildingPositions` 是整体替换而非递归合并。
 
-首页功能字段的接口和默认值在 `plugins/rok/homeFeatures.ts`。新增首页设置时，通常需要同步检查：
+首页功能字段的接口和默认值在 `plugins/rok/homeFeatures.ts`。`web/src/pages/Home.tsx` 的 `startAllImpl` 内各子循环是长生命周期 IIFE，循环体内读配置必须用 `featuresRef.current`（每帧同步的 ref），不能直接读闭包快照 `features`——切号后 `setFeatures` 更新了 state/ref，但闭包里的 `features` 永不变化，会导致新账号沿用旧配置或守卫死循环。新增首页设置时，通常需要同步检查：
 
 1. `HomeFeatures` 与默认值；
 2. `plugins/rok/index.ts` 中相关配置/action 参数；

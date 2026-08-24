@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, Fragment } from 'react';
+import { useState, useEffect, useRef, useCallback, Fragment } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAccount } from '../contexts/AccountContext';
@@ -15,6 +15,7 @@ const MAX_SWITCH_SLOTS = import.meta.env.DEV ? 4 : 2;
 import { createLoopCancellationPredicate, guardedCreateTask, isCurrentLoopGeneration } from '../utils/loopGeneration';
 import { persistRunningSession, readRunningSession, RunningSession } from '../utils/runningIntent';
 import { deriveRunningControlView, OperationState } from '../utils/runningControlView';
+import { buildSwitchSteps, deriveProfileKinds, nextSwitchTargetIdx, validateSwitchProfiles, type ProfileSwitchMeta } from '../utils/accountSwitchPlan';
 
 // Module-level loop state — survives component unmount/remount during SPA navigation
 let browserRunningSession: RunningSession = { running: false, accountId: null };
@@ -413,6 +414,14 @@ export function HomePage() {
     return out;
   };
 
+  // 老配置可能把 switchIntervalMinutes 存成单个 number，统一读成长度 = MAX_SWITCH_SLOTS 的数组
+  const normalizeIntervals = (raw: unknown): number[] => {
+    const fallback = typeof raw === 'number' ? raw : 30;
+    const arr = Array.isArray(raw) ? raw.slice() : [];
+    while (arr.length < MAX_SWITCH_SLOTS) arr.push(fallback);
+    return arr.slice(0, MAX_SWITCH_SLOTS).map((v: any) => Math.max(1, parseInt(String(v), 10) || 30));
+  };
+
   const loadFeatures = () => {    try {
       const saved = localStorage.getItem('home-features');
       if (saved) {
@@ -492,7 +501,7 @@ export function HomePage() {
   const [configNames, setConfigNames] = useState<string[]>([]);
   // 每个 profile 的账号编号，用于账号调度下拉禁用"未填编号"的选项
   const [profileAccountNames, setProfileAccountNames] = useState<Record<string, string>>({});
-  const [profileTargetTypes, setProfileTargetTypes] = useState<Record<string, 'account' | 'linked'>>({});
+  const [profileStarredIndexes, setProfileStarredIndexes] = useState<Record<string, number | undefined>>({});
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -604,6 +613,38 @@ export function HomePage() {
     }).catch(() => {});
   }, [currentAccountId]);
 
+  // profile 的账号编号 / 星标序号缓存刷新。原先在初始化 effect 与 focus effect 里
+  // 各写了一遍几乎相同的 Promise.all，这里合并为单一入口。
+  const refreshProfileSwitchMeta = useCallback(async (): Promise<{ profiles: string[]; active: string } | null> => {
+    if (!currentAccountId) return null;
+    try {
+      const pRes = await api.config.getProfiles(currentAccountId);
+      if (!pRes.success) return null;
+      setConfigNames(pRes.profiles);
+      const nameMap: Record<string, string> = {};
+      const idxMap: Record<string, number | undefined> = {};
+      await Promise.all(pRes.profiles.map(async (p: string) => {
+        try {
+          const cfg = await api.config.getRokConfig(currentAccountId, p);
+          nameMap[p] = ((cfg.config as any)?.accountSwitch?.accountName || '').trim();
+          const idx = (cfg.config as any)?.accountSwitch?.starredIndex;
+          idxMap[p] = typeof idx === 'number' ? idx : undefined;
+        } catch { nameMap[p] = ''; idxMap[p] = undefined; }
+      }));
+      setProfileAccountNames(nameMap);
+      setProfileStarredIndexes(idxMap);
+      return { profiles: pRes.profiles, active: pRes.active };
+    } catch { return null; }
+  }, [currentAccountId]);
+
+  // 把某组 profile 名映射成校验用的元信息
+  const toSwitchMeta = useCallback((names: string[]): ProfileSwitchMeta[] =>
+    names.filter(Boolean).map(n => ({
+      name: n,
+      accountName: profileAccountNames[n] || '',
+      starredIndex: profileStarredIndexes[n],
+    })), [profileAccountNames, profileStarredIndexes]);
+
   // On mount + account change: load features from config, migrate from localStorage if needed
   useEffect(() => {
     if (!currentAccountId) return;
@@ -627,59 +668,36 @@ export function HomePage() {
         }
       } catch {}
       try {
-        const pRes = await api.config.getProfiles(currentAccountId);
-        if (pRes.success) {
-          setConfigNames(pRes.profiles);
-          if (!activeConfigName) setActiveConfigName(pRes.active);
-          // 拉每个 profile 的 accountSwitch.accountName 缓存到 UI
-          const map: Record<string, string> = {};
-          const typeMap: Record<string, 'account' | 'linked'> = {};
-          await Promise.all(pRes.profiles.map(async (p: string) => {
-            try {
-              const cfg = await api.config.getRokConfig(currentAccountId, p);
-              map[p] = ((cfg.config as any)?.accountSwitch?.accountName || '').trim();
-              typeMap[p] = (cfg.config as any)?.accountSwitch?.targetType === 'linked' ? 'linked' : 'account';
-            } catch { map[p] = ''; typeMap[p] = 'account'; }
-          }));
-          setProfileAccountNames(map);
-          setProfileTargetTypes(typeMap);
-        }
+        const res = await refreshProfileSwitchMeta();
+        if (res && !activeConfigNameRef.current) setActiveConfigName(res.active);
       } catch {}
     })();
-  }, [currentAccountId]);
+  }, [currentAccountId, refreshProfileSwitchMeta]);
 
-  // 窗口重新获得焦点、或从其它页面切回 Home 时，重拉 profile 的 accountName 缓存，
-  // 使账号调度下拉里"未填编号"的禁用状态跟着更新。
+  // 窗口重新获得焦点、或从其它页面切回 Home 时，重拉 profile 的账号编号/星标序号缓存，
+  // 使账号调度下拉里的禁用状态与提示跟着更新。
   useEffect(() => {
     if (!currentAccountId) return;
-    const refresh = async () => {
-      try {
-        const pRes = await api.config.getProfiles(currentAccountId);
-        if (!pRes.success) return;
-        setConfigNames(pRes.profiles);
-        const map: Record<string, string> = {};
-        const typeMap: Record<string, 'account' | 'linked'> = {};
-        await Promise.all(pRes.profiles.map(async (p: string) => {
-          try {
-            const cfg = await api.config.getRokConfig(currentAccountId, p);
-            map[p] = ((cfg.config as any)?.accountSwitch?.accountName || '').trim();
-            typeMap[p] = (cfg.config as any)?.accountSwitch?.targetType === 'linked' ? 'linked' : 'account';
-          } catch { map[p] = ''; typeMap[p] = 'account'; }
-        }));
-        setProfileAccountNames(map);
-        setProfileTargetTypes(typeMap);
-      } catch {}
-    };
-    // 路由回到 Home 时立即刷一次
-    refresh();
-    const onVis = () => { if (document.visibilityState === 'visible') refresh(); };
-    window.addEventListener('focus', refresh);
+    refreshProfileSwitchMeta();
+    const onFocus = () => { refreshProfileSwitchMeta(); };
+    const onVis = () => { if (document.visibilityState === 'visible') refreshProfileSwitchMeta(); };
+    window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onVis);
     return () => {
-      window.removeEventListener('focus', refresh);
+      window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onVis);
     };
-  }, [currentAccountId, location.pathname]);
+  }, [currentAccountId, location.pathname, refreshProfileSwitchMeta]);
+
+  // 载入指定 profile 的功能开关并合并进当前 features。
+  // 返回合并后的对象，调用方决定是否还要写 featuresRef（切号循环需要，手动切换不需要）。
+  const buildFeaturesForProfile = (hf: any) => preserveGlobalFields(featuresRef.current, padGatherTasks({
+    ...DEFAULT_HOME_FEATURES,
+    ...hf,
+    gemGatherMode: migrateGemMode(hf),
+    completedBuildings: [false, false, false, false, false],
+    completedTechs: [false, false, false, false, false],
+  }));
 
   const handleConfigSwitch = async (newName: string) => {
     if (!currentAccountId || newName === activeConfigName) return;
@@ -701,27 +719,19 @@ export function HomePage() {
       setActiveConfigName(newName);
       const res = await api.config.getRokConfig(currentAccountId);
       if (res.success && res.config?.homeFeatures) {
-        setFeatures((prev: typeof DEFAULT_FEATURES) => {
-          const merged = preserveGlobalFields(prev, padGatherTasks({
-            ...DEFAULT_HOME_FEATURES,
-            ...res.config.homeFeatures,
-            gemGatherMode: migrateGemMode(res.config.homeFeatures),
-            completedBuildings: [false, false, false, false, false],
-            completedTechs: [false, false, false, false, false],
-          })) as any;
-          // 若开启自动切号且新 active 不在 switchProfileIds → 找空槽填，无空槽覆盖槽 0
-          if (merged.autoSwitchAccount) {
-            const cur: string[] = (merged.switchProfileIds || []).slice(0, MAX_SWITCH_SLOTS);
-            while (cur.length < MAX_SWITCH_SLOTS) cur.push('');
-            if (!cur.includes(newName)) {
-              const emptyIdx = cur.findIndex((s: string) => !s);
-              const slotIdx = emptyIdx >= 0 ? emptyIdx : 0;
-              cur[slotIdx] = newName;
-              merged.switchProfileIds = cur;
-            }
+        const merged = buildFeaturesForProfile(res.config.homeFeatures) as any;
+        // 若开启自动切号且新 active 不在 switchProfileIds → 找空槽填，无空槽覆盖槽 0
+        if (merged.autoSwitchAccount) {
+          const cur: string[] = (merged.switchProfileIds || []).slice(0, MAX_SWITCH_SLOTS);
+          while (cur.length < MAX_SWITCH_SLOTS) cur.push('');
+          if (!cur.includes(newName)) {
+            const emptyIdx = cur.findIndex((s: string) => !s);
+            const slotIdx = emptyIdx >= 0 ? emptyIdx : 0;
+            cur[slotIdx] = newName;
+            merged.switchProfileIds = cur;
           }
-          return merged;
-        });
+        }
+        setFeatures(merged);
       } else {
         setFeatures((prev: typeof DEFAULT_FEATURES) => preserveGlobalFields(prev, { ...DEFAULT_FEATURES }));
       }
@@ -757,6 +767,15 @@ export function HomePage() {
   };
 
   const startAllImpl = async (source: 'local' | 'remote' = 'local') => {
+    // ============================================================================
+    // ⚠️ 循环读配置约定（本 bug 家族第三例，务必遵守）：
+    // startAllImpl 内所有子循环（main、喊话、gather/help/collect/rally/attackBarbarian/…）
+    // 每轮求值配置必须读 featuresRef.current —— 它是每帧同步的 ref。
+    // 直接读外层 `features`（React state）拿到的是"循环启动那一刻"的闭包快照：
+    // 切号后 setFeatures(merged) 只更新了 state 与 ref，闭包里 stale 的 features 永不变化。
+    // 后果：第1个账号勾的功能被后面所有账号无脑沿用（前车之鉴：全员升级建筑/金矿），
+    //       或 while(!isStopped() && features.autoWorldChat) 这类守卫永远为真而卡死。
+    // ============================================================================
     if (!currentAccountId) {
       pushLog(`❌ 未选择账号`);
       return;
@@ -900,8 +919,7 @@ export function HomePage() {
       }
     }
     const initialIds = (featuresRef.current.switchProfileIds || []).filter((s: string) => !!s);
-    switchTargetIdx = initialIds.findIndex((x: string) => x !== activeConfigNameRef.current);
-    if (switchTargetIdx < 0) switchTargetIdx = 0;
+    switchTargetIdx = nextSwitchTargetIdx(initialIds, activeConfigNameRef.current);
     pushLog(`🔀 自动切号目标索引 = ${switchTargetIdx}（当前 active=${activeConfigNameRef.current}, ids=[${initialIds.join(',')}]）`);
     if (switchTimerId) { clearTimeout(switchTimerId); switchTimerId = null; }
     const scheduleSwitchTimer = () => {
@@ -910,9 +928,8 @@ export function HomePage() {
       if (!feat.autoSwitchAccount || isFeatureLocked('autoSwitchAccount') || feat.switchMode !== 'per-time') return;
       const ids = feat.switchProfileIds || [];
       const curIdx = ids.indexOf(activeConfigNameRef.current);
-      const defaultMin = typeof feat.switchIntervalMinutes === 'number' ? feat.switchIntervalMinutes : 30;
-      const intervals = Array.isArray(feat.switchIntervalMinutes) ? feat.switchIntervalMinutes : [];
-      const minutes = Math.max(1, intervals[curIdx >= 0 ? curIdx : 0] ?? defaultMin);
+      const intervals = normalizeIntervals(feat.switchIntervalMinutes);
+      const minutes = intervals[curIdx >= 0 ? curIdx : 0];
       pushLog(`⏲️ 切号定时器: ${minutes} 分钟后切号（当前 ${activeConfigNameRef.current}）`);
       switchTimerId = setTimeout(() => {
         pendingAccountSwitch = true;
@@ -976,6 +993,15 @@ export function HomePage() {
 
     // per-round 切号：本轮已完成一次的 source 集合；集齐所有勾选的 source 才触发切号
     const roundActionsDone = new Set<string>();
+    // 记录循环启动时的日期，供"0点之后捐献"门控判定跨过 0 点
+    const loopStartDate = new Date().toDateString();
+    // 判断联盟科技捐献当天是否被"0点之后捐献"门控挡住。
+    // computeExpectedActions 与 allianceTechLoop 共用此函数，避免两处判定漂移。
+    const isAllianceTechBlockedToday = (): boolean =>
+      !!featuresRef.current.donateAfterMidnight && new Date().toDateString() === loopStartDate;
+    // 打野循环用尽 attackBarbarianLoopCount 后置位，供 expected 判定本轮不应再等打野。
+    // 与 allianceTech 同理：避免"配置开着但运行时已被门控挡住"导致 per-round 永久卡死。
+    let barbarianExhausted = false;
     // combo-gem: 触发条件（分享矿跑完 或 采集分享矿后 pool<5）命中即当场切号，
     // 不再累计 triggered 旗，也不再等其他 action 凑齐一轮
     const computeExpectedActions = (): Set<string> => {
@@ -987,13 +1013,13 @@ export function HomePage() {
       if (f.collectResources) exp.add('collect');
       if (f.gatherResources && f.gatherTasks.some((t: any) => t.type)) exp.add('gather');
       if (f.autoRallyFort && f.rallyFortLevel > 0) exp.add('rally-fort');
-      if (f.autoAttackBarbarian && f.attackBarbarianLevel > 0 && !isFeatureLocked('attackBarbarian')) exp.add('attack-barbarian');
+      if (f.autoAttackBarbarian && f.attackBarbarianLevel > 0 && !isFeatureLocked('attackBarbarian') && !barbarianExhausted) exp.add('attack-barbarian');
       if (f.joinRallyEnabled && !isFeatureLocked('joinRally')) exp.add('join-rally');
       if (f.autoCaveExplore) exp.add('cave');
       if (f.gemGatherEnabled && f.shareGemEnabled && !isFeatureLocked('shareGem')) exp.add('share-gem');
       if (f.produceMaterialEnabled) exp.add('produce-material');
       if (f.claimAllianceTerritoryEnabled) exp.add('alliance-territory');
-      if (f.donateAllianceTechEnabled) exp.add('alliance-tech');
+      if (f.donateAllianceTechEnabled && !isAllianceTechBlockedToday()) exp.add('alliance-tech');
       // gemGather 与 shareGem 互斥：勾了分享，gemLoop 会 skip，不计入 expected
       if (f.gemGatherEnabled && !isFeatureLocked('gemGather') && f.gemGatherTeams.length > 0 && !(f.shareGemEnabled && !isFeatureLocked('shareGem'))) exp.add('gem');
       if (f.upgradeBuildings || f.autoResearch || f.trainTroops) exp.add('main');
@@ -1298,20 +1324,48 @@ export function HomePage() {
             continue;
           }
           try {
-            const cfgRes = await api.config.getRokConfig(currentAccountId, nextProfile);
-            const targetType: 'account' | 'linked' = (cfgRes.config as any)?.accountSwitch?.targetType === 'linked' ? 'linked' : 'account';
-            const targetName = ((cfgRes.config as any)?.accountSwitch?.accountName || '').trim();
             const currentProfile = activeConfigNameRef.current;
-            const currentName = (profileAccountNames[currentProfile] || '').trim();
-            const currentType: 'account' | 'linked' = profileTargetTypes[currentProfile] ?? 'account';
-            if (targetType === 'account' && !targetName) {
-              pushLog(`⚠️ profile "${nextProfile}" 未填账号编号，跳过`);
+            // 切号决策必须基于后端真相：UI 缓存（profileAccountNames/profileStarredIndexes）
+            // 是切号循环启动时的快照，运行中用户改配置读不到，会导致类型推导用过期分组。
+            // 单个 profile 读失败降级成空 accountName，会被下方"未填账号编号"分支跳过，不让整批挂掉。
+            const metas: ProfileSwitchMeta[] = await Promise.all(
+              validIds.map(async (n: string) => {
+                try {
+                  const c = await api.config.getRokConfig(currentAccountId, n);
+                  const idx = (c.config as any)?.accountSwitch?.starredIndex;
+                  return {
+                    name: n,
+                    accountName: ((c.config as any)?.accountSwitch?.accountName || '').trim(),
+                    starredIndex: typeof idx === 'number' ? idx : undefined,
+                  };
+                } catch {
+                  return { name: n, accountName: '', starredIndex: undefined };
+                }
+              }),
+            );
+            const targetMeta = metas.find(m => m.name === nextProfile)!;
+            const currentMeta = metas.find(m => m.name === currentProfile);
+            const steps = buildSwitchSteps(currentMeta, targetMeta, metas);
+            // 对 fresh 读到的 metas 做一次槽位校验，找出目标自身的问题并给出可诊断日志。
+            // validateSwitchProfiles 同时覆盖 no-account，故原来是单独的 !targetName 判断也被统一到这里。
+            const targetIssue = validateSwitchProfiles(metas).find(x => x.profileName === nextProfile);
+            if (targetIssue) {
+              const why = targetIssue.reason === 'missing-starred-index' ? '未填星标序号'
+                : targetIssue.reason === 'invalid-starred-index' ? '星标序号非法'
+                : targetIssue.reason === 'duplicate-starred-index' ? '星标序号与同账号其它方案重复'
+                : '未填账号编号';
+              pushLog(`⏭️ 跳过 ${nextProfile}：${why}（同账号多角色需在配置页填写星标序号）`);
+              switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
+            } else if (!steps.accountSwitch && !steps.roleSwitch) {
+              pushLog(`⚠️ profile "${nextProfile}" 与当前身份无差异，跳过`);
               switchTargetIdx = (switchTargetIdx + 1) % validIds.length;
             } else {
               let ok = false;
               for (let attempt = 1; attempt <= 2 && !isStopped(); attempt++) {
+                pushLog(`  🔀 步骤: ${steps.accountSwitch ? `切账号→${steps.accountSwitch.accountName} ` : ''}${steps.roleSwitch ? `切角色→星标#${steps.roleSwitch.starredIndex}` : ''}`);
                 const cr = await createTask(currentAccountId, 'com.rok.automation', 'switch-account', {
-                  currentName, currentType, targetName, targetType,
+                  accountSwitch: steps.accountSwitch,
+                  roleSwitch: steps.roleSwitch,
                 });
                 if (!cr.success) break;
                 runningTaskIdsRef.current = [...runningTaskIdsRef.current, cr.task.id];
@@ -1345,13 +1399,7 @@ export function HomePage() {
                   pushLog(`  🔍 载入 ${nextProfile} homeFeatures: hasHF=${hasHF}, autoRallyFort=${(hf as any).autoRallyFort}, autoAttackBarbarian=${(hf as any).autoAttackBarbarian}, joinRallyEnabled=${(hf as any).joinRallyEnabled}`);
                   setActiveConfigName(nextProfile);
                   activeConfigNameRef.current = nextProfile;
-                  const merged = preserveGlobalFields(featuresRef.current, padGatherTasks({
-                    ...DEFAULT_HOME_FEATURES,
-                    ...hf,
-                    gemGatherMode: migrateGemMode(hf),
-                    completedBuildings: [false, false, false, false, false],
-                    completedTechs: [false, false, false, false, false],
-                  }));
+                  const merged = buildFeaturesForProfile(hf);
                   // switchProfileIds 顺序保持不变；UI 通过对比 activeConfigName 判定激活态
                   featuresRef.current = merged as any;
                   setFeatures(merged as any);
@@ -1363,9 +1411,8 @@ export function HomePage() {
                 roundActionsDone.clear();  // 新账号从零开始累计
                 scheduleSwitchTimer();  // 按新账号的时长重排定时器
                 scheduleFortModeFallback();  // 重置寨子模式兜底计时
-                // 顺序不变，下次切换目标 = validIds 中不等于新 active 的位置
-                switchTargetIdx = validIds.findIndex((x: string) => x !== nextProfile);
-                if (switchTargetIdx < 0) switchTargetIdx = 0;
+                // 环向推进：下次目标 = 新 active 在 validIds 中的下一格
+                switchTargetIdx = nextSwitchTargetIdx(validIds, nextProfile);
                 pushLog(`✅ 切号完成，已激活 ${nextProfile}`);
               } else {
                 pushLog(`❌ 切号 ${nextProfile} 失败，跳过`);
@@ -1455,10 +1502,10 @@ export function HomePage() {
         let countSeq = cooldownResetSeq;
         while (!isStopped()) {
           if (first) { first = false; await sleep(3); }
-          // 切号后重置循环次数计数
-          if (cooldownResetSeq !== countSeq) { countSeq = cooldownResetSeq; ranCount = 0; }
+          // 切号后重置循环次数计数，并解除打野耗尽标记（让新账号重新开始打野）
+          if (cooldownResetSeq !== countSeq) { countSeq = cooldownResetSeq; ranCount = 0; barbarianExhausted = false; }
           if (offlineActive) { await sleep(30); continue; }
-          const enabled = featuresRef.current.autoAttackBarbarian && featuresRef.current.attackBarbarianLevel > 0 && !featuresRef.current.autoWorldChat && !isFeatureLocked('attackBarbarian');
+          const enabled = featuresRef.current.autoAttackBarbarian && featuresRef.current.attackBarbarianLevel > 0 && !featuresRef.current.autoWorldChat && !isFeatureLocked('attackBarbarian') && !barbarianExhausted;
           if (enabled && !isStopped()) {
             // 抬抢占旗：让其它普通循环在 acquireLock 处让路，打野优先拿锁
             barbarianPreempt = true;
@@ -1513,8 +1560,12 @@ export function HomePage() {
               ranCount++;
               const loopLimit = Math.max(0, Math.floor(Number(featuresRef.current.attackBarbarianLoopCount) || 0));
               if (loopLimit > 0 && ranCount >= loopLimit) {
-                pushLog(`⚔️ 打野已完成 ${ranCount}/${loopLimit} 轮，停止本轮循环`);
-                return;
+                // 置位耗尽标记并回落 idle（不再 return 杀死整个循环）：
+                // 让 expected 把打野从本轮期待集合剔除，避免 per-round 永久卡死，
+                // 同时保留循环存活，切号到其他账号时由 countSeq 重置计数、可再次打野。
+                barbarianExhausted = true;
+                pushLog(`⚔️ 打野已完成 ${ranCount}/${loopLimit} 轮，本轮不再执行（切号到其他账号会重新开始计数）`);
+                continue;
               }
               const intervalMinutes = Math.max(1, Number(featuresRef.current.attackBarbarianIntervalMinutes) || 10);
               const cd = intervalMinutes * 60 * (0.85 + Math.random() * 0.3);
@@ -1962,15 +2013,13 @@ export function HomePage() {
       // 联盟科技捐献独立循环 —— 每 4 小时执行一次
       const allianceTechLoop = (async () => {
         let first = true;
-        // 勾选"0点之后捐献"时：记录启动时的日期，只有跨过至少一个 0 点才执行
-        const startDate = new Date().toDateString();
         while (!isStopped()) {
           if (first) { first = false; await sleep(10); continue; }
           if (offlineActive) { await sleep(30); continue; }
           if (!featuresRef.current.donateAllianceTechEnabled || featuresRef.current.autoWorldChat) {
             await sleep(30); continue;
           }
-          if (featuresRef.current.donateAfterMidnight && new Date().toDateString() === startDate) {
+          if (isAllianceTechBlockedToday()) {
             // 启动当天还没跨过 0 点，跳过；进入下一个 4 小时等待后再判定
             await sleep(30); continue;
           }
@@ -2004,6 +2053,44 @@ export function HomePage() {
           const waitSeq = cooldownResetSeq;
           while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < intervalSec * 1000) {
             await sleep(1);
+          }
+        }
+      })();
+
+      // ── 诊断：per-round 模式下检测"等待中的 action 集合"长时间无变化 ──
+      // 用于暴露"配置开着但运行时被门控挡住"导致 per-round 永久停滞这类问题
+      // （本仓库已犯 donateAfterMidnight、打野 finite loopCount 两例）。只打日志提醒，
+      // 不强切号——强切会掩盖真实原因、且可能造成用户意料外的行为。
+      const stallDiagLoop = (async () => {
+        let lastMissingKey = '';          // 上一次"缺失集合"的稳定 key（排序后拼接）
+        let lastChangeAt = monotonicNow(); // 该集合最后一次发生变化的时间
+        let warnedFor = '';               // 已告警过的集合，避免重复刷屏
+        while (!isStopped()) {
+          await sleep(60 * 1000);
+          if (isStopped()) break;
+          const feat = featuresRef.current;
+          if (!feat.autoSwitchAccount || isFeatureLocked('autoSwitchAccount') || feat.switchMode !== 'per-round') continue;
+          const expected = computeExpectedActions();
+          const missing = [...expected].filter(s => !roundActionsDone.has(s));
+          // 本轮已集齐（即将切号）或本轮无期待动作（喊话模式等）→ 重置诊断状态
+          if (expected.size === 0 || missing.length === 0) {
+            lastMissingKey = '';
+            lastChangeAt = monotonicNow();
+            warnedFor = '';
+            continue;
+          }
+          const key = missing.slice().sort().join(',');
+          if (key !== lastMissingKey) {
+            lastMissingKey = key;
+            lastChangeAt = monotonicNow();
+            warnedFor = '';
+            continue;
+          }
+          const stuckSec = Math.floor((monotonicNow() - lastChangeAt) / 1000);
+          // 同一批缺失集合持续超过 15 分钟无任何完成动作，点名告警一次，之后静默
+          if (stuckSec >= 15 * 60 && warnedFor !== key) {
+            warnedFor = key;
+            pushLog(`⚠️ 诊断：per-round 已连续等待 [${missing.join(',')}] 约 ${Math.floor(stuckSec / 60)} 分钟无变化。这通常是某功能"配置开着但运行时被门控挡住"（如勾了"0点之后捐献"当天永不出手），请检查对应 action 的门控条件`);
           }
         }
       })();
@@ -2242,11 +2329,16 @@ export function HomePage() {
       })();
 
       // 山洞探索 — 独立模式，与其他 action 互斥
-      const hasMainWork = features.autoWorldChat || features.upgradeBuildings || features.autoResearch || features.trainTroops;
-      if (!hasMainWork) {
-        pushLog(`ℹ️ 未启用建筑/科技/训练，主循环跳过`);
+      // 主循环"有活"判定：必须每轮通过 featuresRef.current 读取，切号后按新账号配置重评估。
+      // 注意：无活时必须"空转跳过"而不是退出 while —— 退出会让主循环彻底死掉，
+      // 之后轮换回有活的账号时 markRoundDone('main') 再也不会触发，per-round 永久卡在等待 [main]。
+      const hasMainWork = (): boolean =>
+        featuresRef.current.autoWorldChat || featuresRef.current.upgradeBuildings || featuresRef.current.autoResearch || featuresRef.current.trainTroops;
+      if (!hasMainWork()) {
+        pushLog(`ℹ️ 未启用建筑/科技/训练，主循环待命（切号到有活账号后自动开工）`);
       }
-      while (!isStopped() && hasMainWork) {
+      while (!isStopped()) {
+        if (!hasMainWork()) { await sleep(30); continue; }
         round++;
         pushLog(`🔄 第${round}轮`);
         saveLoopState(currentAccountId);
@@ -2351,15 +2443,15 @@ export function HomePage() {
         }
 
         // 喊话模式：与其他任务互斥，只执行世界喊话
-        if (features.autoWorldChat) {
-          const messages = (features.worldChatMessages || []).filter((m: string) => m.trim());
+        if (featuresRef.current.autoWorldChat) {
+          const messages = (featuresRef.current.worldChatMessages || []).filter((m: string) => m.trim());
           if (messages.length === 0) {
             pushLog(`⚠️ 未填写喊话内容，跳过`);
             loopStopped = true;
             break;
           }
 
-          while (!isStopped() && features.autoWorldChat) {
+          while (!isStopped() && featuresRef.current.autoWorldChat) {
             // 一轮：依次发送所有消息，每条间隔 15s
             for (let i = 0; i < messages.length && !isStopped(); i++) {
               // 第一条不等，后续等 15s
@@ -2379,7 +2471,7 @@ export function HomePage() {
             if (isStopped()) break;
 
             // 一轮结束，等 CD
-            const cd = features.worldChatInterval || 300;
+            const cd = featuresRef.current.worldChatInterval || 300;
             const cdJitter = cd * (0.85 + Math.random() * 0.3);
             pushLog(`📢 一轮喊话完成，${cdJitter.toFixed(0)} 秒后开始下一轮`);
 
@@ -2407,15 +2499,15 @@ export function HomePage() {
         if (isStopped()) break;
 
         // Step 2: 执行到期/就绪的 action
-        const hasUpgrade = features.upgradeBuildings &&
-          features.selectedBuildings.some((b: string, i: number) => b && !loopCompletedBuildings[i]);
-        const hasResearch = features.autoResearch &&
-          features.selectedTechs.some((t: string, i: number) => t && !loopCompletedTechs[i]);
-        const hasTrain = features.trainTroops &&
-          (Object.values(features.trainTasks as Record<string, number>) as number[]).some((v: number) => v > 0);
+        const hasUpgrade = featuresRef.current.upgradeBuildings &&
+          featuresRef.current.selectedBuildings.some((b: string, i: number) => b && !loopCompletedBuildings[i]);
+        const hasResearch = featuresRef.current.autoResearch &&
+          featuresRef.current.selectedTechs.some((t: string, i: number) => t && !loopCompletedTechs[i]);
+        const hasTrain = featuresRef.current.trainTroops &&
+          (Object.values(featuresRef.current.trainTasks as Record<string, number>) as number[]).some((v: number) => v > 0);
 
         if (hasUpgrade && (timers.build1 === null || timers.build1! <= 0 || timers.build2 === null || timers.build2! <= 0)) {
-          const targetBuildings = features.selectedBuildings
+          const targetBuildings = featuresRef.current.selectedBuildings
             .filter((b: string, i: number) => b && !loopCompletedBuildings[i]);
           if (targetBuildings.length > 0) {
             const logs = await runTask('upgrade-buildings', { targetBuildings });
@@ -2426,7 +2518,7 @@ export function HomePage() {
               const m = l.match(/✅ (.+?) 升级成功/);
               if (m) successCounts[m[1]] = (successCounts[m[1]] || 0) + 1;
             }
-            features.selectedBuildings.forEach((b: string, i: number) => {
+            featuresRef.current.selectedBuildings.forEach((b: string, i: number) => {
               if (b && !loopCompletedBuildings[i] && (successCounts[b] || 0) > 0) {
                 successCounts[b]--;
                 loopCompletedBuildings[i] = true;
@@ -2445,7 +2537,7 @@ export function HomePage() {
           } else if (timers.build1Building === '学院' || timers.build2Building === '学院') {
             pushLog(`🏗️ 学院正在升级中，跳过研究科技`);
           } else {
-            const techs = features.selectedTechs.filter((t: string, i: number) => t && !loopCompletedTechs[i]);
+            const techs = featuresRef.current.selectedTechs.filter((t: string, i: number) => t && !loopCompletedTechs[i]);
             if (techs.length > 0) {
               const logs = await runTask('research-tech-queue', { targetTechs: techs, researchBuilding: '学院' });
               dispatchedAny = true;
@@ -2455,7 +2547,7 @@ export function HomePage() {
                 const m = l.match(/✅ (.+?) 研究成功/);
                 if (m) techSuccessCounts[m[1]] = (techSuccessCounts[m[1]] || 0) + 1;
               }
-              features.selectedTechs.forEach((t: string, i: number) => {
+              featuresRef.current.selectedTechs.forEach((t: string, i: number) => {
                 if (t && !loopCompletedTechs[i] && (techSuccessCounts[t] || 0) > 0) {
                   techSuccessCounts[t]--;
                   loopCompletedTechs[i] = true;
@@ -2476,8 +2568,8 @@ export function HomePage() {
             '靶场': timers.train_bachang,
             '攻城武器厂': timers.train_gongcheng,
           };
-          const tasks = features.trainTasks as Record<string, number>;
-          const promoteFlags = features.trainPromote as Record<string, boolean>;
+          const tasks = featuresRef.current.trainTasks as Record<string, number>;
+          const promoteFlags = featuresRef.current.trainPromote as Record<string, boolean>;
           const upgradingBuildings = new Set([timers.build1Building, timers.build2Building].filter(Boolean));
           const trainQueue = ['兵营', '马厩', '靶场', '攻城武器厂']
             .filter(b => {
@@ -2537,11 +2629,12 @@ export function HomePage() {
 
         // 等待期间
         const startWait = monotonicNow();
-        while (!isStopped() && (monotonicNow() - startWait) < nextWake * 1000) {
+        const waitSeq = cooldownResetSeq;
+        while (!isStopped() && cooldownResetSeq === waitSeq && (monotonicNow() - startWait) < nextWake * 1000) {
           await sleep(1);
         }
       }
-      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, attackBarbarianLoop, exploreLoop, caveLoop, produceMaterialLoop, allianceTerritoryLoop, allianceTechLoop, offlineLoop, attackLoop, accountSwitchLoop, shareGemLoop]);
+      await Promise.all([helpLoop, collectLoop, gatherLoop, rallyLoop, attackBarbarianLoop, exploreLoop, caveLoop, produceMaterialLoop, allianceTerritoryLoop, allianceTechLoop, offlineLoop, attackLoop, accountSwitchLoop, shareGemLoop, stallDiagLoop]);
       if (isCurrentLoopGeneration(myGen, loopGen)) {
         loopRunning = false;
         setLoopRunningState(false);
@@ -2856,6 +2949,9 @@ export function HomePage() {
                   {(() => {
                     const ids: string[] = (features.switchProfileIds || []).slice(0, MAX_SWITCH_SLOTS);
                     while (ids.length < MAX_SWITCH_SLOTS) ids.push('');
+                    // 不随槽位变化的部分只算一次：baseMeta 供各槽位的假设列表复用
+                    const baseMeta = toSwitchMeta(ids);
+                    const slotKinds = deriveProfileKinds(baseMeta);
                     return ids.map((profileName: string, i: number) => {
                       const isActive = !!profileName && profileName === activeConfigName && features.autoSwitchAccount;
                       const others = ids.filter((_: string, j: number) => j !== i);
@@ -2868,8 +2964,10 @@ export function HomePage() {
                                 <span className={`w-1.5 h-1.5 rounded-full ${isActive ? 'bg-emerald-500' : 'bg-slate-400'}`}></span> {isActive ? '当前' : '待切换'}
                               </span>
                               <span className="flex items-center gap-1">
-                                {profileName && profileTargetTypes[profileName] === 'linked' && (
-                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700">连体</span>
+                                {profileName && slotKinds[profileName] === 'role' && typeof profileStarredIndexes[profileName] === 'number' && (
+                                  <span className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-violet-100 text-violet-700">
+                                    角色#{profileStarredIndexes[profileName]}
+                                  </span>
                                 )}
                                 <span className="text-[10px] text-slate-300">#{i + 1}</span>
                               </span>
@@ -2887,30 +2985,22 @@ export function HomePage() {
                             >
                               <option value="">-- 不选择 --</option>
                               {configNames.filter(p => !others.includes(p)).map(p => {
-                                const isLinked = profileTargetTypes[p] === 'linked';
+                                // 把 p 放进当前槽位后的假设列表，用统一校验判断这个选择是否可行
+                                const hypothetical = ids.slice();
+                                hypothetical[i] = p;
+                                const issues = validateSwitchProfiles(toSwitchMeta(hypothetical));
+                                const own = issues.find(x => x.profileName === p);
                                 const accName = (profileAccountNames[p] || '').trim();
-                                const hasAccount = isLinked || !!accName;
-                                // 相邻槽位不能都是连体号（环形：2 槽互为邻居）
-                                const prevIdx = (i - 1 + MAX_SWITCH_SLOTS) % MAX_SWITCH_SLOTS;
-                                const nextIdx = (i + 1) % MAX_SWITCH_SLOTS;
-                                const neighborLinked = [prevIdx, nextIdx].some(j => {
-                                  const np = ids[j];
-                                  return !!np && np !== p && profileTargetTypes[np] === 'linked';
-                                });
-                                // 连体号必须有同编号的常规主号被选中
-                                // 注意：必须按槽位索引 idx !== i 排除当前槽，而不是只按 profile 名 sp !== p ——
-                                // 槽 i 当前持有的另一个 profile 会在用户选择 p 时被替换，不应算作已配对的主号
-                                const hasLinkedMaster = !isLinked || ids.some((sp, idx) =>
-                                  idx !== i && !!sp &&
-                                  profileTargetTypes[sp] === 'account' &&
-                                  (profileAccountNames[sp] || '').trim() === accName
-                                );
-                                const disabled = !hasAccount || (isLinked && (neighborLinked || !hasLinkedMaster));
+                                const starIdx = profileStarredIndexes[p];
                                 let suffix = '';
-                                if (isLinked) suffix = '（连体）';
-                                else if (!accName) suffix = '（未填编号）';
+                                if (own?.reason === 'no-account') suffix = '（未填编号）';
+                                else if (own?.reason === 'missing-starred-index') suffix = '（需填星标序号）';
+                                else if (own?.reason === 'invalid-starred-index') suffix = '（星标序号非法）';
+                                else if (own?.reason === 'duplicate-starred-index') suffix = '（星标序号重复）';
+                                else if (typeof starIdx === 'number') suffix = `（账号 ${accName} · 星标#${starIdx}）`;
+                                else if (accName) suffix = `（账号 ${accName}）`;
                                 return (
-                                  <option key={p} value={p} disabled={disabled}>
+                                  <option key={p} value={p} disabled={!!own}>
                                     {p}{suffix}
                                   </option>
                                 );
@@ -2921,19 +3011,10 @@ export function HomePage() {
                                 <input
                                   type="number"
                                   min={1}
-                                  value={(() => {
-                                    if (Array.isArray(features.switchIntervalMinutes)) {
-                                      return features.switchIntervalMinutes[i] ?? (typeof features.switchIntervalMinutes === 'number' ? features.switchIntervalMinutes : 30);
-                                    }
-                                    return features.switchIntervalMinutes || 30;
-                                  })()}
+                                  value={normalizeIntervals(features.switchIntervalMinutes)[i]}
                                   onChange={(e) => {
-                                    const base = typeof features.switchIntervalMinutes === 'number' ? features.switchIntervalMinutes : 30;
-                                    const cur = Array.isArray(features.switchIntervalMinutes)
-                                      ? features.switchIntervalMinutes.slice()
-                                      : [];
-                                    while (cur.length < MAX_SWITCH_SLOTS) cur.push(base);
-                                    cur[i] = Math.max(1, parseInt(e.target.value) || 30);
+                                    const cur = normalizeIntervals(features.switchIntervalMinutes);
+                                    cur[i] = Math.max(1, parseInt(e.target.value, 10) || 30);
                                     setFeatures({ ...features, switchIntervalMinutes: cur });
                                   }}
                                   className="w-12 px-1 py-0.5 text-xs bg-white border border-slate-200 rounded text-center"
@@ -2955,7 +3036,18 @@ export function HomePage() {
                 </div>
               </div>
 
-              <p className="mt-2 text-xs text-amber-600/70">💡 切号后自动加载对应方案的全部功能设置 · 共 {MAX_SWITCH_SLOTS} 个账号参与轮换{MAX_SWITCH_SLOTS > 2 && <span className="text-amber-500">（开发模式）</span>}</p>
+              <p className="mt-2 text-xs text-amber-600/70">💡 切号后自动加载对应方案的全部功能设置 · 共 {MAX_SWITCH_SLOTS} 个身份参与轮换{MAX_SWITCH_SLOTS > 2 && <span className="text-amber-500">（开发模式）</span>}</p>
+              {(() => {
+                const issues = validateSwitchProfiles(toSwitchMeta((features.switchProfileIds || []).slice(0, MAX_SWITCH_SLOTS)));
+                if (issues.length === 0) return null;
+                const texts = issues.map(x => {
+                  if (x.reason === 'no-account') return `${x.profileName}: 未填账号编号`;
+                  if (x.reason === 'missing-starred-index') return `${x.profileName}: 同账号多角色需在配置页填星标序号`;
+                  if (x.reason === 'invalid-starred-index') return `${x.profileName}: 星标序号必须是 ≥1 的整数`;
+                  return `${x.profileName}: 星标序号与同账号其它方案重复`;
+                });
+                return <p className="mt-1 text-xs text-rose-600">⚠️ {texts.join('；')}</p>;
+              })()}
             </div>
           )}
         </div>

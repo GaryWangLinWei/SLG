@@ -154,7 +154,9 @@ params = {
 ## 八、老配置兼容
 
 - 读取时忽略旧 `targetType` 字段（不报错、不迁移）。
-- 旧 `linked` profile 语义上等价于 role 型，但缺 `starredIndex` → Home 页校验提示补填，在此之前该 profile 不参与 role 型轮换。
+- 旧 `linked` profile 语义上等价于 role 型，但缺 `starredIndex`。由于新模型的类型推导只看账号编号分组、不看旧 `targetType`，实际行为分两种：
+  - **成对的**旧 linked（主号 + 连体号同编号，旧配对约束保证必成双）→ 分组判为 role 型 → 校验提示补填星标序号，补填前不参与轮换。这是主路径。
+  - **孤立的**一条旧 linked（其账号编号在切号列表里唯一）→ 判为 account 型 → 按只切账号处理、不提示。这是可接受的降级：该 profile 在旧模型里本就"连体号单独存在无意义"（旧 UI 强制要求配对主号）。
 - `accountName` 原样保留。
 
 ## 九、明确不做（Out of Scope）

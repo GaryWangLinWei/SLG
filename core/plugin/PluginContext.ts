@@ -121,6 +121,28 @@ export class PluginContext {
   }
 
   /**
+   * Match a template against an existing image file instead of a fresh screenshot.
+   * Use this when several templates must be matched against the exact same frame,
+   * or when the matched frame needs to be kept for later inspection.
+   */
+  async findImageWithLocationIn(
+    imagePath: string,
+    templatePath: string,
+    threshold: number = 0.85,
+    scales?: number[],
+    normalize?: boolean,
+    channel?: string
+  ): Promise<{ found: boolean; x: number; y: number; confidence: number }> {
+    this.checkCancellation();
+    const result = await this.vision.findImage(imagePath, templatePath, threshold, scales, normalize, channel);
+    if (result.found) {
+      const tapLoc = this.vision.getTapLocation(result);
+      return { found: true, x: tapLoc.x, y: tapLoc.y, confidence: result.confidence };
+    }
+    return { found: false, x: 0, y: 0, confidence: result.confidence };
+  }
+
+  /**
    * Find all occurrences of a template image on screen.
    * If searchRegion is provided, only searches within that area
    * and adjusts returned coordinates to absolute screen positions.
@@ -229,6 +251,26 @@ export class PluginContext {
   async releaseHold(): Promise<void> {
     if (this.device.releaseHold) {
       await this.device.releaseHold();
+    }
+  }
+
+  /**
+   * 无惯性直线拖动：抬手前静止一段，抑制 fling（惯性滚动），使列表位移严格等于拖拽距离。
+   * 需要按像素精确滚动的场景（如按位置索引翻页）用这个，不要用 swipe。
+   * moveMs 控制手指移动这段的时长（0 = 尽可能快）。设备不支持时回退到普通 swipe。
+   */
+  async dragNoFling(
+    x1: number, y1: number,
+    x2: number, y2: number,
+    holdMs: number = 1000,
+    moveMs: number = 0,
+    steps: number = 8
+  ): Promise<void> {
+    this.checkCancellation();
+    if (this.device.dragNoFling) {
+      await this.device.dragNoFling(x1, y1, x2, y2, holdMs, moveMs, steps);
+    } else {
+      await this.device.swipe(x1, y1, x2, y2, moveMs > 0 ? moveMs : 800, false, true);
     }
   }
 
