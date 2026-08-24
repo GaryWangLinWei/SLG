@@ -30,7 +30,13 @@ describe('PluginContext', () => {
 
   it('should call device swipe', async () => {
     await context.swipe(0, 0, 100, 100, 300);
-    expect(mockDevice.swipe).toHaveBeenCalledWith(0, 0, 100, 100, 300);
+    // 默认值也会转发下去：useBezier / singleShot
+    expect(mockDevice.swipe).toHaveBeenCalledWith(0, 0, 100, 100, 300, false, false);
+  });
+
+  it('should forward swipe options', async () => {
+    await context.swipe(0, 0, 100, 100, 300, true, true);
+    expect(mockDevice.swipe).toHaveBeenCalledWith(0, 0, 100, 100, 300, true, true);
   });
 
   it('should call device inputText', async () => {
