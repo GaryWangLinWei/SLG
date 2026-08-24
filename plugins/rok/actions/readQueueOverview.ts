@@ -1,72 +1,9 @@
 import * as fs from 'fs/promises';
-import * as path from 'path';
 import { PluginContext } from '../../../core/plugin';
 import { RokConfig } from '../index';
-import { getTemplatesDir } from '../../../core/resourcePath';
 
 import { ocrService } from '../../../core/ocr/OcrService';
 import { parseCountdown } from '../../../core/ocr/parseCountdown';
-
-const SETTINGS_REGION = { x: 427, y: 167, width: 482, height: 396 };
-const POSITION_TOLERANCE = 15;
-
-let queueFiltersEnsured = false;
-
-export function resetQueueFilters(): void {
-  queueFiltersEnsured = false;
-}
-
-function isNear(a: { x: number; y: number }, b: { x: number; y: number }): boolean {
-  return Math.abs(a.x - b.x) <= POSITION_TOLERANCE && Math.abs(a.y - b.y) <= POSITION_TOLERANCE;
-}
-
-async function ensureQueueFilters(
-  ctx: PluginContext,
-  config: RokConfig
-): Promise<void> {
-  const qo = config.queueOverview;
-  if (!qo?.settingsButton || !qo?.queueCheckboxes?.length) {
-    ctx.log('[队列过滤] 未配置 settingsButton/queueCheckboxes，跳过');
-    queueFiltersEnsured = true;
-    return;
-  }
-
-  const btn = qo.settingsButton;
-
-  ctx.log('[队列过滤] 打开队列设置面板');
-  await ctx.tap(btn.x, btn.y);
-  await ctx.sleep(1);
-
-  const templatePath = path.join(getTemplatesDir(), 'chooseState.png');
-  const found = await ctx.findAllImages(templatePath, 0.8, SETTINGS_REGION);
-
-  ctx.log(`[队列过滤] 找到 ${found.length} 个勾选: ${found.map(f => `(${f.x},${f.y})`).join(', ')}`);
-
-  for (const f of found) {
-    const isTarget = qo.queueCheckboxes!.some(cb => isNear(f, cb));
-    if (!isTarget) {
-      ctx.log(`[队列过滤] 取消勾选 (${f.x}, ${f.y})`);
-      await ctx.tap(f.x, f.y);
-      await ctx.sleep(0.3);
-    }
-  }
-
-  for (const cb of qo.queueCheckboxes!) {
-    const hasCheck = found.some(f => isNear(f, cb));
-    if (!hasCheck) {
-      ctx.log(`[队列过滤] 补勾选 (${cb.x}, ${cb.y})`);
-      await ctx.tap(cb.x, cb.y);
-      await ctx.sleep(0.3);
-    }
-  }
-
-  ctx.log('[队列过滤] 关闭队列设置面板');
-  await ctx.tap(btn.x, btn.y);
-  await ctx.sleep(0.5);
-
-  queueFiltersEnsured = true;
-  ctx.log('[队列过滤] 完成');
-}
 
 export interface QueueTimers {
   build1: number | null;
@@ -104,10 +41,6 @@ export async function readQueueOverview(
   ctx.log('[OCR] 打开队列速览面板');
   await ctx.tap(qo.openButton.x, qo.openButton.y);
   await ctx.sleep(1);
-
-  if (!queueFiltersEnsured) {
-    await ensureQueueFilters(ctx, config);
-  }
 
   // 向下滑动确保所有队列都显示（singleShot：一条 input swipe，不分段，避免多段惯性滑动过头）
   if (qo.swipeDown) {

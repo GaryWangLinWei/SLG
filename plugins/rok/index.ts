@@ -8,7 +8,7 @@ import { explore } from './actions/explore';
 import { helpTeammates } from './actions/helpTeammates';
 import { claimAllianceTerritory } from './actions/claimAllianceTerritory';
 import { donateAllianceTech } from './actions/donateAllianceTech';
-import { readQueueOverview, resetQueueFilters } from './actions/readQueueOverview';
+import { readQueueOverview } from './actions/readQueueOverview';
 import { rallyFort } from './actions/rallyFort';
 import { rallyFortSpiral } from './actions/rallyFortSpiral';
 import { joinRally } from './actions/joinRally';
@@ -113,9 +113,6 @@ export interface RokConfig {
       build1: { x: number; y: number; w: number; h: number };
       build2: { x: number; y: number; w: number; h: number };
     };
-    // 队列设置面板
-    settingsButton?: { x: number; y: number };
-    queueCheckboxes?: Array<{ x: number; y: number }>;
   };
 
   // ========== 世界喊话 ==========
@@ -266,12 +263,6 @@ export const DEFAULT_ROK_CONFIG: RokConfig = {
       build1: { x: 98, y: 548, w: 266, h: 26 },
       build2: { x: 98, y: 630, w: 266, h: 26 },
     },
-    settingsButton: { x: 356, y: 157 },
-    queueCheckboxes: [
-      { x: 465, y: 212 },  // 部队训练
-      { x: 465, y: 366 },  // 建造队列
-      { x: 465, y: 443 },  // 科技研究
-    ],
   },
 
   // ========== 世界喊话 ==========
@@ -701,12 +692,8 @@ export const RiseOfKingdomsPlugin: Plugin = {
     {
       id: 'read-queue-overview',
       name: '读取队列倒计时',
-      description: '打开队列速览面板，OCR 读取建造/训练/研究倒计时。传 { reset: true } 重置过滤状态',
-      run: async (ctx, params?: { reset?: boolean }) => {
-        if (params?.reset) {
-          resetQueueFilters();
-          return;
-        }
+      description: '打开队列速览面板，OCR 读取建造/训练/研究倒计时',
+      run: async (ctx) => {
         if (await ensureNoPopupBlocking(ctx, 'read-queue-overview')) return;
         const config = ctx.getConfig('rokConfig', DEFAULT_ROK_CONFIG);
         await readQueueOverview(ctx, config);
