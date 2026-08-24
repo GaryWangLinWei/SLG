@@ -1715,11 +1715,11 @@ git commit -m "chore(switch): remove residual legacy switch-type references"
 
 期望：日志出现 `🔀 步骤: 切角色→星标#N`，无切账号步骤；两次轮换分别点到不同星标位。
 
-- [ ] **Step 3: 混合轮换 `[A, B①, B②]`（核心用例）**
+- [x] **Step 3: 混合轮换 `[A, B①, B②]`（核心用例）**
 
 期望第二轮 `A → B①` 时：日志出现 `切账号→<B编号>` **且** `切角色→星标#①`，最终落在 B①（而非 B 最近使用的 B②）。这是本次改动要解决的核心场景。
 
-- [ ] **Step 4: 跨屏滚动（`starredIndex > 6`）**
+- [x] **Step 4: 跨屏滚动（`starredIndex > 6`）**
 
 给某个 profile 填 `starredIndex = 7` 或更大，切号时确认日志出现 `向下翻 1 页`，且最终登录的是正确角色。若落错角色，说明翻页位移需标定：调整 `plugins/rok/actions/switchRole.ts` 的 `PAGE_UP_TO_Y`（一次滑动应恰好推进 3 行 = 504px），改完重跑本步。
 
@@ -1733,7 +1733,7 @@ git commit -m "chore(switch): remove residual legacy switch-type references"
   - **成对**旧 linked（主号 + 连体号同编号）→ 因缺 `starredIndex` 在槽位下拉里显示"（需填星标序号）"且不可选；到 Config 页填入后可选、且能正常按位置切角色
   - **孤立**旧 linked（账号编号在列表里唯一）→ 判为 account 型、按只切账号处理、不提示（这是设计接受的降级，见 spec 第八节）
 
-- [ ] **Step 8: 星标序号被清空后不得静默降级（核心防护）**
+- [x] **Step 8: 星标序号被清空后不得静默降级（核心防护）**
 
 把某个 role 型 profile（与另一 profile 同账号编号）的星标序号在 Config 页清空，然后让它在混合轮换里作为**不同账号**的目标被切到。
 
