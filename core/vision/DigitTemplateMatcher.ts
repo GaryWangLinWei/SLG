@@ -17,6 +17,41 @@ interface Match {
   score: number;
 }
 
+export interface RecognizeOptions {
+  /**
+   * 是否启用「锚点 + maxDigitGap 贪婪连接」裁剪（默认 true）。
+   *
+   * - `true`：从最高分簇向两侧连接，间距超过 maxDigitGap 即停。用于画面里可能混入
+   *   非数字内容的区域，例如距离 "36公里" 需要排掉「公」「里」的误匹配。
+   * - `false`：按 x 升序取全部簇，不做间距裁剪。用于紧裁剪、区域内只有数字的场景
+   *   （如宝石数量）——千位分隔符会让相邻数字间距达到 ~22px，贪婪连接会误判为无关内容而断链。
+   */
+  gapChain?: boolean;
+}
+
+export interface DigitRecognition {
+  /** 识别出的数字串 */
+  text: string;
+  /** 命中的数字个数 */
+  digitCount: number;
+  /**
+   * 列投影得到的字形组数，**包含**逗号等非数字字形。
+   * 与 `expectedGlyphGroups(digitCount)` 比对可判断读数是否完整。
+   */
+  glyphGroups: number;
+}
+
+/**
+ * 千位分隔符格式下，`digitCount` 位数字对应的字形组数。
+ *
+ * 5 位 → 6 组（5 个数字 + 1 个逗号）；7 位 → 9 组（7 个数字 + 2 个逗号）。
+ * 用于校验模板匹配有没有漏字：组数对不上说明画面里的字形比命中的数字多，读数不完整。
+ */
+export function expectedGlyphGroups(digitCount: number): number {
+  if (digitCount <= 0) return 0;
+  return digitCount + Math.floor((digitCount - 1) / 3);
+}
+
 /**
  * 基于像素模板匹配的数字识别器
  * 专门针对万国觉醒等游戏中半透明叠加的数字，准确率远高于 Tesseract OCR
@@ -62,11 +97,26 @@ export class DigitTemplateMatcher {
    * @param threshold 匹配阈值（0-1，越大越严格）
    * @returns 识别到的数字字符串
    */
-  async recognize(imagePath: string, threshold: number = 0.7): Promise<string> {
-    if (!this.initialized) await this.init();
-    if (this.templates.length === 0) return '';
+  async recognize(
+    imagePath: string,
+    threshold: number = 0.7,
+    options: RecognizeOptions = {}
+  ): Promise<string> {
+    return (await this.recognizeDetailed(imagePath, threshold, options)).text;
+  }
 
-    // 预处理输入图像：灰度化
+  /**
+   * 与 `recognize()` 相同的识别流程，额外返回字形组数供调用方校验读数完整性。
+   */
+  async recognizeDetailed(
+    imagePath: string,
+    threshold: number = 0.7,
+    options: RecognizeOptions = {}
+  ): Promise<DigitRecognition> {
+    if (!this.initialized) await this.init();
+    if (this.templates.length === 0) return { text: '', digitCount: 0, glyphGroups: 0 };
+
+    // 预处理输入图像：灰度化（grayscale() 输出单通道，即使原图带 alpha）
     const inputImg = sharp(imagePath).grayscale();
     const inputData = new Uint8Array(await inputImg.raw().toBuffer());
     const inputMeta = await inputImg.metadata();
@@ -84,10 +134,37 @@ export class DigitTemplateMatcher {
     }
 
     // NMS 去重 + 按 x 坐标排序
-    const digits = this.nmsAndSort(allMatches);
-    const result = digits.map(d => d.digit).join('');
+    const digits = this.nmsAndSort(allMatches, options.gapChain !== false);
 
-    return result;
+    return {
+      text: digits.map(d => d.digit).join(''),
+      digitCount: digits.length,
+      glyphGroups: this.countGlyphGroups(inputData, inputW, inputH),
+    };
+  }
+
+  /**
+   * 列投影统计字形组数：一列里亮像素达到 MIN_PIXELS 视为有内容，
+   * 连续有内容的列合成一组。逗号、被漏识别的数字都会各自成组。
+   */
+  private countGlyphGroups(inputData: Uint8Array, inputW: number, inputH: number): number {
+    const MIN_LUM = 150;    // 笔画亮度阈值（游戏内数字为白字）
+    const MIN_PIXELS = 2;   // 滤掉截图边缘的单像素噪点
+
+    let groups = 0;
+    let inGroup = false;
+
+    for (let x = 0; x < inputW; x++) {
+      let lit = 0;
+      for (let y = 0; y < inputH; y++) {
+        if (inputData[y * inputW + x] > MIN_LUM) lit++;
+      }
+      const filled = lit >= MIN_PIXELS;
+      if (filled && !inGroup) groups++;
+      inGroup = filled;
+    }
+
+    return groups;
   }
 
   /**
@@ -174,10 +251,13 @@ export class DigitTemplateMatcher {
   /**
    * NMS 非极大值抑制 + 按 x 坐标排序
    * 坐标数字挨得极近，采用按列聚类策略：同一 x 范围内只留最高分。
-   * 之后从"最高分数字"（锚点）向左右按间距 ≤ maxDigitGap 贪婪连接，
+   *
+   * `gapChain` 为 true 时，再从"最高分数字"（锚点）向左右按间距 ≤ maxDigitGap 贪婪连接，
    * 排除距离远的假匹配（如 "公里" 里被误识别成数字的部件）。
+   * 为 false 时跳过该裁剪，直接返回全部簇 —— 紧裁剪区域内只有数字，
+   * 且千位分隔符会造成 ~22px 间距，贪婪连接会误判断链。
    */
-  private nmsAndSort(matches: Match[]): Match[] {
+  private nmsAndSort(matches: Match[], gapChain: boolean = true): Match[] {
     if (matches.length === 0) return [];
 
     const minScore = 0.75;
@@ -212,6 +292,7 @@ export class DigitTemplateMatcher {
     best.sort((a, b) => a.x - b.x);
 
     if (best.length === 0) return [];
+    if (!gapChain) return best;
 
     // 找到锚点：分数最高的簇
     let anchorIdx = 0;

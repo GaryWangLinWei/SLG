@@ -3,7 +3,7 @@ import { getTraineddataDir, getTemplatesDir } from '../resourcePath';
 import sharp from 'sharp';
 import * as fs from 'fs/promises';
 import * as path from 'path';
-import { getDigitMatcher } from '../vision/DigitTemplateMatcher';
+import { getDigitMatcher, expectedGlyphGroups } from '../vision/DigitTemplateMatcher';
 import { parseCountdown } from './parseCountdown';
 
 type OcrWorker = Tesseract.Worker;
@@ -249,13 +249,32 @@ class OcrService {
   /**
    * 识别宝石数量（格式如 "5,562"，带千位分隔符）
    * 优先使用模板匹配（准确率更高），没有模板时 fallback 到 Tesseract
+   *
+   * 宝石数量区域是紧裁剪、画面内只有数字，因此关掉 `gapChain`：
+   * 千位分隔符会让跨逗号的相邻数字间距达到 ~22px，锚点贪婪连接（maxDigitGap=20）
+   * 会误判为无关内容而断链，只返回逗号一侧（43,106 → "43" 或 "106"，取决于哪个簇分数最高）。
    */
   async readGemCount(imagePath: string): Promise<string> {
     const digitMatcher = await getDigitMatcher(path.join(getTemplatesDir(), 'digits_gem'));
     if (digitMatcher.hasTemplates()) {
-      const result = await digitMatcher.recognize(imagePath, 0.75);
-      console.log(`[DigitMatcher] 宝石数量识别结果: "${result}"`);
-      if (result) return result;
+      const r = await digitMatcher.recognizeDetailed(imagePath, 0.75, { gapChain: false });
+
+      if (r.digitCount > 0) {
+        const expected = expectedGlyphGroups(r.digitCount);
+        if (r.glyphGroups === expected) {
+          console.log(`[DigitMatcher] 宝石数量识别结果: "${r.text}"`);
+          return r.text;
+        }
+        // 画面里的字形组数多于命中的数字位数 → 有字形没被识别出来，读数不完整。
+        // 宁可返回空让调用方判为失败，也不要返回一个「看起来合理」的错值
+        // （如 25,275 少读一位变成 2527），更不要拿同一批像素交给 Tesseract 再猜一次。
+        console.warn(
+          `[DigitMatcher] 宝石数量读数不完整，丢弃 "${r.text}"：` +
+          `命中 ${r.digitCount} 位应对应 ${expected} 个字形组，实际检出 ${r.glyphGroups} 组`
+        );
+        return '';
+      }
+      // 一个数字都没命中（可能是分辨率/字体差异）：交给 Tesseract 兜底
     }
 
     const worker = await this.getWorker();
