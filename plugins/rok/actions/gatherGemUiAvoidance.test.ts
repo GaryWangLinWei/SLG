@@ -127,6 +127,7 @@ describe('searchAndClickGem UI 避让接线', () => {
       captureRegion: jest.fn().mockResolvedValue('occupied-check.png'),
       detectHeroWithScreenshot: jest.fn().mockResolvedValue([]),
       swipe: jest.fn().mockResolvedValue(undefined),
+      swipeHuman: jest.fn().mockResolvedValue(undefined),
       swipeAndHold: jest.fn().mockResolvedValue(undefined),
       releaseHold: jest.fn().mockResolvedValue(undefined),
       sleep: jest.fn().mockResolvedValue(undefined),
@@ -168,8 +169,12 @@ describe('searchAndClickGem UI 避让接线', () => {
 
     expect(result).toEqual({ found: false });
     expect(ctx.detectWithScreenshot).toHaveBeenCalledTimes(2);
-    expect(ctx.swipe).toHaveBeenCalledTimes(2);
-    expect(ctx.swipe).toHaveBeenNthCalledWith(2, 1100, 625, 800, 450, 500, false);
+    // 螺旋地图拖动走拟人连续滑动
+    expect(ctx.swipeHuman).toHaveBeenCalledTimes(1);
+    expect(ctx.swipeHuman).toHaveBeenCalledWith(850, 225, 850, 675, 500, 'fling');
+    // UI 避让把宝石拖离 UI 区域，仍走原来的 swipe
+    expect(ctx.swipe).toHaveBeenCalledTimes(1);
+    expect(ctx.swipe).toHaveBeenCalledWith(1100, 625, 800, 450, 500, false);
     expect(ctx.tap).toHaveBeenCalledWith(movedGem.x, movedGem.y);
     expect(spiral.moveCount).toBe(1);
   });
