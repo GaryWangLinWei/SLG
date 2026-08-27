@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import sharp from 'sharp';
-import { Device } from '../device';
+import { Device, SwipeProfileMode } from '../device';
 import { Vision } from '../vision';
 import { YoloDetector, Detection } from '../vision/YoloDetector';
 
@@ -232,6 +232,30 @@ export class PluginContext {
 
   async swipe(x1: number, y1: number, x2: number, y2: number, duration: number = 500, useBezier: boolean = false, singleShot: boolean = false): Promise<void> {
     await this.device.swipe(x1, y1, x2, y2, duration, useBezier, singleShot);
+  }
+
+  /**
+   * 拟人连续滑动：整条曲线轨迹在一次不间断的手势里走完，不像 swipe 那样拆成多段
+   * 独立手势（多段会让短段被当成点击、每段尾都触发一次惯性）。
+   *
+   * mode='fling' 抬手时保持高速，触发惯性甩动；'precision' 抬手前减速静止，精确落位。
+   * curveScale 调曲率，0 = 直线。distJitter 是位移抖动比例（沿滑动方向，不会让路径歪斜），
+   * 默认 ±2%，传 0 则位移严格等于传入值。
+   */
+  async swipeHuman(
+    x1: number, y1: number, x2: number, y2: number,
+    duration: number = 500,
+    mode: SwipeProfileMode = 'fling',
+    curveScale: number = 1,
+    distJitter: number = 0.02
+  ): Promise<void> {
+    this.checkCancellation();
+    if (this.device.swipeHuman) {
+      await this.device.swipeHuman(x1, y1, x2, y2, duration, mode, curveScale, distJitter);
+    } else {
+      // 设备实现不支持时退回普通滑动，保证 action 不会因此中断
+      await this.device.swipe(x1, y1, x2, y2, duration);
+    }
   }
 
   /**
