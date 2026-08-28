@@ -1,5 +1,12 @@
 import { Device } from './Device';
 import { Point } from '../types';
+import {
+  planSwipeProfile,
+  joinMotioneventCmd,
+  effectivePointCount,
+  SWIPE_MAX_CMD_CHARS,
+  SwipeProfileMode,
+} from './swipeProfile';
 import { exec, spawn, ChildProcess } from 'child_process';
 import { promisify } from 'util';
 import * as fs from 'fs';
@@ -29,6 +36,27 @@ const DEFAULT_RAND_CONFIG: RandomizationConfig = {
   sleepJitter: 0.15,
 };
 
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+function isPng(buf: Buffer): boolean {
+  return buf.length > PNG_SIGNATURE.length && buf.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE);
+}
+
+/**
+ * 还原被 CRLF 翻译污染的二进制流：部分模拟器的 adb 通道会把 stdout 里的
+ * 每个 0x0A 换成 0x0D 0x0A，PNG 头随即失效。仅在原始 buffer 已判定非法时调用，
+ * 还原后仍需重新校验签名，避免误伤本就含 0x0D0A 的正常图像数据。
+ */
+function unmangleCrlf(buf: Buffer): Buffer {
+  const out = Buffer.allocUnsafe(buf.length);
+  let n = 0;
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] === 0x0d && buf[i + 1] === 0x0a) continue; // 丢掉 CR，保留紧随的 LF
+    out[n++] = buf[i];
+  }
+  return out.subarray(0, n);
+}
+
 export class AdbDevice implements Device {
   private connected: boolean = false;
   private deviceId: string;
@@ -37,6 +65,9 @@ export class AdbDevice implements Device {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 3; // 最多重连 3 次
   private reconnectDelayMs = 3000; // 重连间隔 3 秒
+  /** screencap 退出码为 0 但输出不是合法 PNG 时的额外重试次数 */
+  private maxCorruptRetries = 2;
+  private corruptRetryDelayMs = 300;
   private randConfig: RandomizationConfig = { ...DEFAULT_RAND_CONFIG };
   private touchCalibration: { maxX: number; maxY: number } | null = null;
 
@@ -248,6 +279,7 @@ export class AdbDevice implements Device {
 
     // exec-out bypasses shell, outputs raw binary PNG via spawn
     return new Promise<Buffer>((resolve, reject) => {
+      let corruptAttempts = 0;
       const doSpawn = () => {
         const child = spawn(getAdbPath(), ['-s', this.deviceId, 'exec-out', 'screencap', '-p'], {
           stdio: ['ignore', 'pipe', 'pipe']
@@ -256,8 +288,27 @@ export class AdbDevice implements Device {
         child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
         child.on('close', async (code) => {
           if (code === 0) {
-            this.reconnectAttempts = 0;
-            resolve(Buffer.concat(chunks));
+            const raw = Buffer.concat(chunks);
+            // screencap 可能退出码为 0 却输出空/截断/被 CRLF 污染的数据，
+            // 直接交给 sharp 会抛 "Input buffer contains unsupported image format"。
+            const buf = isPng(raw) ? raw : unmangleCrlf(raw);
+            if (isPng(buf)) {
+              this.reconnectAttempts = 0;
+              resolve(buf);
+              return;
+            }
+            if (corruptAttempts >= this.maxCorruptRetries) {
+              // 截图内容坏不代表设备断连，保持 connected 让上层可以继续重试
+              reject(new Error(
+                `截图内容非法（已重试 ${this.maxCorruptRetries} 次，最后一次 ${raw.length} 字节）：` +
+                `可能是模拟器 screencap 异常`
+              ));
+              return;
+            }
+            corruptAttempts++;
+            console.log(`[ADB] 截图内容非法（${raw.length} 字节），重新截图 (${corruptAttempts}/${this.maxCorruptRetries})...`);
+            await new Promise(r => setTimeout(r, this.corruptRetryDelayMs));
+            doSpawn();
             return;
           }
           if (this.reconnectAttempts >= this.maxReconnectAttempts) {
@@ -413,6 +464,91 @@ export class AdbDevice implements Device {
       );
       cx = nx;
       cy = ny;
+    }
+  }
+
+  /**
+   * 拟人连续滑动：一次不间断的手势走完曲线轨迹。
+   *
+   * 与 `swipe()` 的区别：`swipe()` 在随机化开启时会拆成多条独立的 `input swipe`，
+   * 每条都是完整的"按下→抬起"，所以游戏收到的是几次断开的触摸——短段可能被当成
+   * 点击，每个段尾还各自触发一次惯性。这里改为把整串
+   * `input motionevent DOWN/MOVE/UP` 拼进**一次** shell 调用（同 `dragNoFling` 的
+   * 模式），序列中不出现 UP，因此全程是一个手势，时序由设备端 sleep 控制。
+   *
+   * 轨迹为三次贝塞尔曲线（垂直方向随机偏移，弓形或 S 形）+ 人类速度剖面
+   * （起步加速、中段匀速），点距的疏密体现速度变化。
+   *
+   * 只抖动起点，终点按位移推算：两端各自独立抖动会破坏位移精度，也会把竖直/水平
+   * 路径拧成随机斜线（同 `dragNoFling` 的取舍）。位移本身另外沿**滑动方向**抖动，
+   * 所以距离每次都有波动，而方向保持不变。时长仍带 ±20% 抖动。
+   *
+   * @param mode         'fling' = 抬手时保持高速，触发游戏的惯性滑行（甩地图）；
+   *                     'precision' = 抬手前减速静止，速度归零不触发惯性（精确落位）。
+   * @param curveScale   曲率缩放，1 = 默认（按距离的 5%，上限 50px）；0 = 直线。
+   * @param distJitter   位移抖动比例，0.02 = 距离的 ±2%；0 = 位移严格等于传入值。
+   *                     沿滑动方向施加，因此只改变距离长短，不会让路径歪斜。
+   *
+   * 失败时补发一个 UP 再抛错，避免手指卡在按下状态；不会自动退回 `swipe()` 的分段实现。
+   */
+  async swipeHuman(
+    x1: number, y1: number,
+    x2: number, y2: number,
+    duration: number = 500,
+    mode: SwipeProfileMode = 'fling',
+    curveScale: number = 1,
+    distJitter: number = 0.02
+  ): Promise<void> {
+    // 沿滑动方向抖动位移：把抖动量投影到主轴上，只改距离长短不改方向，
+    // 所以竖直滑动仍是竖直、水平仍是水平。三角形分布（两个 random 相加）
+    // 比 jitterCoord 的 random*random 散得开，抖动才真正有效果。
+    const rawDx = x2 - x1;
+    const rawDy = y2 - y1;
+    const rawLen = Math.hypot(rawDx, rawDy) || 1;
+    const jitterPx = this.randConfig.enabled && distJitter > 0
+      ? (Math.random() + Math.random() - 1) * rawLen * distJitter
+      : 0;
+    const dx = Math.round(rawDx + (rawDx / rawLen) * jitterPx);
+    const dy = Math.round(rawDy + (rawDy / rawLen) * jitterPx);
+
+    // 只抖起点，终点按抖动后的位移推算，保证路径不歪
+    const sx1 = Math.round(this.jitterCoord(x1));
+    const sy1 = Math.round(this.jitterCoord(y1));
+    const sx2 = sx1 + dx;
+    const sy2 = sy1 + dy;
+
+    const jitteredDuration = Math.round(this.randConfig.enabled
+      ? duration * (0.8 + Math.random() * 0.4)
+      : duration);
+
+    const dist = Math.hypot(dx, dy);
+    // 曲率同时受距离约束：短距离不该出现比位移还大的弧度
+    const curvenessPx = Math.max(2, Math.min(dist * 0.05, dist * 0.25, 50)) * curveScale;
+
+    const events = planSwipeProfile({
+      from: { x: sx1, y: sy1 },
+      to: { x: sx2, y: sy2 },
+      mode,
+      durationMs: jitteredDuration,
+      pointCount: effectivePointCount(dist, jitteredDuration),
+      curvenessPx,
+      // curveScale=0 表示要严格直线，垂直微噪声也一并关掉
+      noisePx: curveScale > 0 ? undefined : 0,
+    });
+
+    const cmd = joinMotioneventCmd(events);
+    if (cmd.length > SWIPE_MAX_CMD_CHARS) {
+      throw new Error(`拟人滑动命令过长 (${cmd.length} chars)，请缩短距离或时长`);
+    }
+
+    try {
+      await this.execShell(cmd);
+    } catch (e) {
+      // 手势可能停在按下状态，补一个 UP 免得后续操作全部错位
+      try {
+        await this.execShell(`input motionevent UP ${sx2} ${sy2}`);
+      } catch { /* 兜底清理，失败也只能继续 */ }
+      throw e;
     }
   }
 

@@ -2,7 +2,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as os from 'os';
 import sharp from 'sharp';
-import { Device } from '../device';
+import { Device, SwipeProfileMode } from '../device';
 import { Vision } from '../vision';
 import { YoloDetector, Detection } from '../vision/YoloDetector';
 
@@ -235,6 +235,30 @@ export class PluginContext {
   }
 
   /**
+   * 拟人连续滑动：整条曲线轨迹在一次不间断的手势里走完，不像 swipe 那样拆成多段
+   * 独立手势（多段会让短段被当成点击、每段尾都触发一次惯性）。
+   *
+   * mode='fling' 抬手时保持高速，触发惯性甩动；'precision' 抬手前减速静止，精确落位。
+   * curveScale 调曲率，0 = 直线。distJitter 是位移抖动比例（沿滑动方向，不会让路径歪斜），
+   * 默认 ±2%，传 0 则位移严格等于传入值。
+   */
+  async swipeHuman(
+    x1: number, y1: number, x2: number, y2: number,
+    duration: number = 500,
+    mode: SwipeProfileMode = 'fling',
+    curveScale: number = 1,
+    distJitter: number = 0.02
+  ): Promise<void> {
+    this.checkCancellation();
+    if (this.device.swipeHuman) {
+      await this.device.swipeHuman(x1, y1, x2, y2, duration, mode, curveScale, distJitter);
+    } else {
+      // 设备实现不支持时退回普通滑动，保证 action 不会因此中断
+      await this.device.swipe(x1, y1, x2, y2, duration);
+    }
+  }
+
+  /**
    * 拖动到目标位置并保持按住（不松手）。
    * 用于需要在按住状态下截图检测的场景。
    */
@@ -357,8 +381,23 @@ export class PluginContext {
     const screenshotBuffer = await this.device.screenshot();
     const tempPath = path.join(os.tmpdir(), `region-${Date.now()}-${Math.random()}.png`);
 
+    const image = sharp(screenshotBuffer);
+    const meta = await image.metadata();
+    // 越界时 sharp 只会抛 "extract_area: bad extract area"，看不出是谁不匹配。
+    // 游戏坐标按 1600×900 设计，模拟器分辨率不对就会整片区域落到画面外。
+    if (
+      meta.width !== undefined && meta.height !== undefined &&
+      (x < 0 || y < 0 || x + width > meta.width || y + height > meta.height)
+    ) {
+      throw new Error(
+        `截取区域越界：截图尺寸 ${meta.width}×${meta.height}，` +
+        `请求区域 (${x},${y}) ${width}×${height}。` +
+        `请确认模拟器分辨率为 1600×900`
+      );
+    }
+
     // Crop the screenshot to the specified region
-    await sharp(screenshotBuffer)
+    await image
       .extract({ left: x, top: y, width, height })
       .toFile(tempPath);
 
