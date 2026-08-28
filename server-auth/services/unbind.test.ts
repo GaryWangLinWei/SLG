@@ -12,8 +12,12 @@ import { unbindCode, markCodeRebindable } from './ActivationCodeService';
 
 afterAll(() => { closeDb(); fs.rmSync(tempDir, { recursive: true, force: true }); });
 
-function makeUsedCode(fingerprint: string, expiresAt: number): { id: number; code: string } {
-  const [c] = generateCodes(1, 30, 'basic');
+function makeUsedCode(
+  fingerprint: string,
+  expiresAt: number,
+  tier: 'basic' | 'pro' = 'basic'
+): { id: number; code: string } {
+  const [c] = generateCodes(1, 30, tier);
   const now = Date.now();
   const db = getDb();
   db.prepare("UPDATE activation_codes SET status='used', used_at=?, expires_at=? WHERE id=?")
@@ -21,6 +25,13 @@ function makeUsedCode(fingerprint: string, expiresAt: number): { id: number; cod
   db.prepare('INSERT INTO device_bindings (activation_code_id, device_fingerprint, bound_at, last_heartbeat_at) VALUES (?,?,?,?)')
     .run(c.id, fingerprint, now, now);
   return { id: c.id, code: c.code };
+}
+
+/** 把一枚已绑定的码变成"已自助解绑、可重绑"状态 */
+function unbindForRebind(id: number) {
+  const db = getDb();
+  db.prepare('DELETE FROM device_bindings WHERE activation_code_id=?').run(id);
+  db.prepare('UPDATE activation_codes SET last_unbound_at=? WHERE id=?').run(Date.now(), id);
 }
 
 test('rebind allowed after last_unbound_at set, keeps expires_at/tier', () => {
@@ -50,16 +61,52 @@ test('rebind rejected when last_unbound_at is NULL (renewal brick)', () => {
   expect(res.code).toBe('CODE_NOT_REBINDABLE');
 });
 
-test('rebind rejected when new device already has another active binding', () => {
+test('rebind onto a device holding a same-tier active code merges the remaining time', () => {
   const future = Date.now() + 10 * 86400000;
-  makeUsedCode('busy-device', future);
-  const { id, code } = makeUsedCode('old-device-2', future);
-  getDb().prepare('DELETE FROM device_bindings WHERE activation_code_id=?').run(id);
-  getDb().prepare('UPDATE activation_codes SET last_unbound_at=? WHERE id=?').run(Date.now(), id);
+  const busy = makeUsedCode('busy-device', future);          // 目标设备已有 ~10 天 basic
+  const { id, code } = makeUsedCode('old-device-2', future); // 待重绑的码本身也剩 ~10 天
+  unbindForRebind(id);
 
   const res = useCode(code, 'busy-device');
-  expect(res.success).toBe(false);
-  expect(res.code).toBe('DEVICE_ALREADY_BOUND');
+  expect(res.success).toBe(true);
+  // 合并：本码到期日 + 设备剩余（~10 天）
+  expect(res.expiresAt!).toBeGreaterThan(future + 9.9 * 86400000);
+  expect(res.expiresAt!).toBeLessThan(future + 10.1 * 86400000);
+
+  const db = getDb();
+  // 到期日已写回数据库
+  expect((db.prepare('SELECT expires_at FROM activation_codes WHERE id=?').get(id) as any).expires_at)
+    .toBe(res.expiresAt);
+  // 设备上只剩新码这一条绑定
+  const rows = db.prepare('SELECT activation_code_id FROM device_bindings WHERE device_fingerprint=?').all('busy-device') as any[];
+  expect(rows).toHaveLength(1);
+  expect(rows[0].activation_code_id).toBe(id);
+  // 被吞并的旧码已退役成砖码，不能再拿去别处激活
+  expect((db.prepare('SELECT last_unbound_at FROM activation_codes WHERE id=?').get(busy.id) as any).last_unbound_at)
+    .toBeNull();
+});
+
+test('rebind onto a different-tier device takes over without merging, leaving the old code usable', () => {
+  const future = Date.now() + 10 * 86400000;
+  const busy = makeUsedCode('mixed-device', future, 'basic'); // 设备上是 basic
+  const { id, code } = makeUsedCode('old-device-pro', future, 'pro');
+  unbindForRebind(id);
+  // 旧 basic 码此前也曾自助解绑过，本身处于可重绑状态
+  getDb().prepare('UPDATE activation_codes SET last_unbound_at=? WHERE id=?').run(Date.now(), busy.id);
+
+  const res = useCode(code, 'mixed-device');
+  expect(res.success).toBe(true);
+  expect(res.tier).toBe('pro');
+  // tier 不同不累加：沿用本码原到期日
+  expect(res.expiresAt).toBe(future);
+
+  const db = getDb();
+  const rows = db.prepare('SELECT activation_code_id FROM device_bindings WHERE device_fingerprint=?').all('mixed-device') as any[];
+  expect(rows).toHaveLength(1);
+  expect(rows[0].activation_code_id).toBe(id);
+  // 时长没有被吞并，旧 basic 码不应被退役
+  expect((db.prepare('SELECT last_unbound_at FROM activation_codes WHERE id=?').get(busy.id) as any).last_unbound_at)
+    .not.toBeNull();
 });
 
 test('rebind succeeds on a device whose existing binding is expired, clearing the stale binding', () => {
@@ -104,23 +151,65 @@ test('reactivating on same device that already holds the binding succeeds', () =
   expect(res.expiresAt).toBe(future);
 });
 
-test('unique index prevents two codes binding the same device (concurrent rebind backstop)', () => {
+test('two sequential rebinds onto one device keep a single binding and stack the time', () => {
   const future = Date.now() + 10 * 86400000;
   const a = makeUsedCode('dev-a', future);
   const b = makeUsedCode('dev-b', future);
   const db = getDb();
   // 两个码都解绑为可重绑
-  db.prepare('DELETE FROM device_bindings WHERE activation_code_id=?').run(a.id);
-  db.prepare('DELETE FROM device_bindings WHERE activation_code_id=?').run(b.id);
-  db.prepare('UPDATE activation_codes SET last_unbound_at=? WHERE id=?').run(Date.now(), a.id);
-  db.prepare('UPDATE activation_codes SET last_unbound_at=? WHERE id=?').run(Date.now(), b.id);
+  unbindForRebind(a.id);
+  unbindForRebind(b.id);
 
   expect(useCode(a.code, 'target-device').success).toBe(true);
-  // 第二个码重绑到同一设备：SELECT 预检或唯一索引兜底，都应拒绝而非抛错
+  // 第二个码重绑到同一设备：同 tier，走合并而非拒绝
   const res = useCode(b.code, 'target-device');
-  expect(res.success).toBe(false);
-  expect(res.code).toBe('DEVICE_ALREADY_BOUND');
-  expect(db.prepare('SELECT COUNT(*) n FROM device_bindings WHERE device_fingerprint=?').get('target-device')).toEqual({ n: 1 });
+  expect(res.success).toBe(true);
+  expect(res.expiresAt!).toBeGreaterThan(future + 9.9 * 86400000);
+  // 设备始终只有一条绑定，且指向最后重绑的码
+  const rows = db.prepare('SELECT activation_code_id FROM device_bindings WHERE device_fingerprint=?').all('target-device') as any[];
+  expect(rows).toHaveLength(1);
+  expect(rows[0].activation_code_id).toBe(b.id);
+  // 先前那张码的时长已被吞并，退役成砖码
+  expect((db.prepare('SELECT last_unbound_at FROM activation_codes WHERE id=?').get(a.id) as any).last_unbound_at)
+    .toBeNull();
+});
+
+test('first activation retires the absorbed old code so its time cannot be reused', () => {
+  const future = Date.now() + 10 * 86400000;
+  const old = makeUsedCode('stack-device', future);
+  // 旧码曾自助解绑过 —— 漏洞前提：这类码被吞并后仍可重激活
+  getDb().prepare('UPDATE activation_codes SET last_unbound_at=? WHERE id=?').run(Date.now(), old.id);
+  const oldCode = (getDb().prepare('SELECT code FROM activation_codes WHERE id=?').get(old.id) as any).code;
+
+  // 一枚全新未用码激活到同一设备，同 tier → 累加旧码剩余
+  const [fresh] = generateCodes(1, 30, 'basic');
+  const res = useCode(fresh.code, 'stack-device');
+  expect(res.success).toBe(true);
+  expect(res.expiresAt!).toBeGreaterThan(Date.now() + 39 * 86400000); // ~10 + 30 天
+
+  // 旧码已退役：不能再在别的干净设备上激活
+  expect((getDb().prepare('SELECT last_unbound_at FROM activation_codes WHERE id=?').get(old.id) as any).last_unbound_at)
+    .toBeNull();
+  const reuse = useCode(oldCode, 'another-clean-device');
+  expect(reuse.success).toBe(false);
+  expect(reuse.code).toBe('CODE_NOT_REBINDABLE');
+});
+
+test('first activation with a different tier does not absorb, so the old code stays usable', () => {
+  const future = Date.now() + 10 * 86400000;
+  const old = makeUsedCode('tier-switch-device', future, 'basic');
+  getDb().prepare('UPDATE activation_codes SET last_unbound_at=? WHERE id=?').run(Date.now(), old.id);
+
+  // pro 新码激活到 basic 设备：不累加（重置）
+  const [fresh] = generateCodes(1, 30, 'pro');
+  const res = useCode(fresh.code, 'tier-switch-device');
+  expect(res.success).toBe(true);
+  expect(res.tier).toBe('pro');
+  expect(res.expiresAt!).toBeLessThan(Date.now() + 31 * 86400000);
+
+  // 旧 basic 码时长未被吞并，仍应保持可重绑
+  expect((getDb().prepare('SELECT last_unbound_at FROM activation_codes WHERE id=?').get(old.id) as any).last_unbound_at)
+    .not.toBeNull();
 });
 
 test('unbindCode deletes binding, sets last_unbound_at, writes audit, clears remote_*', () => {

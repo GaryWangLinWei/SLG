@@ -100,6 +100,18 @@ const TRIAL_CODES: Record<string, { days: number; tier: 'basic' | 'pro' }> = {
   'TRIAL-PRO-1DAY': { days: 1, tier: 'pro' },
 };
 
+/**
+ * 旧码的剩余时长被并入另一枚码后，必须让旧码退役。
+ * 手段是清空 last_unbound_at，使其回到 useCode 里"status=used 且无绑定且从未解绑"的砖码分支。
+ * 不这样做的话：曾自助解绑过的旧码在被吞并后仍满足重绑条件，同一份时长能被激活两次
+ * （激活 A → 解绑 → 重绑 → 激活 B 吞掉 A 的时间 → A 还能在别的设备再用一次）。
+ * 砖码已无绑定、不可能再走解绑流程，所以清空该字段不影响 30 天解绑冷却；
+ * 解绑历史仍完整保留在 unbind_logs 中。
+ */
+function retireAbsorbedCode(db: ReturnType<typeof getDb>, codeId: number): void {
+  db.prepare('UPDATE activation_codes SET last_unbound_at = NULL WHERE id = ?').run(codeId);
+}
+
 export function useCode(code: string, deviceFingerprint: string): { success: boolean; expiresAt?: number; error?: string; renewType?: string; tier?: 'basic' | 'pro'; code?: string } {
   const db = getDb();
   const now = Date.now();
@@ -194,23 +206,37 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
     if (activationCode.expires_at && activationCode.expires_at <= now) {
       return { success: false, code: 'CODE_EXPIRED', error: '许可证已过期，请续费后再换机' };
     }
-    // 新设备不能占用着另一枚"生效中"的码，防止把现役码冲成砖码连锁扩散。
-    // 但若残留绑定对应的码已过期，它已不授予任何权利，视为空闲设备：清掉过期绑定后重绑。
+    // 目标设备上的残留绑定：已过期的视为空闲设备（清掉即可）；仍生效的按 tier 决定合并还是接管。
     const existingDeviceBinding = db.prepare(`
-      SELECT db.activation_code_id AS code_id, ac.expires_at AS expires_at
+      SELECT db.activation_code_id AS code_id, ac.expires_at AS expires_at, ac.tier AS tier
       FROM device_bindings db
       JOIN activation_codes ac ON ac.id = db.activation_code_id
       WHERE db.device_fingerprint = ?
       LIMIT 1
-    `).get(deviceFingerprint) as { code_id: number; expires_at?: number } | undefined;
-    if (existingDeviceBinding && !(existingDeviceBinding.expires_at && existingDeviceBinding.expires_at <= now)) {
-      return { success: false, code: 'DEVICE_ALREADY_BOUND', error: '该设备已绑定其他激活码' };
-    }
+    `).get(deviceFingerprint) as { code_id: number; expires_at?: number; tier?: string } | undefined;
+
+    const codeTier = activationCode.tier || 'basic';
+    const deviceActive = !!existingDeviceBinding
+      && !(existingDeviceBinding.expires_at && existingDeviceBinding.expires_at <= now);
+    // 同 tier 才合并剩余时长；tier 不同沿用首次激活分支的口径——不累加，本码直接接管设备。
+    const absorbMs = deviceActive && (existingDeviceBinding!.tier || 'basic') === codeTier
+      ? Math.max(0, (existingDeviceBinding!.expires_at || 0) - now)
+      : 0;
+    const mergedExpiresAt = absorbMs > 0
+      ? (activationCode.expires_at || now) + absorbMs
+      : activationCode.expires_at;
+
     try {
       db.transaction(() => {
         if (existingDeviceBinding) {
           db.prepare('DELETE FROM device_bindings WHERE activation_code_id = ? AND device_fingerprint = ?')
             .run(existingDeviceBinding.code_id, deviceFingerprint);
+          // 只有真的吞并了时长才退役旧码；tier 不同时旧码时长未被并入，用户仍可拿去别处激活。
+          if (absorbMs > 0) retireAbsorbedCode(db, existingDeviceBinding.code_id);
+        }
+        if (mergedExpiresAt !== activationCode.expires_at) {
+          db.prepare('UPDATE activation_codes SET expires_at = ? WHERE id = ?')
+            .run(mergedExpiresAt, activationCode.id);
         }
         db.prepare(`
           INSERT INTO device_bindings (activation_code_id, device_fingerprint, bound_at, last_heartbeat_at)
@@ -223,21 +249,21 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
     }
     return {
       success: true,
-      expiresAt: activationCode.expires_at,
-      tier: activationCode.tier || 'basic'
+      expiresAt: mergedExpiresAt,
+      tier: codeTier
     };
   }
 
   // 首次激活：绑定设备
   // Check for existing device bindings to accumulate remaining time (renewal with new code)
   const existingBinding = db.prepare(`
-    SELECT ac.expires_at, ac.tier
+    SELECT db.activation_code_id AS code_id, ac.expires_at, ac.tier
     FROM device_bindings db
     JOIN activation_codes ac ON db.activation_code_id = ac.id
     WHERE db.device_fingerprint = ?
     ORDER BY db.bound_at DESC
     LIMIT 1
-  `).get(deviceFingerprint) as { expires_at?: number; tier?: string } | undefined;
+  `).get(deviceFingerprint) as { code_id: number; expires_at?: number; tier?: string } | undefined;
 
   const newTier = activationCode.tier || 'basic';
   let remainingMs = 0;
@@ -262,6 +288,10 @@ export function useCode(code: string, deviceFingerprint: string): { success: boo
 
   const transaction = db.transaction(() => {
     updateCode.run(now, expiresAt, activationCode.id);
+    // 旧码剩余时长被累加进本码时必须退役，否则曾解绑过的旧码仍可重激活 → 时长被用两次。
+    if (remainingMs > 0 && existingBinding) {
+      retireAbsorbedCode(db, existingBinding.code_id);
+    }
     const result = upsertBinding.run(activationCode.id, now, now, deviceFingerprint);
     // 新用户首次激活：没有现有绑定时 INSERT
     if (result.changes === 0) {
