@@ -36,6 +36,27 @@ const DEFAULT_RAND_CONFIG: RandomizationConfig = {
   sleepJitter: 0.15,
 };
 
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+
+function isPng(buf: Buffer): boolean {
+  return buf.length > PNG_SIGNATURE.length && buf.subarray(0, PNG_SIGNATURE.length).equals(PNG_SIGNATURE);
+}
+
+/**
+ * 还原被 CRLF 翻译污染的二进制流：部分模拟器的 adb 通道会把 stdout 里的
+ * 每个 0x0A 换成 0x0D 0x0A，PNG 头随即失效。仅在原始 buffer 已判定非法时调用，
+ * 还原后仍需重新校验签名，避免误伤本就含 0x0D0A 的正常图像数据。
+ */
+function unmangleCrlf(buf: Buffer): Buffer {
+  const out = Buffer.allocUnsafe(buf.length);
+  let n = 0;
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] === 0x0d && buf[i + 1] === 0x0a) continue; // 丢掉 CR，保留紧随的 LF
+    out[n++] = buf[i];
+  }
+  return out.subarray(0, n);
+}
+
 export class AdbDevice implements Device {
   private connected: boolean = false;
   private deviceId: string;
@@ -44,6 +65,9 @@ export class AdbDevice implements Device {
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 3; // 最多重连 3 次
   private reconnectDelayMs = 3000; // 重连间隔 3 秒
+  /** screencap 退出码为 0 但输出不是合法 PNG 时的额外重试次数 */
+  private maxCorruptRetries = 2;
+  private corruptRetryDelayMs = 300;
   private randConfig: RandomizationConfig = { ...DEFAULT_RAND_CONFIG };
   private touchCalibration: { maxX: number; maxY: number } | null = null;
 
@@ -255,6 +279,7 @@ export class AdbDevice implements Device {
 
     // exec-out bypasses shell, outputs raw binary PNG via spawn
     return new Promise<Buffer>((resolve, reject) => {
+      let corruptAttempts = 0;
       const doSpawn = () => {
         const child = spawn(getAdbPath(), ['-s', this.deviceId, 'exec-out', 'screencap', '-p'], {
           stdio: ['ignore', 'pipe', 'pipe']
@@ -263,8 +288,27 @@ export class AdbDevice implements Device {
         child.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
         child.on('close', async (code) => {
           if (code === 0) {
-            this.reconnectAttempts = 0;
-            resolve(Buffer.concat(chunks));
+            const raw = Buffer.concat(chunks);
+            // screencap 可能退出码为 0 却输出空/截断/被 CRLF 污染的数据，
+            // 直接交给 sharp 会抛 "Input buffer contains unsupported image format"。
+            const buf = isPng(raw) ? raw : unmangleCrlf(raw);
+            if (isPng(buf)) {
+              this.reconnectAttempts = 0;
+              resolve(buf);
+              return;
+            }
+            if (corruptAttempts >= this.maxCorruptRetries) {
+              // 截图内容坏不代表设备断连，保持 connected 让上层可以继续重试
+              reject(new Error(
+                `截图内容非法（已重试 ${this.maxCorruptRetries} 次，最后一次 ${raw.length} 字节）：` +
+                `可能是模拟器 screencap 异常`
+              ));
+              return;
+            }
+            corruptAttempts++;
+            console.log(`[ADB] 截图内容非法（${raw.length} 字节），重新截图 (${corruptAttempts}/${this.maxCorruptRetries})...`);
+            await new Promise(r => setTimeout(r, this.corruptRetryDelayMs));
+            doSpawn();
             return;
           }
           if (this.reconnectAttempts >= this.maxReconnectAttempts) {

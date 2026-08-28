@@ -381,8 +381,23 @@ export class PluginContext {
     const screenshotBuffer = await this.device.screenshot();
     const tempPath = path.join(os.tmpdir(), `region-${Date.now()}-${Math.random()}.png`);
 
+    const image = sharp(screenshotBuffer);
+    const meta = await image.metadata();
+    // 越界时 sharp 只会抛 "extract_area: bad extract area"，看不出是谁不匹配。
+    // 游戏坐标按 1600×900 设计，模拟器分辨率不对就会整片区域落到画面外。
+    if (
+      meta.width !== undefined && meta.height !== undefined &&
+      (x < 0 || y < 0 || x + width > meta.width || y + height > meta.height)
+    ) {
+      throw new Error(
+        `截取区域越界：截图尺寸 ${meta.width}×${meta.height}，` +
+        `请求区域 (${x},${y}) ${width}×${height}。` +
+        `请确认模拟器分辨率为 1600×900`
+      );
+    }
+
     // Crop the screenshot to the specified region
-    await sharp(screenshotBuffer)
+    await image
       .extract({ left: x, top: y, width, height })
       .toFile(tempPath);
 
